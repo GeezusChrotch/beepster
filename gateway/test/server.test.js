@@ -38,6 +38,7 @@ test('configuration page supports editing an existing paired connection', async 
     assert.match(html, /Built-in themes cannot be deleted/);
     assert.match(html, /type="color"/);
     assert.match(html, /Roboto Condensed/);
+    assert.match(html, /Pebble Bold/);
   });
 });
 

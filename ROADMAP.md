@@ -38,3 +38,10 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Static GIF and video poster previews
 - [ ] Animated GIF playback
 - [ ] Multiple attachments in one message
+
+## 0.4.1 — Complete message reading
+
+- [x] Clean multiline previews with a protected metadata strip
+- [x] Scrollable full-message view with 30 KB UTF-8 chunk transport
+- [x] Select a message to read it; Select again to start voice reply
+- [x] Disable Pebble's dithered scroll shadows that resemble overlapping text

@@ -47,11 +47,14 @@ review, and information must remain understandable without color.
 ## Navigation and loading
 
 - Select on a chat always opens that chat.
-- Select on a message starts a confirmed voice reply.
+- Select on a message opens its complete text in a dedicated scrolling view.
+- Select in the complete-message view starts a confirmed voice reply.
 - Long Select on a message labeled Photo, GIF, or Video opens its full-screen preview.
 - A chat shows cached messages immediately when available.
 - Every fetch ends in content, empty, timed-out, offline, or error state—never a blank view.
 - Retry must be available without leaving the chat.
+- Message-list previews reserve a separate metadata strip so body text cannot collide with time or
+  attachment labels.
 
 ## Replies
 

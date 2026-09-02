@@ -30,13 +30,15 @@ var KEY_MEDIA_HEIGHT = 26;
 var KEY_MEDIA_OFFSET = 27;
 var KEY_MEDIA_BYTES = 28;
 var KEY_MEDIA_TOTAL = 29;
+var KEY_MSG_ID = 30;
+var KEY_DETAIL_TEXT = 31;
 
 var BUILT_IN_THEMES = [
   {id:'classic',name:'Classic',background:'#FFFFFF',text:'#000000',muted:'#555555',accent:'#0055AA',accentText:'#FFFFFF',font:'gothic',textSize:'normal',builtIn:true},
   {id:'dark',name:'Midnight',background:'#000000',text:'#FFFFFF',muted:'#AAAAAA',accent:'#00AAFF',accentText:'#000000',font:'gothic',textSize:'normal',builtIn:true},
   {id:'ocean',name:'Ocean',background:'#001133',text:'#FFFFFF',muted:'#AAFFFF',accent:'#00AAFF',accentText:'#000000',font:'roboto',textSize:'normal',builtIn:true},
   {id:'contrast',name:'High Contrast',background:'#FFFFFF',text:'#000000',muted:'#000000',accent:'#000000',accentText:'#FFFFFF',font:'gothic',textSize:'large',builtIn:true},
-  {id:'plum',name:'Plum',background:'#330033',text:'#FFFFFF',muted:'#FFAAFF',accent:'#AA00AA',accentText:'#FFFFFF',font:'bitham',textSize:'normal',builtIn:true},
+  {id:'plum',name:'Plum',background:'#330033',text:'#FFFFFF',muted:'#FFAAFF',accent:'#AA00AA',accentText:'#FFFFFF',font:'bold',textSize:'normal',builtIn:true},
   {id:'forest',name:'Forest',background:'#003300',text:'#FFFFFF',muted:'#AAFFAA',accent:'#00AA55',accentText:'#000000',font:'roboto',textSize:'normal',builtIn:true}
 ];
 
@@ -44,6 +46,7 @@ var queue = [];
 var sending = false;
 var DEFAULT_SETTINGS_URL = '';
 var refreshTimer = null;
+var messageTextByID = {};
 
 function gatewayURL() {
   return (localStorage.getItem('beepster_gateway_url') || '').replace(/\/$/, '');
@@ -62,6 +65,29 @@ function safeSlice(value, maxCodeUnits) {
   return text.substring(0, end);
 }
 
+function utf8Chunks(value, maxChunkBytes, maxTotalBytes) {
+  var source = String(value || ''), chunks = [], start = 0, position = 0, chunkBytes = 0, totalBytes = 0;
+  while (position < source.length) {
+    var code = source.charCodeAt(position), units = 1, bytes;
+    if (code >= 0xD800 && code <= 0xDBFF && position + 1 < source.length) { units = 2; bytes = 4; }
+    else if (code < 0x80) bytes = 1;
+    else if (code < 0x800) bytes = 2;
+    else bytes = 3;
+    if (totalBytes + bytes > maxTotalBytes) break;
+    if (chunkBytes + bytes > maxChunkBytes && position > start) {
+      chunks.push(source.substring(start, position));
+      start = position;
+      chunkBytes = 0;
+    }
+    position += units;
+    chunkBytes += bytes;
+    totalBytes += bytes;
+  }
+  if (position > start) chunks.push(source.substring(start, position));
+  if (position < source.length) chunks.push('\n[Message exceeds the watch display limit]');
+  return chunks;
+}
+
 function selectedTheme() {
   return configuredTheme().id;
 }
@@ -69,7 +95,8 @@ function selectedTheme() {
 function normalizeTheme(value) {
   var theme = value && typeof value === 'object' ? value : {};
   function color(key, fallback) { return /^#[0-9a-f]{6}$/i.test(theme[key] || '') ? theme[key].toUpperCase() : fallback; }
-  return {id:String(theme.id || ('custom-' + Date.now())).slice(0,40),name:String(theme.name || 'Custom').slice(0,32),background:color('background','#FFFFFF'),text:color('text','#000000'),muted:color('muted','#555555'),accent:color('accent','#0055AA'),accentText:color('accentText','#FFFFFF'),font:['gothic','roboto','bitham'].indexOf(theme.font)>=0?theme.font:'gothic',textSize:theme.textSize==='large'?'large':'normal',builtIn:Boolean(theme.builtIn)};
+  var font = theme.font === 'bitham' ? 'bold' : theme.font;
+  return {id:String(theme.id || ('custom-' + Date.now())).slice(0,40),name:String(theme.name || 'Custom').slice(0,32),background:color('background','#FFFFFF'),text:color('text','#000000'),muted:color('muted','#555555'),accent:color('accent','#0055AA'),accentText:color('accentText','#FFFFFF'),font:['gothic','roboto','bold'].indexOf(font)>=0?font:'gothic',textSize:theme.textSize==='large'?'large':'normal',builtIn:Boolean(theme.builtIn)};
 }
 
 function configuredTheme() {
@@ -128,7 +155,7 @@ function sendState(state, error) {
   message[KEY_THEME_MUTED] = pebbleColor(theme.muted);
   message[KEY_THEME_ACCENT] = pebbleColor(theme.accent);
   message[KEY_THEME_ACCENT_TEXT] = pebbleColor(theme.accentText);
-  message[KEY_THEME_FONT] = theme.font === 'roboto' ? 1 : (theme.font === 'bitham' ? 2 : 0);
+  message[KEY_THEME_FONT] = theme.font === 'roboto' ? 1 : (theme.font === 'bold' ? 2 : 0);
   if (error) message[KEY_ERROR] = safeSlice(error, 100);
   enqueue(message);
   if (state === 'error' || state === 'empty') scheduleRefresh();
@@ -242,15 +269,19 @@ function loadMessages(chatID) {
       sendState('empty');
       return;
     }
+    messageTextByID = {};
     for (var i = 0; i < items.length && i < 12; i++) {
       var item = items[i];
+      var messageID = String(item.id || ('message-' + i));
+      messageTextByID[messageID] = String(item.text || '');
       var message = {};
       message[KEY_COMMAND] = 'message';
       message[KEY_INDEX] = i;
       message[KEY_TOTAL] = Math.min(items.length, 12);
       message[KEY_MSG_SENDER] = safeSlice(item.sender || 'Unknown', 44);
-      message[KEY_MSG_TEXT] = safeSlice(item.text, 160);
+      message[KEY_MSG_TEXT] = safeSlice(item.text, 240);
       message[KEY_MSG_TIME] = safeSlice(item.time, 18);
+      message[KEY_MSG_ID] = safeSlice(messageID, 120);
       if (item.attachment) {
         message[KEY_ATTACHMENT_ID] = safeSlice(item.attachment.id, 30);
         message[KEY_ATTACHMENT_KIND] = item.attachment.kind === 'gif' ? 2 : (item.attachment.kind === 'video' ? 3 : 1);
@@ -260,6 +291,16 @@ function loadMessages(chatID) {
     console.log('Beepster queued messages count=' + Math.min(items.length, 12));
     sendState('ready');
   });
+}
+
+function sendMessageDetail(messageID) {
+  var text = Object.prototype.hasOwnProperty.call(messageTextByID, messageID) ? messageTextByID[messageID] : '';
+  var start = {}; start[KEY_COMMAND] = 'message_detail_start'; enqueue(start);
+  var chunks = utf8Chunks(text || '[This message contains no text]', 500, 30000);
+  for (var i = 0; i < chunks.length; i++) {
+    var chunk = {}; chunk[KEY_COMMAND] = 'message_detail_chunk'; chunk[KEY_DETAIL_TEXT] = chunks[i]; enqueue(chunk);
+  }
+  var end = {}; end[KEY_COMMAND] = 'message_detail_end'; enqueue(end);
 }
 
 function loadAttachment(attachmentID) {
@@ -335,4 +376,5 @@ Pebble.addEventListener('appmessage', function(event) {
   if (command === 'load_messages') loadMessages(payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || '');
   if (command === 'send_reply') sendReply(payload[KEY_CHAT_ID] || payload.CHAT_ID || '', payload[KEY_REPLY_TEXT] || payload.REPLY_TEXT || '', payload[KEY_REPLY_REQUEST_ID] || payload.REPLY_REQUEST_ID || '');
   if (command === 'load_attachment') loadAttachment(payload[KEY_ATTACHMENT_ID] || payload.ATTACHMENT_ID || payload[KEY_CHAT_ID] || payload.CHAT_ID || '');
+  if (command === 'load_message_detail') sendMessageDetail(payload[KEY_MSG_ID] || payload.MSG_ID || '');
 });

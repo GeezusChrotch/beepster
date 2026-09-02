@@ -16,7 +16,7 @@ input,select,button{width:100%;font:inherit;padding:11px;border-radius:10px;bord
 <div id="preview"><div class="preview-title">Beepster preview</div><div class="preview-body">Alex: Dinner at seven? 😃</div><div class="preview-muted">2 minutes ago</div><div class="preview-button">Reply</div></div>
 <h2>Theme editor</h2><label for="themeName">Theme name</label><input id="themeName" maxlength="32">
 <div class="swatches"><label>Background<input type="color" id="background"></label><label>Text<input type="color" id="text"></label><label>Muted text<input type="color" id="muted"></label><label>Accent<input type="color" id="accent"></label><label>Accent text<input type="color" id="accentText"></label></div>
-<div class="row"><label>Font<select id="font"><option value="gothic">Gothic</option><option value="roboto">Roboto Condensed</option><option value="bitham">Bitham</option></select></label><label>Text size<select id="textSize"><option value="normal">Normal</option><option value="large">Large</option></select></label></div>
+<div class="row"><label>Font<select id="font"><option value="gothic">Gothic</option><option value="roboto">Roboto Condensed</option><option value="bold">Pebble Bold</option></select></label><label>Text size<select id="textSize"><option value="normal">Normal</option><option value="large">Large</option></select></label></div>
 <label>Refresh interval</label><select id="refresh"><option value="60">1 minute</option><option value="180">3 minutes</option><option value="300">5 minutes</option><option value="0">Manual only</option></select>
 <button id="save">Test connection &amp; pair</button><p id="status" class="hint">The code can be viewed or rotated on your Mac.</p></form>
 <script>
@@ -27,7 +27,7 @@ const defaults=[
 {id:'dark',name:'Midnight',background:'#000000',text:'#FFFFFF',muted:'#AAAAAA',accent:'#00AAFF',accentText:'#000000',font:'gothic',textSize:'normal',builtIn:true},
 {id:'ocean',name:'Ocean',background:'#001133',text:'#FFFFFF',muted:'#AAFFFF',accent:'#00AAFF',accentText:'#000000',font:'roboto',textSize:'normal',builtIn:true},
 {id:'contrast',name:'High Contrast',background:'#FFFFFF',text:'#000000',muted:'#000000',accent:'#000000',accentText:'#FFFFFF',font:'gothic',textSize:'large',builtIn:true},
-{id:'plum',name:'Plum',background:'#330033',text:'#FFFFFF',muted:'#FFAAFF',accent:'#AA00AA',accentText:'#FFFFFF',font:'bitham',textSize:'normal',builtIn:true},
+{id:'plum',name:'Plum',background:'#330033',text:'#FFFFFF',muted:'#FFAAFF',accent:'#AA00AA',accentText:'#FFFFFF',font:'bold',textSize:'normal',builtIn:true},
 {id:'forest',name:'Forest',background:'#003300',text:'#FFFFFF',muted:'#AAFFAA',accent:'#00AA55',accentText:'#000000',font:'roboto',textSize:'normal',builtIn:true}
 ];
 const fields=['themeName','background','text','muted','accent','accentText','font','textSize'];
@@ -35,7 +35,7 @@ let themes=defaults.concat((initial.themes||[]).filter(t=>!t.builtIn&&!defaults.
 function selected(){return themes.find(t=>t.id===currentId)||themes[0];}
 function renderOptions(){themeSelect.innerHTML='';themes.forEach(t=>{const o=document.createElement('option');o.value=t.id;o.textContent=(t.builtIn?'Preset — ':'Custom — ')+t.name;themeSelect.appendChild(o);});themeSelect.value=currentId;}
 function loadEditor(){const t=selected();document.getElementById('themeName').value=t.name;['background','text','muted','accent','accentText','font','textSize'].forEach(k=>document.getElementById(k).value=t[k]);document.getElementById('deleteTheme').disabled=Boolean(t.builtIn);renderPreview();}
-function renderPreview(){const t=selected(),p=document.getElementById('preview');p.style.background=t.background;p.style.color=t.text;p.style.fontFamily=t.font==='roboto'?'Arial Narrow,Arial,sans-serif':t.font==='bitham'?'Arial Black,sans-serif':'Arial,sans-serif';p.style.fontSize=t.textSize==='large'?'20px':'17px';p.querySelector('.preview-muted').style.color=t.muted;const b=p.querySelector('.preview-button');b.style.background=t.accent;b.style.color=t.accentText;}
+function renderPreview(){const t=selected(),p=document.getElementById('preview');p.style.background=t.background;p.style.color=t.text;p.style.fontFamily=t.font==='roboto'?'Arial Narrow,Arial,sans-serif':'Arial,sans-serif';p.style.fontWeight=t.font==='bold'?'700':'400';p.style.fontSize=t.textSize==='large'?'20px':'17px';p.querySelector('.preview-muted').style.color=t.muted;const b=p.querySelector('.preview-button');b.style.background=t.accent;b.style.color=t.accentText;}
 function updateTheme(){let t=selected();if(t.builtIn){t=Object.assign({},t,{id:'custom-'+Date.now(),name:t.name+' Custom',builtIn:false});themes.push(t);currentId=t.id;}t.name=document.getElementById('themeName').value.trim()||'Custom';['background','text','muted','accent','accentText','font','textSize'].forEach(k=>t[k]=document.getElementById(k).value);renderOptions();document.getElementById('deleteTheme').disabled=false;renderPreview();}
 renderOptions();if(!themes.some(t=>t.id===currentId)){themes.push(Object.assign({},initial.theme,{builtIn:false}));currentId=initial.theme.id;renderOptions();}loadEditor();
 themeSelect.onchange=()=>{currentId=themeSelect.value;loadEditor();};fields.forEach(id=>document.getElementById(id).oninput=updateTheme);

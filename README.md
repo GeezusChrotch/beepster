@@ -17,7 +17,7 @@ the Beeper access token on the Mac gateway.
 
 ## Current status
 
-Version 0.4 is a working clean-room daily-driver preview:
+Version 0.4.1 is a working clean-room daily-driver preview:
 
 - Native Emery watch build
 - Explicit setup/loading/empty/error states
@@ -29,6 +29,7 @@ Version 0.4 is a working clean-room daily-driver preview:
 - Keychain-backed macOS LaunchAgent companion with private HTTPS pairing
 - Phone settings that persist without re-pairing
 - Confirmed voice dictation replies with Beeper delivery tracking and retry protection
+- Scrollable complete-message views instead of fixed-length message truncation
 - Private photo, GIF-poster, and video-poster previews converted to native Time 2 color on the Mac
 - Automated gateway tests, source checks, and emulator media-render tests
 
