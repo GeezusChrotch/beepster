@@ -55,7 +55,8 @@ review, and information must remain understandable without color.
 
 - Select on a chat always opens that chat.
 - Select on a message opens its complete text in a dedicated scrolling view.
-- Select in the complete-message view starts a confirmed voice reply.
+- Select in the complete-message view opens reply options: voice dictation followed by up to eight
+  configured canned replies.
 - Long Select on a message labeled Photo, GIF, or Video opens its full-screen preview.
 - A chat shows cached messages immediately when available.
 - Every fetch ends in content, empty, timed-out, offline, or error state—never a blank view.
@@ -66,6 +67,9 @@ review, and information must remain understandable without color.
 ## Replies
 
 - Confirm a voice transcript before transmission.
+- Send a selected canned reply immediately, using the exact phone-side text so configured emoji are
+  preserved even when the watch label needs a glyph-safe fallback.
+- Allow zero to eight canned replies and persist their watch labels across app restarts.
 - Show `Sending` while queued or awaiting Beeper.
 - Show `Sent` only after Beeper accepts the message.
 - Preserve failed text and offer Retry and Cancel.

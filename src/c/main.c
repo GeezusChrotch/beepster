@@ -11,9 +11,13 @@
 #define MESSAGE_ATTACHMENT_LEN 32
 #define MESSAGE_ID_LEN 128
 #define DETAIL_TEXT_CAPACITY 32768
+#define MAX_QUICK_REPLIES 8
+#define QUICK_REPLY_LEN 96
 #define PERSIST_THEME 100
 #define PERSIST_TEXT_SIZE 101
 #define PERSIST_THEME_DATA 102
+#define PERSIST_QUICK_REPLY_COUNT 103
+#define PERSIST_QUICK_REPLY_BASE 110
 
 typedef enum {
   VIEW_SETUP,
@@ -111,11 +115,18 @@ static TextLayer *s_detail_top_mask;
 static char *s_detail_text;
 static size_t s_detail_length;
 static char s_detail_sender[MESSAGE_SENDER_LEN];
+static Window *s_reply_window;
+static MenuLayer *s_reply_menu;
+static TextLayer *s_reply_status_layer;
+static bool s_reply_showing_status;
+static char s_quick_replies[MAX_QUICK_REPLIES][QUICK_REPLY_LEN];
+static int s_quick_reply_count;
 
 static void main_clicks(void *context);
 static void message_clicks(void *context);
 static void apply_theme_to_layers(void);
 static void set_status(TextLayer *layer, ViewState state, bool messages);
+static void reply_show_status(const char *text);
 
 static void clear_media(void) {
   if (s_media_bitmap) {
@@ -193,6 +204,7 @@ static void select_theme(const char *name) {
 static void apply_theme_to_layers(void) {
   if (s_main_window) window_set_background_color(s_main_window, s_theme.background);
   if (s_message_window) window_set_background_color(s_message_window, s_theme.background);
+  if (s_reply_window) window_set_background_color(s_reply_window, s_theme.background);
   if (s_chat_menu) {
     menu_layer_set_normal_colors(s_chat_menu, s_theme.background, s_theme.text);
     menu_layer_set_highlight_colors(s_chat_menu, s_theme.accent, s_theme.accent_text);
@@ -202,6 +214,15 @@ static void apply_theme_to_layers(void) {
     menu_layer_set_normal_colors(s_message_menu, s_theme.background, s_theme.text);
     menu_layer_set_highlight_colors(s_message_menu, s_theme.accent, s_theme.accent_text);
     layer_mark_dirty(menu_layer_get_layer(s_message_menu));
+  }
+  if (s_reply_menu) {
+    menu_layer_set_normal_colors(s_reply_menu, s_theme.background, s_theme.text);
+    menu_layer_set_highlight_colors(s_reply_menu, s_theme.accent, s_theme.accent_text);
+    layer_mark_dirty(menu_layer_get_layer(s_reply_menu));
+  }
+  if (s_reply_status_layer) {
+    text_layer_set_background_color(s_reply_status_layer, s_theme.background);
+    text_layer_set_text_color(s_reply_status_layer, s_theme.text);
   }
   if (s_detail_window) window_set_background_color(s_detail_window, s_theme.background);
   if (s_detail_sender_layer) {
@@ -288,6 +309,24 @@ static void new_reply_request_id(void) {
   snprintf(s_reply_request_id, sizeof(s_reply_request_id), "%lu-%u", (unsigned long)time(NULL), counter);
 }
 
+static void reply_show_status(const char *text) {
+  s_reply_showing_status = true;
+  if (s_reply_status_layer) {
+    text_layer_set_text(s_reply_status_layer, text ? text : "");
+    layer_set_hidden(text_layer_get_layer(s_reply_status_layer), false);
+  }
+  if (s_reply_menu) layer_set_hidden(menu_layer_get_layer(s_reply_menu), true);
+}
+
+static void reply_show_menu(void) {
+  s_reply_showing_status = false;
+  if (s_reply_status_layer) layer_set_hidden(text_layer_get_layer(s_reply_status_layer), true);
+  if (s_reply_menu) {
+    layer_set_hidden(menu_layer_get_layer(s_reply_menu), false);
+    menu_layer_reload_data(s_reply_menu);
+  }
+}
+
 static void send_reply_to_phone(void) {
   if (!s_reply_text[0] || !s_active_chat_id[0]) return;
   DictionaryIterator *iterator;
@@ -295,6 +334,9 @@ static void send_reply_to_phone(void) {
   if (result != APP_MSG_OK || !iterator) {
     s_message_state = VIEW_REPLY_RETRYABLE;
     set_status(s_message_status_layer, s_message_state, true);
+    if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
+      reply_show_status(state_text(s_message_state, true));
+    }
     return;
   }
   dict_write_cstring(iterator, MESSAGE_KEY_COMMAND, "send_reply");
@@ -304,6 +346,27 @@ static void send_reply_to_phone(void) {
   result = app_message_outbox_send();
   s_message_state = result == APP_MSG_OK ? VIEW_REPLY_SENDING : VIEW_REPLY_RETRYABLE;
   set_status(s_message_status_layer, s_message_state, true);
+  if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
+    reply_show_status(state_text(s_message_state, true));
+  }
+}
+
+static void send_quick_reply_to_phone(int index) {
+  if (index < 0 || index >= s_quick_reply_count || !s_active_chat_id[0]) return;
+  DictionaryIterator *iterator;
+  AppMessageResult result = app_message_outbox_begin(&iterator);
+  if (result != APP_MSG_OK || !iterator) {
+    reply_show_status("Could not send\nPress Back");
+    return;
+  }
+  dict_write_cstring(iterator, MESSAGE_KEY_COMMAND, "send_quick_reply");
+  dict_write_cstring(iterator, MESSAGE_KEY_CHAT_ID, s_active_chat_id);
+  dict_write_int32(iterator, MESSAGE_KEY_INDEX, index);
+  new_reply_request_id();
+  dict_write_cstring(iterator, MESSAGE_KEY_REPLY_REQUEST_ID, s_reply_request_id);
+  result = app_message_outbox_send();
+  s_message_state = result == APP_MSG_OK ? VIEW_REPLY_SENDING : VIEW_REPLY_RETRYABLE;
+  reply_show_status(state_text(s_message_state, true));
 }
 
 static void dictation_callback(DictationSession *session, DictationSessionStatus status,
@@ -315,6 +378,9 @@ static void dictation_callback(DictationSession *session, DictationSessionStatus
   } else if (status != DictationSessionStatusFailureTranscriptionRejected) {
     s_message_state = VIEW_ERROR;
     set_status(s_message_status_layer, s_message_state, true);
+    if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
+      reply_show_status("Voice reply failed\nPress Back");
+    }
   }
 }
 
@@ -337,7 +403,9 @@ static void message_selected(MenuLayer *menu_layer, MenuIndex *index, void *cont
 }
 
 static void detail_reply(ClickRecognizerRef recognizer, void *context) {
-  if (s_dictation_session) dictation_session_start(s_dictation_session);
+  if (!s_reply_window) return;
+  reply_show_menu();
+  window_stack_push(s_reply_window, true);
 }
 
 static void detail_scroll_by(int16_t amount) {
@@ -384,7 +452,7 @@ static void layout_detail(void) {
   layer_set_frame(text_layer_get_layer(s_detail_text_layer), GRect(8, 40, bounds.size.w - 16, text_height));
   scroll_layer_set_content_size(s_detail_scroll, GSize(bounds.size.w, 72 + text_height));
   scroll_layer_set_content_offset(s_detail_scroll, GPointZero, false);
-  text_layer_set_text(s_detail_hint_layer, "Select: voice reply");
+  text_layer_set_text(s_detail_hint_layer, "Select: reply options");
 }
 
 static void view_attachment(MenuLayer *menu_layer, MenuIndex *index, void *context) {
@@ -531,6 +599,13 @@ static void apply_state(const char *state, const char *error) {
     }
     return;
   }
+  if (s_reply_window && window_stack_get_top_window() == s_reply_window && strncmp(state, "reply_", 6) == 0) {
+    ViewState reply_state = strcmp(state, "reply_sending") == 0 ? VIEW_REPLY_SENDING :
+      (strcmp(state, "reply_pending") == 0 ? VIEW_REPLY_PENDING :
+      (strcmp(state, "reply_sent") == 0 ? VIEW_REPLY_SENT : VIEW_REPLY_RETRYABLE));
+    reply_show_status(error && error[0] ? error : state_text(reply_state, true));
+    return;
+  }
   if (s_detail_window && window_stack_get_top_window() == s_detail_window && strncmp(state, "reply_", 6) == 0) {
     if (s_detail_hint_layer) {
       ViewState reply_state = strcmp(state, "reply_sending") == 0 ? VIEW_REPLY_SENDING :
@@ -578,6 +653,33 @@ static void apply_state(const char *state, const char *error) {
 static void inbox_received(DictionaryIterator *iterator, void *context) {
   Tuple *command = dict_find(iterator, MESSAGE_KEY_COMMAND);
   if (!command) return;
+
+  if (strcmp(command->value->cstring, "quick_reply") == 0) {
+    Tuple *index = dict_find(iterator, MESSAGE_KEY_INDEX);
+    Tuple *text = dict_find(iterator, MESSAGE_KEY_QUICK_REPLY_TEXT);
+    if (!index || index->value->int32 < 0 || index->value->int32 >= MAX_QUICK_REPLIES || !text) return;
+    int slot = index->value->int32;
+    copy_text(s_quick_replies[slot], sizeof(s_quick_replies[slot]), text->value->cstring);
+    persist_write_string(PERSIST_QUICK_REPLY_BASE + slot, s_quick_replies[slot]);
+    if (slot + 1 > s_quick_reply_count) s_quick_reply_count = slot + 1;
+    if (s_reply_menu) menu_layer_reload_data(s_reply_menu);
+    return;
+  }
+
+  if (strcmp(command->value->cstring, "quick_replies_ready") == 0) {
+    Tuple *total = dict_find(iterator, MESSAGE_KEY_TOTAL);
+    int count = total ? total->value->int32 : 0;
+    if (count < 0) count = 0;
+    if (count > MAX_QUICK_REPLIES) count = MAX_QUICK_REPLIES;
+    s_quick_reply_count = count;
+    persist_write_int(PERSIST_QUICK_REPLY_COUNT, count);
+    for (int i = count; i < MAX_QUICK_REPLIES; i++) {
+      s_quick_replies[i][0] = '\0';
+      if (persist_exists(PERSIST_QUICK_REPLY_BASE + i)) persist_delete(PERSIST_QUICK_REPLY_BASE + i);
+    }
+    if (s_reply_menu) menu_layer_reload_data(s_reply_menu);
+    return;
+  }
 
   if (strcmp(command->value->cstring, "state") == 0) {
     Tuple *state = dict_find(iterator, MESSAGE_KEY_STATE);
@@ -733,6 +835,78 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     free(s_media_pixels);
     s_media_pixels = NULL;
   }
+}
+
+static uint16_t reply_rows(MenuLayer *menu_layer, uint16_t section, void *context) {
+  return s_reply_showing_status ? 0 : (uint16_t)(1 + s_quick_reply_count);
+}
+
+static int16_t reply_row_height(MenuLayer *menu_layer, MenuIndex *index, void *context) {
+  return s_large_text ? 70 : 58;
+}
+
+static void draw_reply(GContext *ctx, const Layer *cell, MenuIndex *index, void *context) {
+  if (index->row == 0) {
+    menu_cell_basic_draw(ctx, cell, "Voice dictation", "Speak and confirm", NULL);
+    return;
+  }
+  int quick_index = index->row - 1;
+  if (quick_index >= 0 && quick_index < s_quick_reply_count) {
+    bool selected = menu_layer_is_index_selected(s_reply_menu, index);
+    graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
+    GRect bounds = layer_get_bounds(cell);
+    graphics_draw_text(ctx, s_quick_replies[quick_index], body_font(),
+      GRect(8, 3, bounds.size.w - 16, bounds.size.h - 6),
+      GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+  }
+}
+
+static void reply_selected(MenuLayer *menu_layer, MenuIndex *index, void *context) {
+  if (index->row == 0) {
+    if (s_dictation_session) {
+      dictation_session_start(s_dictation_session);
+    } else {
+      reply_show_status("Voice dictation unavailable\nPress Back");
+    }
+    return;
+  }
+  send_quick_reply_to_phone(index->row - 1);
+}
+
+static void reply_load(Window *window) {
+  Layer *root = window_get_root_layer(window);
+  GRect bounds = layer_get_bounds(root);
+  window_set_background_color(window, s_theme.background);
+
+  s_reply_menu = menu_layer_create(bounds);
+  menu_layer_set_normal_colors(s_reply_menu, s_theme.background, s_theme.text);
+  menu_layer_set_highlight_colors(s_reply_menu, s_theme.accent, s_theme.accent_text);
+  menu_layer_set_callbacks(s_reply_menu, NULL, (MenuLayerCallbacks) {
+    .get_num_rows = reply_rows,
+    .get_cell_height = reply_row_height,
+    .draw_row = draw_reply,
+    .select_click = reply_selected
+  });
+  menu_layer_set_click_config_onto_window(s_reply_menu, window);
+  layer_add_child(root, menu_layer_get_layer(s_reply_menu));
+
+  s_reply_status_layer = text_layer_create(GRect(14, 58, bounds.size.w - 28, 110));
+  text_layer_set_background_color(s_reply_status_layer, s_theme.background);
+  text_layer_set_text_color(s_reply_status_layer, s_theme.text);
+  text_layer_set_font(s_reply_status_layer, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
+  text_layer_set_text_alignment(s_reply_status_layer, GTextAlignmentCenter);
+  text_layer_set_overflow_mode(s_reply_status_layer, GTextOverflowModeWordWrap);
+  layer_set_hidden(text_layer_get_layer(s_reply_status_layer), true);
+  layer_add_child(root, text_layer_get_layer(s_reply_status_layer));
+  reply_show_menu();
+}
+
+static void reply_unload(Window *window) {
+  menu_layer_destroy(s_reply_menu);
+  text_layer_destroy(s_reply_status_layer);
+  s_reply_menu = NULL;
+  s_reply_status_layer = NULL;
+  s_reply_showing_status = false;
 }
 
 static void main_load(Window *window) {
@@ -901,6 +1075,14 @@ static void init(void) {
   char saved_theme[20] = "classic";
   if (persist_exists(PERSIST_THEME)) persist_read_string(PERSIST_THEME, saved_theme, sizeof(saved_theme));
   s_large_text = persist_exists(PERSIST_TEXT_SIZE) && persist_read_bool(PERSIST_TEXT_SIZE);
+  s_quick_reply_count = persist_exists(PERSIST_QUICK_REPLY_COUNT) ? persist_read_int(PERSIST_QUICK_REPLY_COUNT) : 0;
+  if (s_quick_reply_count < 0) s_quick_reply_count = 0;
+  if (s_quick_reply_count > MAX_QUICK_REPLIES) s_quick_reply_count = MAX_QUICK_REPLIES;
+  for (int i = 0; i < s_quick_reply_count; i++) {
+    if (persist_exists(PERSIST_QUICK_REPLY_BASE + i)) {
+      persist_read_string(PERSIST_QUICK_REPLY_BASE + i, s_quick_replies[i], sizeof(s_quick_replies[i]));
+    }
+  }
   select_theme(saved_theme);
   if (persist_get_size(PERSIST_THEME_DATA) == sizeof(PersistedTheme)) {
     PersistedTheme saved;
@@ -927,6 +1109,11 @@ static void init(void) {
     .load = detail_load,
     .unload = detail_unload
   });
+  s_reply_window = window_create();
+  window_set_window_handlers(s_reply_window, (WindowHandlers) {
+    .load = reply_load,
+    .unload = reply_unload
+  });
   s_media_window = window_create();
   window_set_window_handlers(s_media_window, (WindowHandlers) {
     .load = media_load,
@@ -950,6 +1137,7 @@ static void deinit(void) {
   if (s_dictation_session) dictation_session_destroy(s_dictation_session);
   clear_media();
   window_destroy(s_media_window);
+  window_destroy(s_reply_window);
   window_destroy(s_detail_window);
   window_destroy(s_message_window);
   window_destroy(s_main_window);

@@ -32,6 +32,7 @@ var KEY_MEDIA_BYTES = 28;
 var KEY_MEDIA_TOTAL = 29;
 var KEY_MSG_ID = 30;
 var KEY_DETAIL_TEXT = 31;
+var KEY_QUICK_REPLY_TEXT = 32;
 
 var BUILT_IN_THEMES = [
   {id:'classic',name:'Classic',background:'#FFFFFF',text:'#000000',muted:'#555555',accent:'#0055AA',accentText:'#FFFFFF',font:'gothic',textSize:'normal',builtIn:true},
@@ -47,6 +48,8 @@ var sending = false;
 var DEFAULT_SETTINGS_URL = '';
 var refreshTimer = null;
 var messageTextByID = {};
+var quickReplyCounter = 0;
+var DEFAULT_QUICK_REPLIES = ['Yes', 'No', 'On my way', 'Thanks! 👍'];
 
 function gatewayURL() {
   return (localStorage.getItem('beepster_gateway_url') || '').replace(/\/$/, '');
@@ -110,6 +113,42 @@ function configuredThemes() {
   var themes = BUILT_IN_THEMES.map(normalizeTheme);
   try { var saved = JSON.parse(localStorage.getItem('beepster_themes') || '[]'); for(var i=0;i<saved.length&&i<20;i++) themes.push(normalizeTheme(saved[i])); } catch (error) {}
   return themes;
+}
+
+function configuredQuickReplies() {
+  try {
+    var saved = JSON.parse(localStorage.getItem('beepster_quick_replies') || 'null');
+    if (saved && Array.isArray(saved)) return saved.map(function(value) { return String(value || '').trim(); }).filter(Boolean).slice(0, 8);
+  } catch (error) {}
+  return DEFAULT_QUICK_REPLIES.slice();
+}
+
+function watchQuickReply(value) {
+  var text = String(value || '')
+    .replace(/[\uFE0F\u200D]/g, '')
+    .replace(/\uD83C[\uDFFB-\uDFFF]/g, '')
+    .replace(/\uD83E\uDD14/g, '[thinking]')
+    .replace(/\uD83D\uDD25/g, '[fire]')
+    .replace(/\uD83D\uDE80/g, '[rocket]')
+    .replace(/\uD83D\uDC4F/g, '[applause]');
+  var chunks = utf8Chunks(text, 80, 80);
+  return chunks.length ? chunks[0] : '';
+}
+
+function sendQuickReplies() {
+  var replies = configuredQuickReplies();
+  for (var i = 0; i < replies.length; i++) {
+    var message = {};
+    message[KEY_COMMAND] = 'quick_reply';
+    message[KEY_INDEX] = i;
+    message[KEY_TOTAL] = replies.length;
+    message[KEY_QUICK_REPLY_TEXT] = watchQuickReply(replies[i]);
+    enqueue(message);
+  }
+  var complete = {};
+  complete[KEY_COMMAND] = 'quick_replies_ready';
+  complete[KEY_TOTAL] = replies.length;
+  enqueue(complete);
 }
 
 function pebbleColor(hex) {
@@ -234,6 +273,16 @@ function sendReply(chatID, text, requestID) {
   });
 }
 
+function sendQuickReply(chatID, index, requestID) {
+  var replies = configuredQuickReplies();
+  if (index < 0 || index >= replies.length) { sendState('reply_failed', 'Quick reply unavailable'); return; }
+  if (!requestID) {
+    quickReplyCounter++;
+    requestID = 'quick-' + Date.now() + '-' + quickReplyCounter;
+  }
+  sendReply(chatID, replies[index], requestID);
+}
+
 function loadChats() {
   sendState('loading');
   request('/v1/chats?limit=12', function(data) {
@@ -332,6 +381,7 @@ function loadAttachment(attachmentID) {
 }
 
 Pebble.addEventListener('ready', function() {
+  sendQuickReplies();
   loadChats();
 });
 
@@ -346,6 +396,7 @@ Pebble.addEventListener('showConfiguration', function() {
     gatewayToken: gatewayToken(),
     theme: configuredTheme(),
     themes: configuredThemes(),
+    quickReplies: configuredQuickReplies(),
     textSize: configuredTheme().textSize,
     refresh: Number(localStorage.getItem('beepster_refresh') || '180')
   };
@@ -360,8 +411,10 @@ Pebble.addEventListener('webviewclosed', function(event) {
     if (settings.gatewayToken) localStorage.setItem('beepster_gateway_token', settings.gatewayToken);
     if (settings.theme) { localStorage.setItem('beepster_theme_json', JSON.stringify(normalizeTheme(settings.theme))); localStorage.setItem('beepster_theme', normalizeTheme(settings.theme).id); }
     if (settings.themes) localStorage.setItem('beepster_themes', JSON.stringify(settings.themes.slice(0,20)));
+    if (settings.quickReplies && Array.isArray(settings.quickReplies)) localStorage.setItem('beepster_quick_replies', JSON.stringify(settings.quickReplies.slice(0,8)));
     if (settings.textSize) localStorage.setItem('beepster_text_size', settings.textSize);
     if (typeof settings.refresh === 'number') localStorage.setItem('beepster_refresh', String(settings.refresh));
+    sendQuickReplies();
     loadChats();
   } catch (error) {
     sendState('error', 'Settings were not saved');
@@ -377,4 +430,5 @@ Pebble.addEventListener('appmessage', function(event) {
   if (command === 'send_reply') sendReply(payload[KEY_CHAT_ID] || payload.CHAT_ID || '', payload[KEY_REPLY_TEXT] || payload.REPLY_TEXT || '', payload[KEY_REPLY_REQUEST_ID] || payload.REPLY_REQUEST_ID || '');
   if (command === 'load_attachment') loadAttachment(payload[KEY_ATTACHMENT_ID] || payload.ATTACHMENT_ID || payload[KEY_CHAT_ID] || payload.CHAT_ID || '');
   if (command === 'load_message_detail') sendMessageDetail(payload[KEY_MSG_ID] || payload.MSG_ID || '');
+  if (command === 'send_quick_reply') sendQuickReply(payload[KEY_CHAT_ID] || payload.CHAT_ID || '', Number(payload[KEY_INDEX] != null ? payload[KEY_INDEX] : payload.INDEX), payload[KEY_REPLY_REQUEST_ID] || payload.REPLY_REQUEST_ID || '');
 });

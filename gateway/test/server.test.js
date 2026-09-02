@@ -39,6 +39,8 @@ test('configuration page supports editing an existing paired connection', async 
     assert.match(html, /type="color"/);
     assert.match(html, /Roboto Condensed/);
     assert.match(html, /Pebble Bold/);
+    assert.match(html, /Add up to eight replies/);
+    assert.match(html, /quickReply.*maxLength=240/);
   });
 });
 

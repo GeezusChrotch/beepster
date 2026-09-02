@@ -12,7 +12,7 @@
 
 ## 0.2 — Reliable replies
 
-- [ ] Canned replies
+- [x] Up to eight configurable canned replies with text and emoji
 - [x] Voice dictation with transcript confirmation
 - [x] Pending, sent, retryable-failed, and permanently-failed delivery states
 - [x] Retry without losing dictated text
@@ -43,7 +43,7 @@ sent until Beeper resolves the pending message with a successful send status.
 
 - [x] Clean multiline previews with a protected metadata strip
 - [x] Scrollable full-message view with 30 KB UTF-8 chunk transport
-- [x] Select a message to read it; Select again to start voice reply
+- [x] Select a message to read it; Select again to choose voice or a saved reply
 - [x] Disable Pebble's dithered scroll shadows that resemble overlapping text
 
 ## 0.4.2 — Rich-message cleanup
@@ -51,3 +51,9 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Convert Instagram paragraph, emphasis, link, and quote markup to readable plain text
 - [x] Decode HTML entities without exposing tracking URLs
 - [x] Strip script, style, and unknown markup before watch transport
+
+## 0.5 — Reply chooser
+
+- [x] Select in the complete-message view opens voice dictation and saved replies
+- [x] Canned replies send their original phone-side text, preserving configured emoji
+- [x] Watch-friendly labels persist locally for fast access and offline display
