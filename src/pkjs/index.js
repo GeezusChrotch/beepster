@@ -15,6 +15,8 @@ var KEY_MSG_TEXT = 11;
 var KEY_MSG_TIME = 12;
 var KEY_THEME = 13;
 var KEY_TEXT_SIZE = 14;
+var KEY_REPLY_TEXT = 15;
+var KEY_REPLY_REQUEST_ID = 16;
 
 var queue = [];
 var sending = false;
@@ -116,6 +118,45 @@ function request(path, callback) {
   xhr.send();
 }
 
+function post(path, body, callback) {
+  var url = gatewayURL();
+  var token = gatewayToken();
+  if (!url || !token) { sendState('setup'); return; }
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', url + path, true);
+  xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+  xhr.setRequestHeader('Content-Type', 'application/json');
+  xhr.timeout = 12000;
+  xhr.onload = function() {
+    if (xhr.status < 200 || xhr.status >= 300) { sendState('reply_failed', 'Send failed with ' + xhr.status); return; }
+    try { callback(JSON.parse(xhr.responseText)); } catch (error) { sendState('reply_failed', 'Invalid send response'); }
+  };
+  xhr.onerror = function() { sendState('reply_failed', 'Gateway unavailable'); };
+  xhr.ontimeout = function() { sendState('reply_failed', 'Send timed out'); };
+  xhr.send(JSON.stringify(body));
+}
+
+function pollReply(chatID, pendingMessageID, attempt) {
+  request('/v1/chats/' + encodeURIComponent(chatID) + '/messages/' + encodeURIComponent(pendingMessageID), function(data) {
+    var status = data.status || 'PENDING';
+    if (status === 'SUCCESS') { sendState('reply_sent'); return; }
+    if (status === 'FAIL_RETRIABLE') { sendState('reply_retryable', data.reason || 'Send can be retried'); return; }
+    if (status === 'FAIL_PERMANENT') { sendState('reply_failed', data.reason || 'Reply failed'); return; }
+    if (attempt >= 9) { sendState('reply_pending', 'Still pending in Beeper'); return; }
+    setTimeout(function() { pollReply(chatID, pendingMessageID, attempt + 1); }, 1500);
+  });
+}
+
+function sendReply(chatID, text, requestID) {
+  if (!chatID || !text || !requestID) { sendState('reply_failed', 'Reply data missing'); return; }
+  sendState('reply_sending');
+  post('/v1/chats/' + encodeURIComponent(chatID) + '/messages', {text:text,requestID:requestID}, function(data) {
+    if (!data.pendingMessageID) { sendState('reply_failed', 'Beeper did not return a message ID'); return; }
+    sendState('reply_pending');
+    pollReply(chatID, data.pendingMessageID, 0);
+  });
+}
+
 function loadChats() {
   sendState('loading');
   request('/v1/chats?limit=12', function(data) {
@@ -208,4 +249,5 @@ Pebble.addEventListener('appmessage', function(event) {
   console.log('Beepster watch command=' + String(command || 'missing'));
   if (command === 'load_chats') loadChats();
   if (command === 'load_messages') loadMessages(payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || '');
+  if (command === 'send_reply') sendReply(payload[KEY_CHAT_ID] || payload.CHAT_ID || '', payload[KEY_REPLY_TEXT] || payload.REPLY_TEXT || '', payload[KEY_REPLY_REQUEST_ID] || payload.REPLY_REQUEST_ID || '');
 });

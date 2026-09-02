@@ -12,11 +12,14 @@
 
 ## 0.2 — Reliable replies
 
-- Canned replies
-- Voice dictation with transcript confirmation
-- Pending, sent, and failed delivery states
-- Retry without losing dictated text
-- Duplicate-send protection
+- [ ] Canned replies
+- [x] Voice dictation with transcript confirmation
+- [x] Pending, sent, retryable-failed, and permanently-failed delivery states
+- [x] Retry without losing dictated text
+- [x] Duplicate-send protection
+
+Replies use Pebble's configured speech-recognition provider. Beepster does not report a reply as
+sent until Beeper resolves the pending message with a successful send status.
 
 ## 0.3 — Daily-driver polish
 

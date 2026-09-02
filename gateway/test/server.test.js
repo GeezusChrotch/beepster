@@ -55,17 +55,20 @@ test('pairing requires the exact code and returns only the gateway credential', 
   }
 });
 
-test('the first milestone is read-only', async () => {
-  const client = { listMessages: async () => [] };
+test('reply requests are idempotent and expose delivery status', async () => {
+  let sends = 0;
+  const client = {
+    sendReply: async () => { sends++; return {pendingMessageID:'pending-1'}; },
+    getMessageStatus: async () => ({id:'message-1',status:'SUCCESS',reason:''})
+  };
   await withServer(client, async (baseURL) => {
-    const response = await fetch(`${baseURL}/v1/chats/chat-1/messages`, {
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer gateway-secret',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ text: 'Yes' })
-    });
-    assert.equal(response.status, 404);
+    const options = {method:'POST',headers:{Authorization:'Bearer gateway-secret','Content-Type':'application/json'},body:JSON.stringify({text:'Yes',requestID:'watch-1'})};
+    const first = await fetch(`${baseURL}/v1/chats/chat-1/messages`, options);
+    assert.deepEqual(await first.json(), {state:'pending',pendingMessageID:'pending-1'});
+    const duplicate = await fetch(`${baseURL}/v1/chats/chat-1/messages`, options);
+    assert.equal((await duplicate.json()).duplicate, true);
+    assert.equal(sends, 1);
+    const status = await fetch(`${baseURL}/v1/chats/chat-1/messages/pending-1`, {headers:{Authorization:'Bearer gateway-secret'}});
+    assert.equal((await status.json()).status, 'SUCCESS');
   });
 });

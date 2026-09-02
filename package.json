@@ -1,7 +1,7 @@
 {
   "name": "beepster",
   "displayName": "Beepster",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "description": "A readable, reliable, open-source Beeper client for Pebble",
   "author": "Joshua Bessom",
   "license": "MIT",
@@ -38,7 +38,9 @@
       "MSG_TEXT": 11,
       "MSG_TIME": 12,
       "THEME": 13,
-      "TEXT_SIZE": 14
+      "TEXT_SIZE": 14,
+      "REPLY_TEXT": 15,
+      "REPLY_REQUEST_ID": 16
     },
     "resources": {
       "media": []

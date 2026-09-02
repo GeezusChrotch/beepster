@@ -40,6 +40,7 @@ function boundedLimit(value, fallback = 12) {
 export function createServer({ beeperClient, gatewayToken, pairingCode = '' }) {
   if (!gatewayToken) throw new Error('gatewayToken is required');
   const cache = new Map();
+  const replyRequests = new Map();
   let pairingAvailable = Boolean(pairingCode);
 
   async function withCache(key, loader) {
@@ -98,6 +99,35 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '' }) {
         const chatID = decodeURIComponent(messagesMatch[1]);
         const result = await withCache(`messages:${chatID}`, () => beeperClient.listMessages(chatID, boundedLimit(url.searchParams.get('limit'))));
         sendJSON(response, 200, { items: result.value, ...(result.stale ? { stale: true } : {}) });
+        return;
+      }
+
+      if (messagesMatch && request.method === 'POST') {
+        const chatID = decodeURIComponent(messagesMatch[1]);
+        const body = await readJSON(request);
+        const text = typeof body.text === 'string' ? body.text.trim() : '';
+        const requestID = typeof body.requestID === 'string' ? body.requestID.trim() : '';
+        if (!text || text.length > 1000 || !requestID || requestID.length > 80) {
+          sendJSON(response, 400, { error: 'Reply requires text and a request ID' });
+          return;
+        }
+        const duplicate = replyRequests.get(requestID);
+        if (duplicate) {
+          sendJSON(response, 202, { ...duplicate, duplicate: true });
+          return;
+        }
+        const result = await beeperClient.sendReply(chatID, text);
+        const accepted = { state: 'pending', pendingMessageID: result.pendingMessageID };
+        replyRequests.set(requestID, accepted);
+        if (replyRequests.size > 100) replyRequests.delete(replyRequests.keys().next().value);
+        sendJSON(response, 202, accepted);
+        return;
+      }
+
+      const messageStatusMatch = url.pathname.match(/^\/v1\/chats\/([^/]+)\/messages\/([^/]+)$/);
+      if (messageStatusMatch && request.method === 'GET') {
+        const status = await beeperClient.getMessageStatus(decodeURIComponent(messageStatusMatch[1]), decodeURIComponent(messageStatusMatch[2]));
+        sendJSON(response, 200, status);
         return;
       }
 

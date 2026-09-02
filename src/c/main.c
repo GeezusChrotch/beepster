@@ -16,7 +16,11 @@ typedef enum {
   VIEW_LOADING,
   VIEW_READY,
   VIEW_EMPTY,
-  VIEW_ERROR
+  VIEW_ERROR,
+  VIEW_REPLY_SENDING,
+  VIEW_REPLY_PENDING,
+  VIEW_REPLY_SENT,
+  VIEW_REPLY_RETRYABLE
 } ViewState;
 
 typedef struct {
@@ -65,6 +69,9 @@ static Message s_messages[MAX_MESSAGES];
 static int s_message_count;
 static char s_active_chat_id[CHAT_ID_LEN];
 static char s_active_chat_name[CHAT_NAME_LEN];
+static DictationSession *s_dictation_session;
+static char s_reply_text[512];
+static char s_reply_request_id[48];
 static AppTimer *s_load_watchdog;
 static AppTimer *s_message_request_timer;
 static int s_message_command_attempts;
@@ -102,6 +109,10 @@ static const char *state_text(ViewState state, bool messages) {
     case VIEW_LOADING: return messages ? "Loading messages…" : "Loading chats…";
     case VIEW_EMPTY: return messages ? "No messages yet\nPress Select to retry" : "No recent chats\nPress Select to retry";
     case VIEW_ERROR: return "Could not connect\nPress Select to retry";
+    case VIEW_REPLY_SENDING: return "Sending reply…";
+    case VIEW_REPLY_PENDING: return "Waiting for delivery…";
+    case VIEW_REPLY_SENT: return "Reply sent ✓\nPress Back";
+    case VIEW_REPLY_RETRYABLE: return "Reply failed\nPress Select to retry";
     case VIEW_READY: return "";
   }
   return "";
@@ -187,6 +198,56 @@ static void request_messages(void) {
   message_command_retry(NULL);
   cancel_load_watchdog();
   s_load_watchdog = app_timer_register(15000, load_watchdog, NULL);
+}
+
+static void new_reply_request_id(void) {
+  static uint16_t counter;
+  counter++;
+  snprintf(s_reply_request_id, sizeof(s_reply_request_id), "%lu-%u", (unsigned long)time(NULL), counter);
+}
+
+static void send_reply_to_phone(void) {
+  if (!s_reply_text[0] || !s_active_chat_id[0]) return;
+  DictionaryIterator *iterator;
+  AppMessageResult result = app_message_outbox_begin(&iterator);
+  if (result != APP_MSG_OK || !iterator) {
+    s_message_state = VIEW_REPLY_RETRYABLE;
+    set_status(s_message_status_layer, s_message_state, true);
+    return;
+  }
+  dict_write_cstring(iterator, MESSAGE_KEY_COMMAND, "send_reply");
+  dict_write_cstring(iterator, MESSAGE_KEY_CHAT_ID, s_active_chat_id);
+  dict_write_cstring(iterator, MESSAGE_KEY_REPLY_TEXT, s_reply_text);
+  dict_write_cstring(iterator, MESSAGE_KEY_REPLY_REQUEST_ID, s_reply_request_id);
+  result = app_message_outbox_send();
+  s_message_state = result == APP_MSG_OK ? VIEW_REPLY_SENDING : VIEW_REPLY_RETRYABLE;
+  set_status(s_message_status_layer, s_message_state, true);
+}
+
+static void dictation_callback(DictationSession *session, DictationSessionStatus status,
+                               char *transcription, void *context) {
+  if (status == DictationSessionStatusSuccess && transcription && transcription[0]) {
+    copy_text(s_reply_text, sizeof(s_reply_text), transcription);
+    new_reply_request_id();
+    send_reply_to_phone();
+  } else if (status != DictationSessionStatusFailureTranscriptionRejected) {
+    s_message_state = VIEW_ERROR;
+    set_status(s_message_status_layer, s_message_state, true);
+  }
+}
+
+static void dictate_reply(MenuLayer *menu_layer, MenuIndex *index, void *context) {
+  if (!s_dictation_session) {
+    s_message_state = VIEW_ERROR;
+    set_status(s_message_status_layer, s_message_state, true);
+    return;
+  }
+  dictation_session_start(s_dictation_session);
+}
+
+static void retry_reply(ClickRecognizerRef recognizer, void *context) {
+  new_reply_request_id();
+  send_reply_to_phone();
 }
 
 static void delayed_request_messages(void *context) {
@@ -291,7 +352,9 @@ static void retry_messages(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void message_clicks(void *context) {
-  if (s_message_state != VIEW_READY) {
+  if ((s_message_state == VIEW_REPLY_RETRYABLE || s_message_state == VIEW_ERROR) && s_reply_text[0]) {
+    window_single_click_subscribe(BUTTON_ID_SELECT, retry_reply);
+  } else if (s_message_state != VIEW_READY) {
     window_single_click_subscribe(BUTTON_ID_SELECT, retry_messages);
   }
 }
@@ -302,6 +365,11 @@ static void apply_state(const char *state, const char *error) {
   else if (strcmp(state, "loading") == 0) mapped = VIEW_LOADING;
   else if (strcmp(state, "empty") == 0) mapped = VIEW_EMPTY;
   else if (strcmp(state, "ready") == 0) mapped = VIEW_READY;
+  else if (strcmp(state, "reply_sending") == 0) mapped = VIEW_REPLY_SENDING;
+  else if (strcmp(state, "reply_pending") == 0) mapped = VIEW_REPLY_PENDING;
+  else if (strcmp(state, "reply_sent") == 0) mapped = VIEW_REPLY_SENT;
+  else if (strcmp(state, "reply_retryable") == 0) mapped = VIEW_REPLY_RETRYABLE;
+  else if (strcmp(state, "reply_failed") == 0) mapped = VIEW_REPLY_RETRYABLE;
 
   if (s_message_window && window_stack_get_top_window() == s_message_window) {
     if (mapped != VIEW_LOADING) cancel_load_watchdog();
@@ -426,7 +494,8 @@ static void message_load(Window *window) {
   menu_layer_set_callbacks(s_message_menu, NULL, (MenuLayerCallbacks) {
     .get_num_rows = message_rows,
     .get_cell_height = message_row_height,
-    .draw_row = draw_message
+    .draw_row = draw_message,
+    .select_click = dictate_reply
   });
   menu_layer_set_click_config_onto_window(s_message_menu, window);
   layer_add_child(root, menu_layer_get_layer(s_message_menu));
@@ -466,7 +535,12 @@ static void init(void) {
   });
 
   app_message_register_inbox_received(inbox_received);
-  app_message_open(2048, 512);
+  app_message_open(2048, 1024);
+  s_dictation_session = dictation_session_create(sizeof(s_reply_text), dictation_callback, NULL);
+  if (s_dictation_session) {
+    dictation_session_enable_confirmation(s_dictation_session, true);
+    dictation_session_enable_error_dialogs(s_dictation_session, true);
+  }
   window_stack_push(s_main_window, true);
   request_chats();
 }
@@ -474,6 +548,7 @@ static void init(void) {
 static void deinit(void) {
   cancel_load_watchdog();
   if (s_message_request_timer) app_timer_cancel(s_message_request_timer);
+  if (s_dictation_session) dictation_session_destroy(s_dictation_session);
   window_destroy(s_message_window);
   window_destroy(s_main_window);
 }

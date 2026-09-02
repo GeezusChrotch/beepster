@@ -106,4 +106,13 @@ export class BeeperClient {
       pendingMessageID: result.pendingMessageID || null
     };
   }
+
+  async getMessageStatus(chatID, messageID) {
+    const message = await this.request(`/v1/chats/${encodeURIComponent(chatID)}/messages/${encodeURIComponent(messageID)}`);
+    return {
+      id: message.id || messageID,
+      status: message.sendStatus?.status || 'PENDING',
+      reason: message.sendStatus?.message || message.sendStatus?.reason || ''
+    };
+  }
 }
