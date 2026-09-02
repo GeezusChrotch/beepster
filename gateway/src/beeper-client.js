@@ -5,6 +5,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createWatchPreview } from './image-preview.js';
+import { htmlToText } from './html-to-text.js';
 
 function ensureOK(response, operation) {
   if (!response.ok) {
@@ -31,8 +32,8 @@ export function resolveChatName(chat, contacts = []) {
 
 function normalizePreview(preview) {
   if (!preview) return '';
-  if (typeof preview === 'string') return preview;
-  return preview.text || '';
+  if (typeof preview === 'string') return htmlToText(preview);
+  return htmlToText(preview.text || '');
 }
 
 function normalizeTime(timestamp) {
@@ -118,7 +119,7 @@ export class BeeperClient {
       return {
         id: message.id,
         sender: message.isSender ? 'Me' : normalizeEmojiForPebble(message.senderName || 'Unknown'),
-        text: normalizeEmojiForPebble(message.text || ''),
+        text: normalizeEmojiForPebble(htmlToText(message.text || '')),
         time: normalizeTime(message.timestamp),
         attachment
       };

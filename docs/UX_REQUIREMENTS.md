@@ -44,6 +44,13 @@ review, and information must remain understandable without color.
 - Use `[emoji]` only when no useful alias exists; never silently delete message content.
 - Evaluate a compact optional bitmap atlas later for high-frequency unsupported emoji.
 
+## Rich message text
+
+- Convert network-provided HTML to readable plain text at the Mac gateway boundary.
+- Preserve paragraphs, line breaks, quote boundaries, link labels, and image alternative text.
+- Decode safe named and numeric entities, including emoji code points.
+- Never send HTML tags, scripts, styles, source URLs, or anchor tracking URLs to the watch.
+
 ## Navigation and loading
 
 - Select on a chat always opens that chat.

@@ -45,3 +45,9 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Scrollable full-message view with 30 KB UTF-8 chunk transport
 - [x] Select a message to read it; Select again to start voice reply
 - [x] Disable Pebble's dithered scroll shadows that resemble overlapping text
+
+## 0.4.2 — Rich-message cleanup
+
+- [x] Convert Instagram paragraph, emphasis, link, and quote markup to readable plain text
+- [x] Decode HTML entities without exposing tracking URLs
+- [x] Strip script, style, and unknown markup before watch transport
