@@ -197,7 +197,8 @@ Pebble.addEventListener('webviewclosed', function(event) {
 
 Pebble.addEventListener('appmessage', function(event) {
   var payload = event.payload || {};
-  var command = payload[KEY_COMMAND];
+  var command = payload[KEY_COMMAND] || payload.COMMAND || payload.command;
+  console.log('Beepster watch command=' + String(command || 'missing'));
   if (command === 'load_chats') loadChats();
-  if (command === 'load_messages') loadMessages(payload[KEY_CHAT_ID] || '');
+  if (command === 'load_messages') loadMessages(payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || '');
 });

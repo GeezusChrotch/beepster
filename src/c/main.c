@@ -63,10 +63,31 @@ static Message s_messages[MAX_MESSAGES];
 static int s_message_count;
 static char s_active_chat_id[CHAT_ID_LEN];
 static char s_active_chat_name[CHAT_NAME_LEN];
+static AppTimer *s_load_watchdog;
+static AppTimer *s_message_request_timer;
+static int s_message_command_attempts;
 
 static void main_clicks(void *context);
 static void message_clicks(void *context);
 static void apply_theme_to_layers(void);
+static void set_status(TextLayer *layer, ViewState state, bool messages);
+
+static void cancel_load_watchdog(void) {
+  if (s_load_watchdog) {
+    app_timer_cancel(s_load_watchdog);
+    s_load_watchdog = NULL;
+  }
+}
+
+static void load_watchdog(void *context) {
+  s_load_watchdog = NULL;
+  if (s_message_window && window_stack_get_top_window() == s_message_window && s_message_state == VIEW_LOADING) {
+    s_message_state = VIEW_ERROR;
+    set_status(s_message_status_layer, s_message_state, true);
+    window_set_click_config_provider(s_message_window, message_clicks);
+    APP_LOG(APP_LOG_LEVEL_ERROR, "message load watchdog expired");
+  }
+}
 
 static void copy_text(char *destination, size_t size, const char *source) {
   if (!destination || size == 0) return;
@@ -122,13 +143,18 @@ static void apply_theme_to_layers(void) {
   set_status(s_message_status_layer, s_message_state, true);
 }
 
-static void request_command(const char *command, const char *chat_id) {
+static bool request_command(const char *command, const char *chat_id) {
   DictionaryIterator *iterator;
   AppMessageResult result = app_message_outbox_begin(&iterator);
-  if (result != APP_MSG_OK || !iterator) return;
+  if (result != APP_MSG_OK || !iterator) {
+    APP_LOG(APP_LOG_LEVEL_WARNING, "outbox begin failed=%d", result);
+    return false;
+  }
   dict_write_cstring(iterator, MESSAGE_KEY_COMMAND, command);
   if (chat_id && chat_id[0]) dict_write_cstring(iterator, MESSAGE_KEY_CHAT_ID, chat_id);
-  app_message_outbox_send();
+  result = app_message_outbox_send();
+  if (result != APP_MSG_OK) APP_LOG(APP_LOG_LEVEL_WARNING, "outbox send failed=%d", result);
+  return result == APP_MSG_OK;
 }
 
 static void request_chats(void) {
@@ -137,7 +163,15 @@ static void request_chats(void) {
   set_status(s_status_layer, s_chat_state, false);
   if (s_chat_menu) menu_layer_reload_data(s_chat_menu);
   if (s_main_window) window_set_click_config_provider(s_main_window, main_clicks);
-  request_command("load_chats", NULL);
+  (void)request_command("load_chats", NULL);
+}
+
+static void message_command_retry(void *context) {
+  s_message_request_timer = NULL;
+  s_message_command_attempts++;
+  if (!request_command("load_messages", s_active_chat_id) && s_message_command_attempts < 3) {
+    s_message_request_timer = app_timer_register(500, message_command_retry, NULL);
+  }
 }
 
 static void request_messages(void) {
@@ -146,7 +180,15 @@ static void request_messages(void) {
   set_status(s_message_status_layer, s_message_state, true);
   if (s_message_menu) menu_layer_reload_data(s_message_menu);
   if (s_message_window) window_set_click_config_provider(s_message_window, message_clicks);
-  request_command("load_messages", s_active_chat_id);
+  s_message_command_attempts = 0;
+  message_command_retry(NULL);
+  cancel_load_watchdog();
+  s_load_watchdog = app_timer_register(15000, load_watchdog, NULL);
+}
+
+static void delayed_request_messages(void *context) {
+  s_message_request_timer = NULL;
+  request_messages();
 }
 
 static uint16_t chat_rows(MenuLayer *menu_layer, uint16_t section, void *context) {
@@ -194,7 +236,8 @@ static void chat_selected(MenuLayer *menu_layer, MenuIndex *index, void *context
   copy_text(s_active_chat_name, sizeof(s_active_chat_name), s_chats[index->row].name);
   if (!s_message_window) return;
   window_stack_push(s_message_window, true);
-  request_messages();
+  if (s_message_request_timer) app_timer_cancel(s_message_request_timer);
+  s_message_request_timer = app_timer_register(300, delayed_request_messages, NULL);
 }
 
 static void retry_chats(ClickRecognizerRef recognizer, void *context) {
@@ -258,6 +301,7 @@ static void apply_state(const char *state, const char *error) {
   else if (strcmp(state, "ready") == 0) mapped = VIEW_READY;
 
   if (s_message_window && window_stack_get_top_window() == s_message_window) {
+    if (mapped != VIEW_LOADING) cancel_load_watchdog();
     APP_LOG(APP_LOG_LEVEL_INFO, "message state=%s count=%d error=%s", state, s_message_count, error ? error : "");
     s_message_state = mapped;
     set_status(s_message_status_layer, mapped, true);
@@ -420,6 +464,8 @@ static void init(void) {
 }
 
 static void deinit(void) {
+  cancel_load_watchdog();
+  if (s_message_request_timer) app_timer_cancel(s_message_request_timer);
   window_destroy(s_message_window);
   window_destroy(s_main_window);
 }
