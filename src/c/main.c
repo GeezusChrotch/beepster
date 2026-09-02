@@ -10,6 +10,7 @@
 #define MESSAGE_TIME_LEN 20
 #define PERSIST_THEME 100
 #define PERSIST_TEXT_SIZE 101
+#define PERSIST_THEME_DATA 102
 
 typedef enum {
   VIEW_SETUP,
@@ -45,6 +46,15 @@ typedef struct {
   GColor accent_text;
 } Theme;
 
+typedef struct {
+  uint8_t background;
+  uint8_t text;
+  uint8_t muted;
+  uint8_t accent;
+  uint8_t accent_text;
+  uint8_t font;
+} PersistedTheme;
+
 static Theme s_theme = {
   .background = GColorWhite,
   .text = GColorBlack,
@@ -53,6 +63,7 @@ static Theme s_theme = {
   .accent_text = GColorWhite
 };
 static bool s_large_text;
+static uint8_t s_font_style;
 
 static Window *s_main_window;
 static MenuLayer *s_chat_menu;
@@ -155,6 +166,23 @@ static void apply_theme_to_layers(void) {
   }
   set_status(s_status_layer, s_chat_state, false);
   set_status(s_message_status_layer, s_message_state, true);
+}
+
+static GFont title_font(void) {
+  if (s_font_style == 1) return fonts_get_system_font(FONT_KEY_ROBOTO_CONDENSED_21);
+  if (s_font_style == 2) return fonts_get_system_font(FONT_KEY_BITHAM_30_BLACK);
+  return fonts_get_system_font(s_large_text ? FONT_KEY_GOTHIC_28_BOLD : FONT_KEY_GOTHIC_24_BOLD);
+}
+
+static GFont body_font(void) {
+  if (s_font_style == 1) return fonts_get_system_font(FONT_KEY_ROBOTO_CONDENSED_21);
+  return fonts_get_system_font(s_large_text ? FONT_KEY_GOTHIC_24 : FONT_KEY_GOTHIC_18);
+}
+
+static void persist_current_theme(void) {
+  PersistedTheme saved = {s_theme.background.argb, s_theme.text.argb, s_theme.muted.argb,
+                          s_theme.accent.argb, s_theme.accent_text.argb, s_font_style};
+  persist_write_data(PERSIST_THEME_DATA, &saved, sizeof(saved));
 }
 
 static bool request_command(const char *command, const char *chat_id) {
@@ -275,12 +303,12 @@ static void draw_chat(GContext *ctx, const Layer *cell, MenuIndex *index, void *
 
   graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
   graphics_draw_text(ctx, chat->name,
-    fonts_get_system_font(s_large_text ? FONT_KEY_GOTHIC_28_BOLD : FONT_KEY_GOTHIC_24_BOLD),
+    title_font(),
     GRect(8, 2, bounds.size.w - 16, name_height),
     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 
   graphics_draw_text(ctx, chat->preview,
-    fonts_get_system_font(s_large_text ? FONT_KEY_GOTHIC_24 : FONT_KEY_GOTHIC_18),
+    body_font(),
     GRect(8, preview_y, bounds.size.w - 16, preview_height),
     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 
@@ -334,11 +362,11 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
   graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
 
   graphics_draw_text(ctx, message->sender,
-    fonts_get_system_font(s_large_text ? FONT_KEY_GOTHIC_24_BOLD : FONT_KEY_GOTHIC_18_BOLD),
+    title_font(),
     GRect(8, 1, bounds.size.w - 16, sender_height),
     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
   graphics_draw_text(ctx, message->text,
-    fonts_get_system_font(s_large_text ? FONT_KEY_GOTHIC_24 : FONT_KEY_GOTHIC_18),
+    body_font(),
     GRect(8, text_y, bounds.size.w - 16, text_height),
     GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
   graphics_draw_text(ctx, message->time,
@@ -404,12 +432,28 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     Tuple *error = dict_find(iterator, MESSAGE_KEY_ERROR);
     Tuple *theme = dict_find(iterator, MESSAGE_KEY_THEME);
     Tuple *text_size = dict_find(iterator, MESSAGE_KEY_TEXT_SIZE);
+    Tuple *theme_background = dict_find(iterator, MESSAGE_KEY_THEME_BACKGROUND);
+    Tuple *theme_text = dict_find(iterator, MESSAGE_KEY_THEME_TEXT);
+    Tuple *theme_muted = dict_find(iterator, MESSAGE_KEY_THEME_MUTED);
+    Tuple *theme_accent = dict_find(iterator, MESSAGE_KEY_THEME_ACCENT);
+    Tuple *theme_accent_text = dict_find(iterator, MESSAGE_KEY_THEME_ACCENT_TEXT);
+    Tuple *theme_font = dict_find(iterator, MESSAGE_KEY_THEME_FONT);
     if (theme) select_theme(theme->value->cstring);
+    if (theme_background) s_theme.background.argb = theme_background->value->uint8;
+    if (theme_text) s_theme.text.argb = theme_text->value->uint8;
+    if (theme_muted) s_theme.muted.argb = theme_muted->value->uint8;
+    if (theme_accent) s_theme.accent.argb = theme_accent->value->uint8;
+    if (theme_accent_text) s_theme.accent_text.argb = theme_accent_text->value->uint8;
+    if (theme_font) s_font_style = theme_font->value->uint8;
     if (text_size) {
       s_large_text = strcmp(text_size->value->cstring, "large") == 0;
       persist_write_bool(PERSIST_TEXT_SIZE, s_large_text);
       if (s_chat_menu) menu_layer_reload_data(s_chat_menu);
       if (s_message_menu) menu_layer_reload_data(s_message_menu);
+    }
+    if (theme_background || theme_text || theme_accent) {
+      persist_current_theme();
+      apply_theme_to_layers();
     }
     apply_state(state ? state->value->cstring : "error", error ? error->value->cstring : "");
     return;
@@ -523,6 +567,16 @@ static void init(void) {
   if (persist_exists(PERSIST_THEME)) persist_read_string(PERSIST_THEME, saved_theme, sizeof(saved_theme));
   s_large_text = persist_exists(PERSIST_TEXT_SIZE) && persist_read_bool(PERSIST_TEXT_SIZE);
   select_theme(saved_theme);
+  if (persist_get_size(PERSIST_THEME_DATA) == sizeof(PersistedTheme)) {
+    PersistedTheme saved;
+    persist_read_data(PERSIST_THEME_DATA, &saved, sizeof(saved));
+    s_theme.background.argb = saved.background;
+    s_theme.text.argb = saved.text;
+    s_theme.muted.argb = saved.muted;
+    s_theme.accent.argb = saved.accent;
+    s_theme.accent_text.argb = saved.accent_text;
+    s_font_style = saved.font;
+  }
   s_main_window = window_create();
   window_set_window_handlers(s_main_window, (WindowHandlers) {
     .load = main_load,

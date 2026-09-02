@@ -17,6 +17,21 @@ var KEY_THEME = 13;
 var KEY_TEXT_SIZE = 14;
 var KEY_REPLY_TEXT = 15;
 var KEY_REPLY_REQUEST_ID = 16;
+var KEY_THEME_BACKGROUND = 17;
+var KEY_THEME_TEXT = 18;
+var KEY_THEME_MUTED = 19;
+var KEY_THEME_ACCENT = 20;
+var KEY_THEME_ACCENT_TEXT = 21;
+var KEY_THEME_FONT = 22;
+
+var BUILT_IN_THEMES = [
+  {id:'classic',name:'Classic',background:'#FFFFFF',text:'#000000',muted:'#555555',accent:'#0055AA',accentText:'#FFFFFF',font:'gothic',textSize:'normal',builtIn:true},
+  {id:'dark',name:'Midnight',background:'#000000',text:'#FFFFFF',muted:'#AAAAAA',accent:'#00AAFF',accentText:'#000000',font:'gothic',textSize:'normal',builtIn:true},
+  {id:'ocean',name:'Ocean',background:'#001133',text:'#FFFFFF',muted:'#AAFFFF',accent:'#00AAFF',accentText:'#000000',font:'roboto',textSize:'normal',builtIn:true},
+  {id:'contrast',name:'High Contrast',background:'#FFFFFF',text:'#000000',muted:'#000000',accent:'#000000',accentText:'#FFFFFF',font:'gothic',textSize:'large',builtIn:true},
+  {id:'plum',name:'Plum',background:'#330033',text:'#FFFFFF',muted:'#FFAAFF',accent:'#AA00AA',accentText:'#FFFFFF',font:'bitham',textSize:'normal',builtIn:true},
+  {id:'forest',name:'Forest',background:'#003300',text:'#FFFFFF',muted:'#AAFFAA',accent:'#00AA55',accentText:'#000000',font:'roboto',textSize:'normal',builtIn:true}
+];
 
 var queue = [];
 var sending = false;
@@ -41,11 +56,32 @@ function safeSlice(value, maxCodeUnits) {
 }
 
 function selectedTheme() {
-  var theme = localStorage.getItem('beepster_theme') || 'classic';
-  if (theme !== 'classic' && theme !== 'dark' && theme !== 'ocean' && theme !== 'contrast') {
-    return 'classic';
-  }
-  return theme;
+  return configuredTheme().id;
+}
+
+function normalizeTheme(value) {
+  var theme = value && typeof value === 'object' ? value : {};
+  function color(key, fallback) { return /^#[0-9a-f]{6}$/i.test(theme[key] || '') ? theme[key].toUpperCase() : fallback; }
+  return {id:String(theme.id || ('custom-' + Date.now())).slice(0,40),name:String(theme.name || 'Custom').slice(0,32),background:color('background','#FFFFFF'),text:color('text','#000000'),muted:color('muted','#555555'),accent:color('accent','#0055AA'),accentText:color('accentText','#FFFFFF'),font:['gothic','roboto','bitham'].indexOf(theme.font)>=0?theme.font:'gothic',textSize:theme.textSize==='large'?'large':'normal',builtIn:Boolean(theme.builtIn)};
+}
+
+function configuredTheme() {
+  try { var saved = JSON.parse(localStorage.getItem('beepster_theme_json') || 'null'); if (saved) return normalizeTheme(saved); } catch (error) {}
+  var legacy = localStorage.getItem('beepster_theme') || 'classic';
+  for (var i=0;i<BUILT_IN_THEMES.length;i++) if (BUILT_IN_THEMES[i].id===legacy) return normalizeTheme(BUILT_IN_THEMES[i]);
+  return normalizeTheme(BUILT_IN_THEMES[0]);
+}
+
+function configuredThemes() {
+  var themes = BUILT_IN_THEMES.map(normalizeTheme);
+  try { var saved = JSON.parse(localStorage.getItem('beepster_themes') || '[]'); for(var i=0;i<saved.length&&i<20;i++) themes.push(normalizeTheme(saved[i])); } catch (error) {}
+  return themes;
+}
+
+function pebbleColor(hex) {
+  var value = parseInt(String(hex).slice(1),16);
+  var r = Math.round(((value>>16)&255)/85), g = Math.round(((value>>8)&255)/85), b = Math.round((value&255)/85);
+  return 0xC0 | (r<<4) | (g<<2) | b;
 }
 
 function enqueue(message) {
@@ -74,11 +110,18 @@ function drain() {
 }
 
 function sendState(state, error) {
+  var theme = configuredTheme();
   var message = {};
   message[KEY_COMMAND] = 'state';
   message[KEY_STATE] = state;
-  message[KEY_THEME] = selectedTheme();
-  message[KEY_TEXT_SIZE] = localStorage.getItem('beepster_text_size') || 'normal';
+  message[KEY_THEME] = theme.id;
+  message[KEY_TEXT_SIZE] = theme.textSize || localStorage.getItem('beepster_text_size') || 'normal';
+  message[KEY_THEME_BACKGROUND] = pebbleColor(theme.background);
+  message[KEY_THEME_TEXT] = pebbleColor(theme.text);
+  message[KEY_THEME_MUTED] = pebbleColor(theme.muted);
+  message[KEY_THEME_ACCENT] = pebbleColor(theme.accent);
+  message[KEY_THEME_ACCENT_TEXT] = pebbleColor(theme.accentText);
+  message[KEY_THEME_FONT] = theme.font === 'roboto' ? 1 : (theme.font === 'bitham' ? 2 : 0);
   if (error) message[KEY_ERROR] = safeSlice(error, 100);
   enqueue(message);
   if (state === 'error' || state === 'empty') scheduleRefresh();
@@ -221,8 +264,9 @@ Pebble.addEventListener('showConfiguration', function() {
   var current = {
     gatewayURL: gatewayURL(),
     gatewayToken: gatewayToken(),
-    theme: selectedTheme(),
-    textSize: localStorage.getItem('beepster_text_size') || 'normal',
+    theme: configuredTheme(),
+    themes: configuredThemes(),
+    textSize: configuredTheme().textSize,
     refresh: Number(localStorage.getItem('beepster_refresh') || '180')
   };
   Pebble.openURL(settingsURL + '#' + encodeURIComponent(JSON.stringify(current)));
@@ -234,7 +278,8 @@ Pebble.addEventListener('webviewclosed', function(event) {
     var settings = JSON.parse(decodeURIComponent(event.response));
     if (settings.gatewayURL) localStorage.setItem('beepster_gateway_url', settings.gatewayURL);
     if (settings.gatewayToken) localStorage.setItem('beepster_gateway_token', settings.gatewayToken);
-    if (settings.theme) localStorage.setItem('beepster_theme', settings.theme);
+    if (settings.theme) { localStorage.setItem('beepster_theme_json', JSON.stringify(normalizeTheme(settings.theme))); localStorage.setItem('beepster_theme', normalizeTheme(settings.theme).id); }
+    if (settings.themes) localStorage.setItem('beepster_themes', JSON.stringify(settings.themes.slice(0,20)));
     if (settings.textSize) localStorage.setItem('beepster_text_size', settings.textSize);
     if (typeof settings.refresh === 'number') localStorage.setItem('beepster_refresh', String(settings.refresh));
     loadChats();

@@ -34,6 +34,10 @@ test('configuration page supports editing an existing paired connection', async 
     assert.match(html, /Adjust Beepster without pairing again/);
     assert.match(html, /location\.hash/);
     assert.match(html, /Saved connection failed/);
+    assert.match(html, /New custom theme/);
+    assert.match(html, /Built-in themes cannot be deleted/);
+    assert.match(html, /type="color"/);
+    assert.match(html, /Roboto Condensed/);
   });
 });
 
