@@ -8,6 +8,8 @@
 #define MESSAGE_SENDER_LEN 48
 #define MESSAGE_TEXT_LEN 256
 #define MESSAGE_TIME_LEN 20
+#define PERSIST_THEME 100
+#define PERSIST_TEXT_SIZE 101
 
 typedef enum {
   VIEW_SETUP,
@@ -123,6 +125,7 @@ static void select_theme(const char *name) {
   } else {
     s_theme = (Theme) { GColorWhite, GColorBlack, GColorDarkGray, GColorDukeBlue, GColorWhite };
   }
+  if (name && name[0]) persist_write_string(PERSIST_THEME, name);
   apply_theme_to_layers();
 }
 
@@ -336,6 +339,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     if (theme) select_theme(theme->value->cstring);
     if (text_size) {
       s_large_text = strcmp(text_size->value->cstring, "large") == 0;
+      persist_write_bool(PERSIST_TEXT_SIZE, s_large_text);
       if (s_chat_menu) menu_layer_reload_data(s_chat_menu);
       if (s_message_menu) menu_layer_reload_data(s_message_menu);
     }
@@ -446,6 +450,10 @@ static void message_unload(Window *window) {
 }
 
 static void init(void) {
+  char saved_theme[20] = "classic";
+  if (persist_exists(PERSIST_THEME)) persist_read_string(PERSIST_THEME, saved_theme, sizeof(saved_theme));
+  s_large_text = persist_exists(PERSIST_TEXT_SIZE) && persist_read_bool(PERSIST_TEXT_SIZE);
+  select_theme(saved_theme);
   s_main_window = window_create();
   window_set_window_handlers(s_main_window, (WindowHandlers) {
     .load = main_load,

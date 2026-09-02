@@ -28,6 +28,15 @@ test('health is public but chat data requires gateway authentication', async () 
   });
 });
 
+test('configuration page supports editing an existing paired connection', async () => {
+  await withServer({ listChats: async () => [] }, async (baseURL) => {
+    const html = await (await fetch(`${baseURL}/configure`)).text();
+    assert.match(html, /Adjust Beepster without pairing again/);
+    assert.match(html, /location\.hash/);
+    assert.match(html, /Saved connection failed/);
+  });
+});
+
 test('pairing requires the exact code and returns only the gateway credential', async () => {
   const server = createServer({ beeperClient: {}, gatewayToken: 'gateway-secret', pairingCode: '246810' });
   server.listen(0, '127.0.0.1');

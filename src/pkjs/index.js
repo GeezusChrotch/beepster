@@ -177,7 +177,14 @@ Pebble.addEventListener('showConfiguration', function() {
     sendState('setup', 'Install a personally configured Beepster build');
     return;
   }
-  Pebble.openURL(settingsURL);
+  var current = {
+    gatewayURL: gatewayURL(),
+    gatewayToken: gatewayToken(),
+    theme: selectedTheme(),
+    textSize: localStorage.getItem('beepster_text_size') || 'normal',
+    refresh: Number(localStorage.getItem('beepster_refresh') || '180')
+  };
+  Pebble.openURL(settingsURL + '#' + encodeURIComponent(JSON.stringify(current)));
 });
 
 Pebble.addEventListener('webviewclosed', function(event) {
