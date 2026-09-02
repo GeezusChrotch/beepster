@@ -1,0 +1,45 @@
+{
+  "name": "beepster",
+  "displayName": "Beepster",
+  "version": "0.1.0",
+  "description": "A readable, reliable, open-source Beeper client for Pebble",
+  "author": "Joshua Bessom",
+  "license": "MIT",
+  "private": false,
+  "keywords": ["pebble-app", "beeper", "messaging", "open-source"],
+  "scripts": {
+    "build": "pebble build",
+    "test": "npm --prefix gateway test",
+    "check": "scripts/check.sh"
+  },
+  "dependencies": {},
+  "pebble": {
+    "displayName": "Beepster",
+    "uuid": "89581490-13d9-4476-880e-bcdd4e7d9fdd",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": ["emery"],
+    "watchapp": {
+      "watchface": false
+    },
+    "messageKeys": {
+      "COMMAND": 0,
+      "STATE": 1,
+      "ERROR": 2,
+      "INDEX": 3,
+      "TOTAL": 4,
+      "CHAT_ID": 5,
+      "CHAT_NAME": 6,
+      "CHAT_PREVIEW": 7,
+      "UNREAD": 8,
+      "NETWORK": 9,
+      "MSG_SENDER": 10,
+      "MSG_TEXT": 11,
+      "MSG_TIME": 12,
+      "THEME": 13
+    },
+    "resources": {
+      "media": []
+    }
+  }
+}

@@ -1,0 +1,13 @@
+build/
+.lock-waf_*
+node_modules/
+gateway/node_modules/
+*.pbw
+*.pem
+*.key
+.DS_Store
+.env
+.env.*
+!.env.example
+local/
+backups/

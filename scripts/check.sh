@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+
+project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+node --check "$project_dir/src/pkjs/index.js"
+node --check "$project_dir/gateway/src/beeper-client.js"
+node --check "$project_dir/gateway/src/emoji.js"
+node --check "$project_dir/gateway/src/server.js"
+npm --prefix "$project_dir/gateway" test
+
+if rg -n --hidden \
+  -g '!build/**' -g '!gateway/node_modules/**' -g '!.git/**' -g '!.env.example' \
+  '(BEEPER_ACCESS_TOKEN|BEEPSTER_GATEWAY_TOKEN)=[A-Za-z0-9_-]{16,}|Authorization: Bearer [A-Za-z0-9_-]{16,}' \
+  "$project_dir"; then
+  echo "Potential credential committed to source" >&2
+  exit 1
+fi
+
+pebble build
+
+test -f "$project_dir/build/beepster.pbw"
+echo "Beepster checks passed"

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>org.beepster.gateway</string>
+<key>ProgramArguments</key><array><string>__NODE__</string><string>__PROJECT__/gateway/src/cli.js</string></array>
+<key>WorkingDirectory</key><string>__PROJECT__/gateway</string>
+<key>EnvironmentVariables</key><dict><key>BEEPSTER_PORT</key><string>8794</string></dict>
+<key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
+<key>StandardOutPath</key><string>__SUPPORT__/logs/gateway.log</string>
+<key>StandardErrorPath</key><string>__SUPPORT__/logs/gateway-error.log</string>
+</dict></plist>
