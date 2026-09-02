@@ -17,7 +17,7 @@ the Beeper access token on the Mac gateway.
 
 ## Current status
 
-Version 0.5.0 is a working clean-room daily-driver preview:
+Version 0.5.1 is a working clean-room daily-driver preview:
 
 - Native Emery watch build
 - Explicit setup/loading/empty/error states
@@ -31,6 +31,7 @@ Version 0.5.0 is a working clean-room daily-driver preview:
 - Confirmed voice dictation replies with Beeper delivery tracking and retry protection
 - Up to eight configurable canned replies, including text and emoji, with one-tap sending
 - Scrollable complete-message views instead of fixed-length message truncation
+- Chronological thread history that opens on the newest message and pages upward through as many as 60 messages
 - Readable Instagram rich-message conversion with HTML tags removed and entities decoded
 - Private photo, GIF-poster, and video-poster previews converted to native Time 2 color on the Mac
 - Automated gateway tests, source checks, and emulator media-render tests

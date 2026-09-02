@@ -57,3 +57,9 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Select in the complete-message view opens voice dictation and saved replies
 - [x] Canned replies send their original phone-side text, preserving configured emoji
 - [x] Watch-friendly labels persist locally for fast access and offline display
+
+## 0.5.1 — Thread history
+
+- [x] Open every thread with the newest message selected at the bottom
+- [x] Keep messages in chronological order so Up always moves into older history
+- [x] Fetch older messages in cursor-based pages up to a 60-message watch window

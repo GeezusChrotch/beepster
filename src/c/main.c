@@ -1,7 +1,7 @@
 #include <pebble.h>
 
 #define MAX_CHATS 12
-#define MAX_MESSAGES 12
+#define MAX_MESSAGES 60
 #define CHAT_ID_LEN 128
 #define CHAT_NAME_LEN 64
 #define CHAT_PREVIEW_LEN 128
@@ -88,6 +88,8 @@ static TextLayer *s_message_status_layer;
 static ViewState s_message_state = VIEW_LOADING;
 static Message s_messages[MAX_MESSAGES];
 static int s_message_count;
+static bool s_has_older_messages;
+static bool s_loading_older_messages;
 static char s_active_chat_id[CHAT_ID_LEN];
 static char s_active_chat_name[CHAT_NAME_LEN];
 static DictationSession *s_dictation_session;
@@ -294,6 +296,8 @@ static void message_command_retry(void *context) {
 static void request_messages(void) {
   s_message_state = VIEW_LOADING;
   s_message_count = 0;
+  s_has_older_messages = false;
+  s_loading_older_messages = false;
   set_status(s_message_status_layer, s_message_state, true);
   if (s_message_menu) menu_layer_reload_data(s_message_menu);
   if (s_message_window) window_set_click_config_provider(s_message_window, message_clicks);
@@ -539,6 +543,16 @@ static uint16_t message_rows(MenuLayer *menu_layer, uint16_t section, void *cont
   return s_message_state == VIEW_READY ? (uint16_t)s_message_count : 0;
 }
 
+static void message_selection_changed(MenuLayer *menu_layer, MenuIndex new_index,
+                                      MenuIndex old_index, void *context) {
+  if (new_index.section != 0 || new_index.row > 1 || !s_has_older_messages ||
+      s_loading_older_messages || !s_active_chat_id[0]) return;
+  s_loading_older_messages = true;
+  if (!request_command("load_older_messages", s_active_chat_id)) {
+    s_loading_older_messages = false;
+  }
+}
+
 static int16_t message_row_height(MenuLayer *menu_layer, MenuIndex *index, void *context) {
   return s_large_text ? 140 : 116;
 }
@@ -653,6 +667,65 @@ static void apply_state(const char *state, const char *error) {
 static void inbox_received(DictionaryIterator *iterator, void *context) {
   Tuple *command = dict_find(iterator, MESSAGE_KEY_COMMAND);
   if (!command) return;
+
+  if (strcmp(command->value->cstring, "messages_start") == 0) {
+    s_message_count = 0;
+    memset(s_messages, 0, sizeof(s_messages));
+    return;
+  }
+
+  if (strcmp(command->value->cstring, "messages_prepend_start") == 0) {
+    Tuple *total = dict_find(iterator, MESSAGE_KEY_TOTAL);
+    int added = total ? total->value->int32 : 0;
+    if (added < 0) added = 0;
+    if (added > MAX_MESSAGES - s_message_count) added = MAX_MESSAGES - s_message_count;
+    if (added > 0) {
+      memmove(s_messages + added, s_messages, (size_t)s_message_count * sizeof(Message));
+      memset(s_messages, 0, (size_t)added * sizeof(Message));
+      s_message_count += added;
+    }
+    return;
+  }
+
+  if (strcmp(command->value->cstring, "messages_ready") == 0) {
+    Tuple *total = dict_find(iterator, MESSAGE_KEY_TOTAL);
+    Tuple *selected = dict_find(iterator, MESSAGE_KEY_INDEX);
+    Tuple *has_more = dict_find(iterator, MESSAGE_KEY_HAS_MORE);
+    Tuple *mode = dict_find(iterator, MESSAGE_KEY_STATE);
+    int count = total ? total->value->int32 : s_message_count;
+    if (count < 0) count = 0;
+    if (count > MAX_MESSAGES) count = MAX_MESSAGES;
+    s_message_count = count;
+    s_has_older_messages = has_more && has_more->value->int32 != 0;
+    s_loading_older_messages = false;
+    s_message_state = count > 0 ? VIEW_READY : VIEW_EMPTY;
+    set_status(s_message_status_layer, s_message_state, true);
+    if (s_message_menu) {
+      menu_layer_reload_data(s_message_menu);
+      if (count > 0) {
+        int row = selected ? selected->value->int32 : count - 1;
+        if (row < 0) row = 0;
+        if (row >= count) row = count - 1;
+        MenuIndex target = { .section = 0, .row = row };
+        MenuRowAlign align = mode && strcmp(mode->value->cstring, "older") == 0 ?
+          MenuRowAlignTop : MenuRowAlignBottom;
+        menu_layer_set_selected_index(s_message_menu, target, align, false);
+        menu_layer_set_click_config_onto_window(s_message_menu, s_message_window);
+      }
+    }
+    cancel_load_watchdog();
+    return;
+  }
+
+  if (strcmp(command->value->cstring, "message_history_failed") == 0) {
+    s_loading_older_messages = false;
+    if (s_message_menu && s_message_count > 1) {
+      MenuIndex retry_position = { .section = 0, .row = 1 };
+      menu_layer_set_selected_index(s_message_menu, retry_position, MenuRowAlignTop, true);
+    }
+    vibes_short_pulse();
+    return;
+  }
 
   if (strcmp(command->value->cstring, "quick_reply") == 0) {
     Tuple *index = dict_find(iterator, MESSAGE_KEY_INDEX);
@@ -957,7 +1030,8 @@ static void message_load(Window *window) {
     .get_cell_height = message_row_height,
     .draw_row = draw_message,
     .select_click = message_selected,
-    .select_long_click = view_attachment
+    .select_long_click = view_attachment,
+    .selection_changed = message_selection_changed
   });
   menu_layer_set_click_config_onto_window(s_message_menu, window);
   layer_add_child(root, menu_layer_get_layer(s_message_menu));

@@ -54,6 +54,9 @@ review, and information must remain understandable without color.
 ## Navigation and loading
 
 - Select on a chat always opens that chat.
+- Opening a chat selects its newest message at the bottom of a chronological timeline.
+- Moving upward near the oldest loaded message fetches an earlier page without jumping back to the
+  newest message; keep up to 60 messages available on the watch.
 - Select on a message opens its complete text in a dedicated scrolling view.
 - Select in the complete-message view opens reply options: voice dictation followed by up to eight
   configured canned replies.

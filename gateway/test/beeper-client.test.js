@@ -50,7 +50,7 @@ test('chat and message requests are bounded and normalized', async () => {
   const chats = page.items;
   const messages = await client.listMessages('chat-1', 12);
   assert.equal(chats[0].name, 'Readable Name');
-  assert.equal(messages[0].text, 'Earlier');
+  assert.equal(messages.items[0].text, 'Earlier');
   assert.deepEqual(paths, ['/v1/chats/search?limit=12&type=any&inbox=primary', '/v1/chats/chat-1/messages?limit=12']);
 });
 
@@ -76,11 +76,24 @@ test('chat pagination forwards opaque cursors and returns the oldest cursor', as
   assert.equal(paths[0], '/v1/chats/search?limit=12&type=any&inbox=primary&cursor=opaque%20current&direction=before');
 });
 
-test('message results are bounded even when Beeper returns too many items', async () => {
-  const fetchImpl = async () => new Response(JSON.stringify({items:Array.from({length:20}, (_, index) => ({id:`m${index}`,text:`message ${index}`}))}), {status:200});
+test('message pages retain the full API page while enforcing a watch-safe ceiling', async () => {
+  const fetchImpl = async () => new Response(JSON.stringify({items:Array.from({length:80}, (_, index) => ({id:`m${index}`,text:`message ${index}`}))}), {status:200});
   const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl});
   const messages = await client.listMessages('chat-1', 12);
-  assert.equal(messages.length, 12);
+  assert.equal(messages.items.length, 60);
+});
+
+test('message pagination advances through older pages with the opaque cursor', async () => {
+  const paths = [];
+  const fetchImpl = async (url) => {
+    paths.push(new URL(url).pathname + new URL(url).search);
+    return new Response(JSON.stringify({items:[],hasMore:true,oldestCursor:'older opaque'}), {status:200});
+  };
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl});
+  const page = await client.listMessages('chat-1', 12, 'current opaque');
+  assert.equal(page.hasMore, true);
+  assert.equal(page.nextCursor, 'older opaque');
+  assert.equal(paths[0], '/v1/chats/chat-1/messages?limit=12&cursor=current%20opaque&direction=after');
 });
 
 test('attachments use opaque IDs and can produce watch-native previews', async () => {
@@ -101,9 +114,9 @@ test('attachments use opaque IDs and can produce watch-native previews', async (
   };
   const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl,previewCreator});
   const messages = await client.listMessages('chat-1', 12);
-  assert.equal(messages[0].attachment.kind, 'gif');
-  assert.doesNotMatch(messages[0].attachment.id, /private/);
-  const preview = await client.getAttachmentPreview(messages[0].attachment.id);
+  assert.equal(messages.items[0].attachment.kind, 'gif');
+  assert.doesNotMatch(messages.items[0].attachment.id, /private/);
+  const preview = await client.getAttachmentPreview(messages.items[0].attachment.id);
   assert.equal(preview.kind, 'gif');
   assert.deepEqual([...preview.pixels], [0xc0,0xff]);
   assert.ok(convertedInput);

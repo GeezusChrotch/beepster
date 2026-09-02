@@ -109,8 +109,10 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '' }) {
       const messagesMatch = url.pathname.match(/^\/v1\/chats\/([^/]+)\/messages$/);
       if (messagesMatch && request.method === 'GET') {
         const chatID = decodeURIComponent(messagesMatch[1]);
-        const result = await withCache(`messages:${chatID}`, () => beeperClient.listMessages(chatID, boundedLimit(url.searchParams.get('limit'))));
-        sendJSON(response, 200, { items: result.value, ...(result.stale ? { stale: true } : {}) });
+        const cursor = url.searchParams.get('cursor') || '';
+        const result = await withCache(`messages:${chatID}:${cursor}`, () => beeperClient.listMessages(chatID, boundedLimit(url.searchParams.get('limit')), cursor));
+        const page = Array.isArray(result.value) ? { items: result.value } : result.value;
+        sendJSON(response, 200, { ...page, ...(result.stale ? { stale: true } : {}) });
         return;
       }
 

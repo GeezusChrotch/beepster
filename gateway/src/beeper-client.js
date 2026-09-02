@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import { createWatchPreview } from './image-preview.js';
 import { htmlToText } from './html-to-text.js';
 
+const MAX_MESSAGE_PAGE = 60;
+
 function ensureOK(response, operation) {
   if (!response.ok) {
     throw new Error(`${operation} failed with HTTP ${response.status}`);
@@ -111,9 +113,12 @@ export class BeeperClient {
     return { items, hasMore: Boolean(result.hasMore), nextCursor: result.oldestCursor || null };
   }
 
-  async listMessages(chatID, limit) {
-    const result = await this.request(`/v1/chats/${encodeURIComponent(chatID)}/messages?limit=${limit}`);
-    return (result.items || []).slice(0, limit).reverse().map((message) => {
+  async listMessages(chatID, limit, cursor = '') {
+    // The current Desktop API returns newest-first pages and advances toward older history with
+    // `after`; cursors remain opaque and are never inspected here.
+    const cursorQuery = cursor ? `&cursor=${encodeURIComponent(cursor)}&direction=after` : '';
+    const result = await this.request(`/v1/chats/${encodeURIComponent(chatID)}/messages?limit=${limit}${cursorQuery}`);
+    const items = (result.items || []).slice(0, MAX_MESSAGE_PAGE).reverse().map((message) => {
       const attachment = (message.attachments || []).map((item, index) =>
         this.rememberAttachment(message.id, item, index)).find(Boolean) || null;
       return {
@@ -124,6 +129,7 @@ export class BeeperClient {
         attachment
       };
     });
+    return { items, hasMore: Boolean(result.hasMore), nextCursor: result.oldestCursor || null };
   }
 
   async getAttachmentPreview(attachmentID) {

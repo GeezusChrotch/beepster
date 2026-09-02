@@ -44,6 +44,23 @@ test('configuration page supports editing an existing paired connection', async 
   });
 });
 
+test('message history pagination forwards the opaque cursor', async () => {
+  let receivedCursor = null;
+  const client = {
+    listMessages: async (chatID, limit, cursor) => {
+      receivedCursor = cursor;
+      return {items:[{id:'older-1'}],hasMore:true,nextCursor:'next opaque'};
+    }
+  };
+  await withServer(client, async (baseURL) => {
+    const response = await fetch(`${baseURL}/v1/chats/chat-1/messages?limit=12&cursor=current%20opaque`, {
+      headers:{Authorization:'Bearer gateway-secret'}
+    });
+    assert.equal(receivedCursor, 'current opaque');
+    assert.deepEqual(await response.json(), {items:[{id:'older-1'}],hasMore:true,nextCursor:'next opaque'});
+  });
+});
+
 test('pairing requires the exact code and returns only the gateway credential', async () => {
   const server = createServer({ beeperClient: {}, gatewayToken: 'gateway-secret', pairingCode: '246810' });
   server.listen(0, '127.0.0.1');

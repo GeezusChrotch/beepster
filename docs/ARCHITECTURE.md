@@ -11,7 +11,7 @@ Beeper Desktop API
 ```
 
 The gateway subscribes to or queries the official Beeper Desktop API and returns a deliberately
-small watch-oriented payload. It is responsible for contact resolution, pagination, reply delivery
+small watch-oriented payload. It is responsible for contact resolution, opaque-cursor pagination, reply delivery
 tracking, bounded caching, credential protection, and temporary attachment conversion. Attachment
 source URLs never cross the gateway boundary: the phone receives an opaque ID and a bounded stream
 of watch-native pixels.

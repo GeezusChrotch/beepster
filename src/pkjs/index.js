@@ -33,6 +33,7 @@ var KEY_MEDIA_TOTAL = 29;
 var KEY_MSG_ID = 30;
 var KEY_DETAIL_TEXT = 31;
 var KEY_QUICK_REPLY_TEXT = 32;
+var KEY_HAS_MORE = 33;
 
 var BUILT_IN_THEMES = [
   {id:'classic',name:'Classic',background:'#FFFFFF',text:'#000000',muted:'#555555',accent:'#0055AA',accentText:'#FFFFFF',font:'gothic',textSize:'normal',builtIn:true},
@@ -49,6 +50,12 @@ var DEFAULT_SETTINGS_URL = '';
 var refreshTimer = null;
 var messageTextByID = {};
 var quickReplyCounter = 0;
+var activeMessageChatID = '';
+var messageHistory = [];
+var oldestMessageCursor = '';
+var hasOlderMessages = false;
+var loadingOlderMessages = false;
+var MAX_WATCH_MESSAGES = 60;
 var DEFAULT_QUICK_REPLIES = ['Yes', 'No', 'On my way', 'Thanks! 👍'];
 
 function gatewayURL() {
@@ -206,11 +213,16 @@ function scheduleRefresh() {
   if (seconds > 0) refreshTimer = setTimeout(loadChats, Math.max(60, seconds) * 1000);
 }
 
-function request(path, callback) {
+function request(path, callback, failure) {
   var url = gatewayURL();
   var token = gatewayToken();
+  function fail(message) {
+    if (failure) failure(message);
+    else sendState('error', message);
+  }
   if (!url || !token) {
-    sendState('setup');
+    if (failure) failure('Gateway not configured');
+    else sendState('setup');
     return;
   }
 
@@ -220,17 +232,17 @@ function request(path, callback) {
   xhr.timeout = 12000;
   xhr.onload = function() {
     if (xhr.status < 200 || xhr.status >= 300) {
-      sendState('error', 'Gateway returned ' + xhr.status);
+      fail('Gateway returned ' + xhr.status);
       return;
     }
     try {
       callback(JSON.parse(xhr.responseText));
     } catch (error) {
-      sendState('error', 'Invalid gateway response');
+      fail('Invalid gateway response');
     }
   };
-  xhr.onerror = function() { sendState('error', 'Gateway unavailable'); };
-  xhr.ontimeout = function() { sendState('error', 'Gateway timed out'); };
+  xhr.onerror = function() { fail('Gateway unavailable'); };
+  xhr.ontimeout = function() { fail('Gateway timed out'); };
   xhr.send();
 }
 
@@ -309,36 +321,80 @@ function loadChats() {
   });
 }
 
+function queueMessage(item, index, total) {
+  var messageID = String(item.id || ('message-' + index));
+  messageTextByID[messageID] = String(item.text || '');
+  var message = {};
+  message[KEY_COMMAND] = 'message';
+  message[KEY_INDEX] = index;
+  message[KEY_TOTAL] = total;
+  message[KEY_MSG_SENDER] = safeSlice(item.sender || 'Unknown', 44);
+  message[KEY_MSG_TEXT] = safeSlice(item.text, 240);
+  message[KEY_MSG_TIME] = safeSlice(item.time, 18);
+  message[KEY_MSG_ID] = safeSlice(messageID, 120);
+  if (item.attachment) {
+    message[KEY_ATTACHMENT_ID] = safeSlice(item.attachment.id, 30);
+    message[KEY_ATTACHMENT_KIND] = item.attachment.kind === 'gif' ? 2 : (item.attachment.kind === 'video' ? 3 : 1);
+  }
+  enqueue(message);
+}
+
+function finishMessageBatch(mode, selectedIndex) {
+  var ready = {};
+  ready[KEY_COMMAND] = 'messages_ready';
+  ready[KEY_STATE] = mode;
+  ready[KEY_TOTAL] = messageHistory.length;
+  ready[KEY_INDEX] = Math.max(0, selectedIndex);
+  ready[KEY_HAS_MORE] = hasOlderMessages ? 1 : 0;
+  enqueue(ready);
+}
+
 function loadMessages(chatID) {
   console.log('Beepster loading messages chatIDLength=' + String(chatID || '').length);
+  activeMessageChatID = chatID;
+  messageHistory = [];
+  oldestMessageCursor = '';
+  hasOlderMessages = false;
+  loadingOlderMessages = false;
+  messageTextByID = {};
   sendState('loading');
   request('/v1/chats/' + encodeURIComponent(chatID) + '/messages?limit=12', function(data) {
-    var items = data.items || [];
-    if (items.length === 0) {
-      sendState('empty');
-      return;
+    var items = (data.items || []).slice(0, MAX_WATCH_MESSAGES);
+    if (items.length === 0) { sendState('empty'); return; }
+    messageHistory = items;
+    oldestMessageCursor = data.nextCursor || '';
+    hasOlderMessages = Boolean(data.hasMore && oldestMessageCursor && messageHistory.length < MAX_WATCH_MESSAGES);
+    var start = {}; start[KEY_COMMAND] = 'messages_start'; start[KEY_TOTAL] = items.length; enqueue(start);
+    for (var i = 0; i < items.length; i++) queueMessage(items[i], i, items.length);
+    finishMessageBatch('initial', items.length - 1);
+    console.log('Beepster queued newest messages count=' + items.length);
+  });
+}
+
+function loadOlderMessages(chatID) {
+  if (loadingOlderMessages || !hasOlderMessages || chatID !== activeMessageChatID) return;
+  var remaining = MAX_WATCH_MESSAGES - messageHistory.length;
+  if (remaining <= 0) { hasOlderMessages = false; finishMessageBatch('older', 0); return; }
+  loadingOlderMessages = true;
+  var limit = Math.min(12, remaining);
+  var path = '/v1/chats/' + encodeURIComponent(chatID) + '/messages?limit=' + limit + '&cursor=' + encodeURIComponent(oldestMessageCursor) + '&direction=before';
+  request(path, function(data) {
+    var seen = {};
+    for (var i = 0; i < messageHistory.length; i++) seen[String(messageHistory[i].id || '')] = true;
+    var page = (data.items || []).filter(function(item) { return !seen[String(item.id || '')]; }).slice(-remaining);
+    oldestMessageCursor = data.nextCursor || '';
+    messageHistory = page.concat(messageHistory);
+    hasOlderMessages = Boolean(data.hasMore && oldestMessageCursor && messageHistory.length < MAX_WATCH_MESSAGES);
+    loadingOlderMessages = false;
+    if (page.length) {
+      var start = {}; start[KEY_COMMAND] = 'messages_prepend_start'; start[KEY_TOTAL] = page.length; enqueue(start);
+      for (var j = 0; j < page.length; j++) queueMessage(page[j], j, page.length);
     }
-    messageTextByID = {};
-    for (var i = 0; i < items.length && i < 12; i++) {
-      var item = items[i];
-      var messageID = String(item.id || ('message-' + i));
-      messageTextByID[messageID] = String(item.text || '');
-      var message = {};
-      message[KEY_COMMAND] = 'message';
-      message[KEY_INDEX] = i;
-      message[KEY_TOTAL] = Math.min(items.length, 12);
-      message[KEY_MSG_SENDER] = safeSlice(item.sender || 'Unknown', 44);
-      message[KEY_MSG_TEXT] = safeSlice(item.text, 240);
-      message[KEY_MSG_TIME] = safeSlice(item.time, 18);
-      message[KEY_MSG_ID] = safeSlice(messageID, 120);
-      if (item.attachment) {
-        message[KEY_ATTACHMENT_ID] = safeSlice(item.attachment.id, 30);
-        message[KEY_ATTACHMENT_KIND] = item.attachment.kind === 'gif' ? 2 : (item.attachment.kind === 'video' ? 3 : 1);
-      }
-      enqueue(message);
-    }
-    console.log('Beepster queued messages count=' + Math.min(items.length, 12));
-    sendState('ready');
+    finishMessageBatch('older', page.length);
+    console.log('Beepster prepended older messages count=' + page.length + ' total=' + messageHistory.length);
+  }, function(error) {
+    loadingOlderMessages = false;
+    var failed = {}; failed[KEY_COMMAND] = 'message_history_failed'; failed[KEY_ERROR] = safeSlice(error, 100); enqueue(failed);
   });
 }
 
@@ -427,6 +483,7 @@ Pebble.addEventListener('appmessage', function(event) {
   console.log('Beepster watch command=' + String(command || 'missing'));
   if (command === 'load_chats') loadChats();
   if (command === 'load_messages') loadMessages(payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || '');
+  if (command === 'load_older_messages') loadOlderMessages(payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || '');
   if (command === 'send_reply') sendReply(payload[KEY_CHAT_ID] || payload.CHAT_ID || '', payload[KEY_REPLY_TEXT] || payload.REPLY_TEXT || '', payload[KEY_REPLY_REQUEST_ID] || payload.REPLY_REQUEST_ID || '');
   if (command === 'load_attachment') loadAttachment(payload[KEY_ATTACHMENT_ID] || payload.ATTACHMENT_ID || payload[KEY_CHAT_ID] || payload.CHAT_ID || '');
   if (command === 'load_message_detail') sendMessageDetail(payload[KEY_MSG_ID] || payload.MSG_ID || '');
