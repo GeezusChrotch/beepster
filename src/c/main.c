@@ -258,6 +258,7 @@ static void apply_state(const char *state, const char *error) {
   else if (strcmp(state, "ready") == 0) mapped = VIEW_READY;
 
   if (s_message_window && window_stack_get_top_window() == s_message_window) {
+    APP_LOG(APP_LOG_LEVEL_INFO, "message state=%s count=%d error=%s", state, s_message_count, error ? error : "");
     s_message_state = mapped;
     set_status(s_message_status_layer, mapped, true);
     if (s_message_menu) menu_layer_reload_data(s_message_menu);
@@ -327,6 +328,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     copy_text(s_messages[slot].text, sizeof(s_messages[slot].text), text ? text->value->cstring : "");
     copy_text(s_messages[slot].time, sizeof(s_messages[slot].time), time ? time->value->cstring : "");
     if (slot + 1 > s_message_count) s_message_count = slot + 1;
+    APP_LOG(APP_LOG_LEVEL_INFO, "message received slot=%d count=%d", slot, s_message_count);
   }
 }
 

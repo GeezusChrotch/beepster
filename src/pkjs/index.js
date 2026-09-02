@@ -47,20 +47,27 @@ function selectedTheme() {
 }
 
 function enqueue(message) {
-  queue.push(message);
+  queue.push({ message: message, retries: 0 });
   drain();
 }
 
 function drain() {
   if (sending || queue.length === 0) return;
   sending = true;
-  Pebble.sendAppMessage(queue[0], function() {
+  Pebble.sendAppMessage(queue[0].message, function() {
     queue.shift();
     sending = false;
     drain();
-  }, function() {
+  }, function(error) {
+    queue[0].retries++;
     sending = false;
-    setTimeout(drain, 400);
+    console.log('Beepster AppMessage failure retry=' + queue[0].retries + ' code=' + JSON.stringify(error || {}));
+    if (queue[0].retries >= 3) {
+      queue = [];
+      sendState('error', 'Watch transport failed');
+      return;
+    }
+    setTimeout(drain, 500);
   });
 }
 
@@ -136,6 +143,7 @@ function loadChats() {
 }
 
 function loadMessages(chatID) {
+  console.log('Beepster loading messages chatIDLength=' + String(chatID || '').length);
   sendState('loading');
   request('/v1/chats/' + encodeURIComponent(chatID) + '/messages?limit=12', function(data) {
     var items = data.items || [];
@@ -150,10 +158,11 @@ function loadMessages(chatID) {
       message[KEY_INDEX] = i;
       message[KEY_TOTAL] = Math.min(items.length, 12);
       message[KEY_MSG_SENDER] = safeSlice(item.sender || 'Unknown', 44);
-      message[KEY_MSG_TEXT] = safeSlice(item.text, 230);
+      message[KEY_MSG_TEXT] = safeSlice(item.text, 160);
       message[KEY_MSG_TIME] = safeSlice(item.time, 18);
       enqueue(message);
     }
+    console.log('Beepster queued messages count=' + Math.min(items.length, 12));
     sendState('ready');
   });
 }
