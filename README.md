@@ -17,25 +17,28 @@ the Beeper access token on the Mac gateway.
 
 ## Current status
 
-Version 0.1 is the clean-room foundation:
+Version 0.4 is a working clean-room daily-driver preview:
 
 - Native Emery watch build
 - Explicit setup/loading/empty/error states
 - Recent-chat and message-history protocol
 - Private Mac gateway using the official Beeper Desktop API
 - Contact-name normalization from participant data and Beeper's per-account contact list
-- Semantic Classic, Dark, Ocean, and Contrast themes
+- Six presets plus saved custom themes with colors, fonts, text size, and live preview
 - Pebble-native emoji preservation with safe fallbacks for unsupported emoji
 - Keychain-backed macOS LaunchAgent companion with private HTTPS pairing
-- Phone settings for theme, text size, and refresh interval
-- Automated gateway tests and source checks
+- Phone settings that persist without re-pairing
+- Confirmed voice dictation replies with Beeper delivery tracking and retry protection
+- Private photo, GIF-poster, and video-poster previews converted to native Time 2 color on the Mac
+- Automated gateway tests, source checks, and emulator media-render tests
 
-Reliable voice and canned replies are deliberately scheduled after the inbox path is stable. See
+Animated GIF playback, multiple attachments per message, and canned replies remain planned. See
 [ROADMAP.md](ROADMAP.md) and [docs/UX_REQUIREMENTS.md](docs/UX_REQUIREMENTS.md).
 
 ## Development
 
-Requirements: Pebble SDK 4.33.1 or newer, Pebble Tool 5, and Node.js 20 or newer.
+Requirements: macOS, Pebble SDK 4.33.1 or newer, Pebble Tool 5, and Node.js 20 or newer. The
+companion uses macOS `sips` to make bounded watch previews without adding an image-processing cloud.
 
 ```sh
 npm test

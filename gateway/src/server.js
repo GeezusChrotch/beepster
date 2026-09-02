@@ -20,6 +20,18 @@ function sendHTML(response, status, body) {
   response.end(body);
 }
 
+function sendPreview(response, preview) {
+  response.writeHead(200, {
+    'Content-Type': 'application/octet-stream',
+    'Content-Length': preview.pixels.length,
+    'Cache-Control': 'private, max-age=300',
+    'X-Beepster-Width': String(preview.width),
+    'X-Beepster-Height': String(preview.height),
+    'X-Beepster-Kind': preview.kind
+  });
+  response.end(preview.pixels);
+}
+
 async function readJSON(request) {
   const chunks = [];
   let size = 0;
@@ -128,6 +140,17 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '' }) {
       if (messageStatusMatch && request.method === 'GET') {
         const status = await beeperClient.getMessageStatus(decodeURIComponent(messageStatusMatch[1]), decodeURIComponent(messageStatusMatch[2]));
         sendJSON(response, 200, status);
+        return;
+      }
+
+      const attachmentMatch = url.pathname.match(/^\/v1\/attachments\/([a-f0-9]{24})\/preview$/);
+      if (attachmentMatch && request.method === 'GET') {
+        const preview = await beeperClient.getAttachmentPreview(attachmentMatch[1]);
+        if (!preview) {
+          sendJSON(response, 404, { error: 'Attachment is no longer available; reload the chat' });
+          return;
+        }
+        sendPreview(response, preview);
         return;
       }
 

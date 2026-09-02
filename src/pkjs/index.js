@@ -23,6 +23,13 @@ var KEY_THEME_MUTED = 19;
 var KEY_THEME_ACCENT = 20;
 var KEY_THEME_ACCENT_TEXT = 21;
 var KEY_THEME_FONT = 22;
+var KEY_ATTACHMENT_ID = 23;
+var KEY_ATTACHMENT_KIND = 24;
+var KEY_MEDIA_WIDTH = 25;
+var KEY_MEDIA_HEIGHT = 26;
+var KEY_MEDIA_OFFSET = 27;
+var KEY_MEDIA_BYTES = 28;
+var KEY_MEDIA_TOTAL = 29;
 
 var BUILT_IN_THEMES = [
   {id:'classic',name:'Classic',background:'#FFFFFF',text:'#000000',muted:'#555555',accent:'#0055AA',accentText:'#FFFFFF',font:'gothic',textSize:'normal',builtIn:true},
@@ -244,11 +251,43 @@ function loadMessages(chatID) {
       message[KEY_MSG_SENDER] = safeSlice(item.sender || 'Unknown', 44);
       message[KEY_MSG_TEXT] = safeSlice(item.text, 160);
       message[KEY_MSG_TIME] = safeSlice(item.time, 18);
+      if (item.attachment) {
+        message[KEY_ATTACHMENT_ID] = safeSlice(item.attachment.id, 30);
+        message[KEY_ATTACHMENT_KIND] = item.attachment.kind === 'gif' ? 2 : (item.attachment.kind === 'video' ? 3 : 1);
+      }
       enqueue(message);
     }
     console.log('Beepster queued messages count=' + Math.min(items.length, 12));
     sendState('ready');
   });
+}
+
+function loadAttachment(attachmentID) {
+  var url = gatewayURL(), token = gatewayToken();
+  if (!url || !token || !attachmentID) { sendState('media_failed', 'Attachment unavailable'); return; }
+  sendState('media_loading');
+  var xhr = new XMLHttpRequest();
+  xhr.open('GET', url + '/v1/attachments/' + encodeURIComponent(attachmentID) + '/preview', true);
+  xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+  xhr.responseType = 'arraybuffer';
+  xhr.timeout = 30000;
+  xhr.onload = function() {
+    if (xhr.status < 200 || xhr.status >= 300 || !xhr.response) { sendState('media_failed', 'Preview failed with ' + xhr.status); return; }
+    var width = Number(xhr.getResponseHeader('X-Beepster-Width'));
+    var height = Number(xhr.getResponseHeader('X-Beepster-Height'));
+    var kindName = xhr.getResponseHeader('X-Beepster-Kind') || 'image';
+    var kind = kindName === 'gif' ? 2 : (kindName === 'video' ? 3 : 1);
+    var bytes = new Uint8Array(xhr.response);
+    if (!width || !height || bytes.length !== width * height || bytes.length > 32400) { sendState('media_failed', 'Invalid watch preview'); return; }
+    var start = {}; start[KEY_COMMAND] = 'media_start'; start[KEY_MEDIA_WIDTH] = width; start[KEY_MEDIA_HEIGHT] = height; start[KEY_MEDIA_TOTAL] = bytes.length; start[KEY_ATTACHMENT_KIND] = kind; enqueue(start);
+    for (var offset = 0; offset < bytes.length; offset += 512) {
+      var chunk = {}; chunk[KEY_COMMAND] = 'media_chunk'; chunk[KEY_MEDIA_OFFSET] = offset; chunk[KEY_MEDIA_BYTES] = Array.prototype.slice.call(bytes.subarray(offset, Math.min(offset + 512, bytes.length))); enqueue(chunk);
+    }
+    var end = {}; end[KEY_COMMAND] = 'media_end'; enqueue(end);
+  };
+  xhr.onerror = function() { sendState('media_failed', 'Preview unavailable'); };
+  xhr.ontimeout = function() { sendState('media_failed', 'Preview timed out'); };
+  xhr.send();
 }
 
 Pebble.addEventListener('ready', function() {
@@ -295,4 +334,5 @@ Pebble.addEventListener('appmessage', function(event) {
   if (command === 'load_chats') loadChats();
   if (command === 'load_messages') loadMessages(payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || '');
   if (command === 'send_reply') sendReply(payload[KEY_CHAT_ID] || payload.CHAT_ID || '', payload[KEY_REPLY_TEXT] || payload.REPLY_TEXT || '', payload[KEY_REPLY_REQUEST_ID] || payload.REPLY_REQUEST_ID || '');
+  if (command === 'load_attachment') loadAttachment(payload[KEY_ATTACHMENT_ID] || payload.ATTACHMENT_ID || payload[KEY_CHAT_ID] || payload.CHAT_ID || '');
 });

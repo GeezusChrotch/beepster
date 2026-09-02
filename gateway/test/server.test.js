@@ -76,3 +76,19 @@ test('reply requests are idempotent and expose delivery status', async () => {
     assert.equal((await status.json()).status, 'SUCCESS');
   });
 });
+
+test('attachment previews require authentication and return dimensions without source paths', async () => {
+  const client = {
+    getAttachmentPreview: async (id) => id === 'aaaaaaaaaaaaaaaaaaaaaaaa' ?
+      {width:2,height:1,kind:'image',pixels:Buffer.from([0xc0,0xff])} : null
+  };
+  await withServer(client, async (baseURL) => {
+    const path = `${baseURL}/v1/attachments/aaaaaaaaaaaaaaaaaaaaaaaa/preview`;
+    assert.equal((await fetch(path)).status, 401);
+    const response = await fetch(path, {headers:{Authorization:'Bearer gateway-secret'}});
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('x-beepster-width'), '2');
+    assert.equal(response.headers.get('x-beepster-kind'), 'image');
+    assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [0xc0,0xff]);
+  });
+});

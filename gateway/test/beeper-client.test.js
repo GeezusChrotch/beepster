@@ -82,3 +82,30 @@ test('message results are bounded even when Beeper returns too many items', asyn
   const messages = await client.listMessages('chat-1', 12);
   assert.equal(messages.length, 12);
 });
+
+test('attachments use opaque IDs and can produce watch-native previews', async () => {
+  const paths = [];
+  const fetchImpl = async (url) => {
+    paths.push(new URL(url).pathname + new URL(url).search);
+    if (url.includes('/assets/serve')) return new Response(Buffer.from([1, 2, 3]), {status:200});
+    return new Response(JSON.stringify({items:[{
+      id:'message-private',text:'A photo',attachments:[{
+        id:'attachment-private',type:'img',mimeType:'image/gif',isGif:true,srcURL:'mxc://private/media'
+      }]
+    }]}), {status:200});
+  };
+  let convertedInput = null;
+  const previewCreator = async (inputPath) => {
+    convertedInput = inputPath;
+    return {width:2,height:1,pixels:Buffer.from([0xc0,0xff])};
+  };
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl,previewCreator});
+  const messages = await client.listMessages('chat-1', 12);
+  assert.equal(messages[0].attachment.kind, 'gif');
+  assert.doesNotMatch(messages[0].attachment.id, /private/);
+  const preview = await client.getAttachmentPreview(messages[0].attachment.id);
+  assert.equal(preview.kind, 'gif');
+  assert.deepEqual([...preview.pixels], [0xc0,0xff]);
+  assert.ok(convertedInput);
+  assert.match(paths[1], /^\/v1\/assets\/serve\?url=mxc%3A%2F%2Fprivate%2Fmedia$/);
+});

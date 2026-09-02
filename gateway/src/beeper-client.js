@@ -1,4 +1,10 @@
 import { normalizeEmojiForPebble } from './emoji.js';
+import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createWatchPreview } from './image-preview.js';
 
 function ensureOK(response, operation) {
   if (!response.ok) {
@@ -40,13 +46,15 @@ function normalizeTime(timestamp) {
 }
 
 export class BeeperClient {
-  constructor({ baseURL, accessToken, fetchImpl = globalThis.fetch }) {
+  constructor({ baseURL, accessToken, fetchImpl = globalThis.fetch, previewCreator = createWatchPreview }) {
     this.baseURL = baseURL.replace(/\/$/, '');
     this.accessToken = accessToken;
     this.fetch = fetchImpl;
+    this.previewCreator = previewCreator;
+    this.attachments = new Map();
   }
 
-  async request(path, options = {}) {
+  async response(path, options = {}) {
     const response = await this.fetch(`${this.baseURL}${path}`, {
       ...options,
       headers: {
@@ -56,8 +64,24 @@ export class BeeperClient {
       }
     });
     ensureOK(response, options.method || 'GET');
+    return response;
+  }
+
+  async request(path, options = {}) {
+    const response = await this.response(path, options);
     if (response.status === 204) return null;
     return response.json();
+  }
+
+  rememberAttachment(messageID, attachment, index) {
+    const sourceURL = attachment.type === 'video' ? (attachment.posterImg || attachment.srcURL) : (attachment.srcURL || attachment.posterImg);
+    if (!sourceURL || !/^(file|mxc|localmxc):\/\//.test(sourceURL)) return null;
+    const kind = attachment.isGif || attachment.mimeType === 'image/gif' ? 'gif' :
+      (attachment.type === 'video' ? 'video' : 'image');
+    const id = createHash('sha256').update(`${messageID}:${attachment.id || index}:${sourceURL}`).digest('hex').slice(0, 24);
+    this.attachments.set(id, { sourceURL, kind });
+    if (this.attachments.size > 300) this.attachments.delete(this.attachments.keys().next().value);
+    return { id, kind };
   }
 
   async listChats(limit, cursor = '') {
@@ -88,12 +112,39 @@ export class BeeperClient {
 
   async listMessages(chatID, limit) {
     const result = await this.request(`/v1/chats/${encodeURIComponent(chatID)}/messages?limit=${limit}`);
-    return (result.items || []).slice(0, limit).reverse().map((message) => ({
-      id: message.id,
-      sender: message.isSender ? 'Me' : normalizeEmojiForPebble(message.senderName || 'Unknown'),
-      text: normalizeEmojiForPebble(message.text || ''),
-      time: normalizeTime(message.timestamp)
-    }));
+    return (result.items || []).slice(0, limit).reverse().map((message) => {
+      const attachment = (message.attachments || []).map((item, index) =>
+        this.rememberAttachment(message.id, item, index)).find(Boolean) || null;
+      return {
+        id: message.id,
+        sender: message.isSender ? 'Me' : normalizeEmojiForPebble(message.senderName || 'Unknown'),
+        text: normalizeEmojiForPebble(message.text || ''),
+        time: normalizeTime(message.timestamp),
+        attachment
+      };
+    });
+  }
+
+  async getAttachmentPreview(attachmentID) {
+    const attachment = this.attachments.get(attachmentID);
+    if (!attachment) return null;
+    const directory = await mkdtemp(join(tmpdir(), 'beepster-preview-'));
+    const inputPath = join(directory, 'source');
+    const outputPath = join(directory, 'preview.bmp');
+    try {
+      if (attachment.sourceURL.startsWith('file://')) {
+        const preview = await this.previewCreator(fileURLToPath(attachment.sourceURL), outputPath);
+        return { ...preview, kind: attachment.kind };
+      }
+      const response = await this.response(`/v1/assets/serve?url=${encodeURIComponent(attachment.sourceURL)}`, {
+        headers: { Accept: '*/*' }
+      });
+      await writeFile(inputPath, Buffer.from(await response.arrayBuffer()));
+      const preview = await this.previewCreator(inputPath, outputPath);
+      return { ...preview, kind: attachment.kind };
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   }
 
   async sendReply(chatID, text) {

@@ -6,7 +6,8 @@ Beepster is designed for personal, self-hosted use.
 - Beeper credentials remain on the Mac.
 - The gateway does not include analytics, advertising, or telemetry.
 - The watch stores only a small recent cache needed for a usable inbox.
+- Attachment previews are resized in a temporary Mac directory, deleted after conversion, and
+  transferred directly to the watch; Beeper file paths are not sent to the phone or watch.
 - No Beepster-operated cloud database or account is required.
 
 The messaging networks connected to Beeper remain subject to their own privacy policies.
-

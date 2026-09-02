@@ -25,6 +25,16 @@ sent until Beeper resolves the pending message with a successful send status.
 
 - Unread-first and recency sorting options
 - Mark read/unread
-- Configurable text size and contrast
+- [x] Saved custom themes with colors, fonts, text size, and preview
+- [x] Settings persistence without re-pairing
 - Offline cache freshness indicator
 - Basalt, Chalk, Diorite, Flint, and Gabbro evaluation
+
+## 0.4 — Media previews
+
+- [x] Opaque attachment IDs keep Beeper source paths off the phone and watch
+- [x] Mac-side resize and 64-color Time 2 conversion
+- [x] Full-screen photo previews from message history
+- [x] Static GIF and video poster previews
+- [ ] Animated GIF playback
+- [ ] Multiple attachments in one message

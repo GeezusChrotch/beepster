@@ -22,12 +22,14 @@ Stable chat IDs, never display names, are used for navigation and replies.
 
 ## Themes
 
-Beepster ships with four semantic themes. Layout and delivery behavior remain identical across them:
+Beepster ships with six semantic presets and saved custom themes. Layout and delivery behavior remain identical across them:
 
 - `Classic`: white background, black text, Pebble blue selection
 - `Dark`: black background, white text, cyan selection
 - `Ocean`: deep blue background, white text, bright blue selection
 - `Contrast`: white background, black text, black selection
+- `Plum`: deep plum background, light text, purple selection
+- `Forest`: deep green background, light text, green selection
 
 Theme colors are applied through semantic roles (`background`, `text`, `muted`, `accent`, and
 `accentText`) rather than scattered color constants. Every preset must pass an emulator screenshot
@@ -45,7 +47,8 @@ review, and information must remain understandable without color.
 ## Navigation and loading
 
 - Select on a chat always opens that chat.
-- Long Select may offer reply actions only when clearly documented on screen.
+- Select on a message starts a confirmed voice reply.
+- Long Select on a message labeled Photo, GIF, or Video opens its full-screen preview.
 - A chat shows cached messages immediately when available.
 - Every fetch ends in content, empty, timed-out, offline, or error state—never a blank view.
 - Retry must be available without leaving the chat.
@@ -57,3 +60,11 @@ review, and information must remain understandable without color.
 - Show `Sent` only after Beeper accepts the message.
 - Preserve failed text and offer Retry and Cancel.
 - Use a client-generated operation ID to prevent duplicate sends during retries.
+
+## Attachments
+
+- Show a visible media label in the message row; never replace text with a blank row.
+- Keep media source URLs and local file paths on the Mac gateway.
+- Bound previews to 180×180 and preserve aspect ratio for the 200×228 Time 2 display.
+- Report loading, unsupported, incomplete-transfer, and memory failures in text.
+- Label GIF and video poster frames honestly until animated playback is implemented.
