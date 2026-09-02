@@ -14,6 +14,7 @@ var KEY_MSG_SENDER = 10;
 var KEY_MSG_TEXT = 11;
 var KEY_MSG_TIME = 12;
 var KEY_THEME = 13;
+var KEY_TEXT_SIZE = 14;
 
 var queue = [];
 var sending = false;
@@ -68,8 +69,10 @@ function sendState(state, error) {
   message[KEY_COMMAND] = 'state';
   message[KEY_STATE] = state;
   message[KEY_THEME] = selectedTheme();
+  message[KEY_TEXT_SIZE] = localStorage.getItem('beepster_text_size') || 'normal';
   if (error) message[KEY_ERROR] = safeSlice(error, 100);
   enqueue(message);
+  if (state === 'error' || state === 'empty') scheduleRefresh();
 }
 
 function scheduleRefresh() {

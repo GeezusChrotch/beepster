@@ -46,7 +46,8 @@ test('chat and message requests are bounded and normalized', async () => {
     }] }), { status: 200 });
   };
   const client = new BeeperClient({ baseURL: 'http://127.0.0.1:23373', accessToken: 'secret', fetchImpl });
-  const chats = await client.listChats(12);
+  const page = await client.listChats(12);
+  const chats = page.items;
   const messages = await client.listMessages('chat-1', 12);
   assert.equal(chats[0].name, 'Readable Name');
   assert.equal(messages[0].text, 'Earlier');
@@ -59,5 +60,25 @@ test('missing participant names can be filled from the account contact list', as
     return new Response(JSON.stringify({items:[{id:'chat-1',accountID:'signal',type:'single',title:'raw-handle',participants:{items:[{id:'person-1',isSelf:false}]}}]}), {status:200});
   };
   const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl});
-  assert.equal((await client.listChats(12))[0].name, 'Contact Book Name');
+  assert.equal((await client.listChats(12)).items[0].name, 'Contact Book Name');
+});
+
+test('chat pagination forwards opaque cursors and returns the oldest cursor', async () => {
+  const paths = [];
+  const fetchImpl = async (url) => {
+    paths.push(new URL(url).pathname + new URL(url).search);
+    return new Response(JSON.stringify({items:[],hasMore:true,oldestCursor:'opaque next'}), {status:200});
+  };
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl});
+  const page = await client.listChats(12, 'opaque current');
+  assert.equal(page.hasMore, true);
+  assert.equal(page.nextCursor, 'opaque next');
+  assert.equal(paths[0], '/v1/chats/search?limit=12&type=any&inbox=primary&cursor=opaque%20current&direction=before');
+});
+
+test('message results are bounded even when Beeper returns too many items', async () => {
+  const fetchImpl = async () => new Response(JSON.stringify({items:Array.from({length:20}, (_, index) => ({id:`m${index}`,text:`message ${index}`}))}), {status:200});
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl});
+  const messages = await client.listMessages('chat-1', 12);
+  assert.equal(messages.length, 12);
 });

@@ -36,7 +36,8 @@
       "MSG_SENDER": 10,
       "MSG_TEXT": 11,
       "MSG_TIME": 12,
-      "THEME": 13
+      "THEME": 13,
+      "TEXT_SIZE": 14
     },
     "resources": {
       "media": []

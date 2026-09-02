@@ -38,6 +38,8 @@ test('pairing requires the exact code and returns only the gateway credential', 
     assert.equal(denied.status, 403);
     const paired = await fetch(`${baseURL}/pair`, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({code:'246810'})});
     assert.deepEqual(await paired.json(), { gatewayToken: 'gateway-secret' });
+    const reused = await fetch(`${baseURL}/pair`, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({code:'246810'})});
+    assert.equal(reused.status, 403);
   } finally {
     server.close();
     await once(server, 'close');

@@ -40,6 +40,7 @@ function boundedLimit(value, fallback = 12) {
 export function createServer({ beeperClient, gatewayToken, pairingCode = '' }) {
   if (!gatewayToken) throw new Error('gatewayToken is required');
   const cache = new Map();
+  let pairingAvailable = Boolean(pairingCode);
 
   async function withCache(key, loader) {
     try {
@@ -66,10 +67,11 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '' }) {
       }
       if (url.pathname === '/pair' && request.method === 'POST') {
         const body = await readJSON(request);
-        if (!pairingCode || body.code !== pairingCode) {
+        if (!pairingAvailable || body.code !== pairingCode) {
           sendJSON(response, 403, { error: 'Pairing code is invalid' });
           return;
         }
+        pairingAvailable = false;
         sendJSON(response, 200, { gatewayToken });
         return;
       }
@@ -84,8 +86,10 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '' }) {
       }
 
       if (url.pathname === '/v1/chats' && request.method === 'GET') {
-        const result = await withCache('chats', () => beeperClient.listChats(boundedLimit(url.searchParams.get('limit'))));
-        sendJSON(response, 200, { items: result.value, ...(result.stale ? { stale: true } : {}) });
+        const cursor = url.searchParams.get('cursor') || '';
+        const result = await withCache(`chats:${cursor}`, () => beeperClient.listChats(boundedLimit(url.searchParams.get('limit')), cursor));
+        const page = Array.isArray(result.value) ? { items: result.value } : result.value;
+        sendJSON(response, 200, { ...page, ...(result.stale ? { stale: true } : {}) });
         return;
       }
 

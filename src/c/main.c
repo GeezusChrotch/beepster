@@ -46,6 +46,7 @@ static Theme s_theme = {
   .accent = GColorDukeBlue,
   .accent_text = GColorWhite
 };
+static bool s_large_text;
 
 static Window *s_main_window;
 static MenuLayer *s_chat_menu;
@@ -153,7 +154,7 @@ static uint16_t chat_rows(MenuLayer *menu_layer, uint16_t section, void *context
 }
 
 static int16_t chat_row_height(MenuLayer *menu_layer, MenuIndex *index, void *context) {
-  return 66;
+  return s_large_text ? 78 : 66;
 }
 
 static void draw_chat(GContext *ctx, const Layer *cell, MenuIndex *index, void *context) {
@@ -161,16 +162,20 @@ static void draw_chat(GContext *ctx, const Layer *cell, MenuIndex *index, void *
   Chat *chat = &s_chats[index->row];
   GRect bounds = layer_get_bounds(cell);
   bool selected = menu_layer_is_index_selected(s_chat_menu, index);
+  int name_height = s_large_text ? 35 : 30;
+  int preview_y = s_large_text ? 35 : 31;
+  int preview_height = s_large_text ? 33 : 25;
+  int unread_y = s_large_text ? 62 : 49;
 
   graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
   graphics_draw_text(ctx, chat->name,
-    fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
-    GRect(8, 2, bounds.size.w - 16, 30),
+    fonts_get_system_font(s_large_text ? FONT_KEY_GOTHIC_28_BOLD : FONT_KEY_GOTHIC_24_BOLD),
+    GRect(8, 2, bounds.size.w - 16, name_height),
     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 
   graphics_draw_text(ctx, chat->preview,
-    fonts_get_system_font(FONT_KEY_GOTHIC_18),
-    GRect(8, 31, bounds.size.w - 16, 25),
+    fonts_get_system_font(s_large_text ? FONT_KEY_GOTHIC_24 : FONT_KEY_GOTHIC_18),
+    GRect(8, preview_y, bounds.size.w - 16, preview_height),
     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 
   if (chat->unread > 0) {
@@ -178,7 +183,7 @@ static void draw_chat(GContext *ctx, const Layer *cell, MenuIndex *index, void *
     snprintf(unread, sizeof(unread), "%d new", chat->unread);
     graphics_draw_text(ctx, unread,
       fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
-      GRect(8, 49, bounds.size.w - 16, 16),
+      GRect(8, unread_y, bounds.size.w - 16, 16),
       GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
   }
 }
@@ -207,7 +212,7 @@ static uint16_t message_rows(MenuLayer *menu_layer, uint16_t section, void *cont
 }
 
 static int16_t message_row_height(MenuLayer *menu_layer, MenuIndex *index, void *context) {
-  return 84;
+  return s_large_text ? 104 : 84;
 }
 
 static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, void *context) {
@@ -215,19 +220,23 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
   Message *message = &s_messages[index->row];
   GRect bounds = layer_get_bounds(cell);
   bool selected = menu_layer_is_index_selected(s_message_menu, index);
+  int sender_height = s_large_text ? 31 : 24;
+  int text_y = s_large_text ? 30 : 23;
+  int text_height = s_large_text ? 61 : 48;
+  int time_y = s_large_text ? 87 : 66;
   graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
 
   graphics_draw_text(ctx, message->sender,
-    fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
-    GRect(8, 1, bounds.size.w - 16, 24),
+    fonts_get_system_font(s_large_text ? FONT_KEY_GOTHIC_24_BOLD : FONT_KEY_GOTHIC_18_BOLD),
+    GRect(8, 1, bounds.size.w - 16, sender_height),
     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
   graphics_draw_text(ctx, message->text,
-    fonts_get_system_font(FONT_KEY_GOTHIC_18),
-    GRect(8, 23, bounds.size.w - 16, 48),
+    fonts_get_system_font(s_large_text ? FONT_KEY_GOTHIC_24 : FONT_KEY_GOTHIC_18),
+    GRect(8, text_y, bounds.size.w - 16, text_height),
     GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
   graphics_draw_text(ctx, message->time,
     fonts_get_system_font(FONT_KEY_GOTHIC_14),
-    GRect(8, 66, bounds.size.w - 16, 16),
+    GRect(8, time_y, bounds.size.w - 16, 16),
     GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
 }
 
@@ -278,7 +287,13 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     Tuple *state = dict_find(iterator, MESSAGE_KEY_STATE);
     Tuple *error = dict_find(iterator, MESSAGE_KEY_ERROR);
     Tuple *theme = dict_find(iterator, MESSAGE_KEY_THEME);
+    Tuple *text_size = dict_find(iterator, MESSAGE_KEY_TEXT_SIZE);
     if (theme) select_theme(theme->value->cstring);
+    if (text_size) {
+      s_large_text = strcmp(text_size->value->cstring, "large") == 0;
+      if (s_chat_menu) menu_layer_reload_data(s_chat_menu);
+      if (s_message_menu) menu_layer_reload_data(s_message_menu);
+    }
     apply_state(state ? state->value->cstring : "error", error ? error->value->cstring : "");
     return;
   }

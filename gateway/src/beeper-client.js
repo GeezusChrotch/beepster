@@ -60,8 +60,9 @@ export class BeeperClient {
     return response.json();
   }
 
-  async listChats(limit) {
-    const result = await this.request(`/v1/chats/search?limit=${limit}&type=any&inbox=primary`);
+  async listChats(limit, cursor = '') {
+    const cursorQuery = cursor ? `&cursor=${encodeURIComponent(cursor)}&direction=before` : '';
+    const result = await this.request(`/v1/chats/search?limit=${limit}&type=any&inbox=primary${cursorQuery}`);
     const contactsByAccount = new Map();
     const unresolvedAccounts = [...new Set((result.items || [])
       .filter((chat) => resolveChatName(chat) === 'Unknown contact' || resolveChatName(chat) === chat.title)
@@ -74,7 +75,7 @@ export class BeeperClient {
         contactsByAccount.set(accountID, []);
       }
     }));
-    return (result.items || []).map((chat) => ({
+    const items = (result.items || []).map((chat) => ({
       id: chat.id,
       name: normalizeEmojiForPebble(resolveChatName(chat, contactsByAccount.get(chat.accountID) || [])),
       network: chat.network || '',
@@ -82,11 +83,12 @@ export class BeeperClient {
       preview: normalizeEmojiForPebble(normalizePreview(chat.preview)),
       timestamp: normalizeTime(chat.lastActivity || chat.lastActivityAt || chat.preview?.timestamp)
     }));
+    return { items, hasMore: Boolean(result.hasMore), nextCursor: result.oldestCursor || null };
   }
 
   async listMessages(chatID, limit) {
     const result = await this.request(`/v1/chats/${encodeURIComponent(chatID)}/messages?limit=${limit}`);
-    return (result.items || []).slice().reverse().map((message) => ({
+    return (result.items || []).slice(0, limit).reverse().map((message) => ({
       id: message.id,
       sender: message.isSender ? 'Me' : normalizeEmojiForPebble(message.senderName || 'Unknown'),
       text: normalizeEmojiForPebble(message.text || ''),
