@@ -112,7 +112,7 @@ test('reply requests are idempotent and expose delivery status', async () => {
   });
 });
 
-test('watch replies use the authenticated no-store GET transport required by PebbleKit iOS', async () => {
+test('watch replies support an authenticated no-store GET compatibility fallback', async () => {
   const client = {
     sendReply: async (chatID, text) => ({pendingMessageID:`pending-${chatID}-${text.length}`})
   };

@@ -17,7 +17,7 @@ the Beeper access token on the Mac gateway.
 
 ## Current status
 
-Version 0.6.4 is a working clean-room daily-driver preview:
+Version 0.6.5 is a working clean-room daily-driver preview:
 
 - Native Emery watch build
 - Explicit setup/loading/empty/error states

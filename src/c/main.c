@@ -475,18 +475,18 @@ static void cancel_reply_ack_timer(void) {
 
 static void reply_ack_timeout(void *context) {
   s_reply_ack_timer = NULL;
-  if (s_reply_state != VIEW_REPLY_SENDING) return;
+  if (s_reply_state != VIEW_REPLY_SENDING && s_reply_state != VIEW_REPLY_PENDING) return;
   s_reply_state = VIEW_REPLY_RETRYABLE;
   if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
-    reply_show_status("Phone did not receive reply\nPress Select to retry");
+    reply_show_status("No delivery confirmation\nPress Select to retry safely");
   } else if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
-    text_layer_set_text(s_detail_hint_layer, "Phone did not receive reply\nHold Select to retry");
+    text_layer_set_text(s_detail_hint_layer, "No delivery confirmation\nHold Select to retry safely");
   }
 }
 
 static void start_reply_ack_timer(void) {
   cancel_reply_ack_timer();
-  s_reply_ack_timer = app_timer_register(6000, reply_ack_timeout, NULL);
+  s_reply_ack_timer = app_timer_register(25000, reply_ack_timeout, NULL);
 }
 
 static void reply_status_clicks(void *context) {
@@ -607,12 +607,14 @@ static void message_selected(MenuLayer *menu_layer, MenuIndex *index, void *cont
 }
 
 static void detail_quick_replies(ClickRecognizerRef recognizer, void *context) {
+  APP_LOG(APP_LOG_LEVEL_INFO, "detail long-down: quick replies");
   if (!s_reply_window) return;
   reply_show_menu();
   window_stack_push(s_reply_window, true);
 }
 
 static void detail_dictate(ClickRecognizerRef recognizer, void *context) {
+  APP_LOG(APP_LOG_LEVEL_INFO, "detail long-select: dictate");
   if (s_reply_state == VIEW_REPLY_RETRYABLE && s_reply_request_id[0]) {
     retry_reply(recognizer, context);
     return;
@@ -626,6 +628,12 @@ static void detail_dictate(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void detail_clicks(void *context) {
+  APP_LOG(APP_LOG_LEVEL_INFO, "installing detail click handlers");
+  // A long-click handler disables ScrollLayer's repeating DOWN handler. Make
+  // the single-click behavior explicit so short presses still scroll while a
+  // held DOWN reliably opens quick replies.
+  window_single_click_subscribe(BUTTON_ID_UP, scroll_layer_scroll_up_click_handler);
+  window_single_click_subscribe(BUTTON_ID_DOWN, scroll_layer_scroll_down_click_handler);
   window_long_click_subscribe(BUTTON_ID_SELECT, 600, detail_dictate, NULL);
   window_long_click_subscribe(BUTTON_ID_DOWN, 600, detail_quick_replies, NULL);
 }
@@ -818,7 +826,11 @@ static void apply_state(const char *state, const char *error) {
     ViewState reply_state = strcmp(state, "reply_sending") == 0 ? VIEW_REPLY_SENDING :
       (strcmp(state, "reply_pending") == 0 ? VIEW_REPLY_PENDING :
       (strcmp(state, "reply_sent") == 0 ? VIEW_REPLY_SENT : VIEW_REPLY_RETRYABLE));
-    cancel_reply_ack_timer();
+    if (reply_state == VIEW_REPLY_SENT || reply_state == VIEW_REPLY_RETRYABLE) {
+      cancel_reply_ack_timer();
+    } else {
+      start_reply_ack_timer();
+    }
     s_reply_state = reply_state;
     if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
       reply_show_status(error && error[0] ? error : state_text(reply_state, true));

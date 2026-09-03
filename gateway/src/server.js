@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { createHash } from 'node:crypto';
 import { BeeperClient } from './beeper-client.js';
 import { configurationPage } from './configuration-page.js';
 import { readSecret } from './secret-store.js';
@@ -49,7 +50,11 @@ function boundedLimit(value, fallback = 12) {
   return Math.max(1, Math.min(parsed, 50));
 }
 
-export function createServer({ beeperClient, gatewayToken, pairingCode = '' }) {
+function requestTag(requestID) {
+  return createHash('sha256').update(requestID).digest('hex').slice(0, 12);
+}
+
+export function createServer({ beeperClient, gatewayToken, pairingCode = '', logger = console }) {
   if (!gatewayToken) throw new Error('gatewayToken is required');
   const cache = new Map();
   const replyRequests = new Map();
@@ -133,15 +138,18 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '' }) {
           return;
         }
         const duplicate = replyRequests.get(requestID);
+        const replyTag = requestTag(requestID);
         if (duplicate) {
           if (duplicate.chatID !== chatID || duplicate.text !== text) {
             sendJSON(response, 409, { error: 'Reply request ID was already used for different content' });
             return;
           }
           const accepted = await duplicate.promise;
+          logger.info(`reply duplicate transport=${request.method} request=${replyTag} pending=${Boolean(accepted.pendingMessageID)}`);
           sendJSON(response, 202, { ...accepted, duplicate: true });
           return;
         }
+        logger.info(`reply received transport=${request.method} request=${replyTag} characters=${[...text].length}`);
         const promise = beeperClient.sendReply(chatID, text).then((result) => ({
           state: 'pending',
           pendingMessageID: result.pendingMessageID
@@ -149,9 +157,12 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '' }) {
         replyRequests.set(requestID, { chatID, text, promise });
         if (replyRequests.size > 100) replyRequests.delete(replyRequests.keys().next().value);
         try {
-          sendJSON(response, 202, await promise);
+          const accepted = await promise;
+          logger.info(`reply accepted request=${replyTag} pending=${Boolean(accepted.pendingMessageID)}`);
+          sendJSON(response, 202, accepted);
         } catch (error) {
           replyRequests.delete(requestID);
+          logger.error(`reply failed request=${replyTag} error=${error?.message || 'unknown'}`);
           throw error;
         }
         return;

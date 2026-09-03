@@ -103,3 +103,11 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Route watch sends through a dedicated authenticated, no-store GET action because physical iOS stalls on POST
 - [x] Keep reply text in encrypted headers and out of request URLs
 - [x] Retain request-ID deduplication and the conventional POST endpoint
+
+## 0.6.5 — End-to-end reply recovery
+
+- [x] Use the canonical authenticated JSON POST first
+- [x] Fall back after five seconds using the same idempotent request ID
+- [x] Retry temporary pending-message lookup failures
+- [x] Guarantee that the watch leaves the sending state and offers a safe retry
+- [x] Log reply transport and outcome without message text, chat IDs, tokens, or raw request IDs

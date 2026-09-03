@@ -263,24 +263,70 @@ function sendRequest(path, body, callback) {
     sendState('reply_failed', 'Gateway not configured');
     return;
   }
-  console.log('Beepster reply request started');
+  var completed = false;
+  var fallbackStarted = false;
+  var fallbackTimer = null;
+  var deadlineTimer = null;
+
+  function finish(data) {
+    if (completed) return;
+    completed = true;
+    if (fallbackTimer) clearTimeout(fallbackTimer);
+    if (deadlineTimer) clearTimeout(deadlineTimer);
+    callback(data);
+  }
+
+  function fail(message) {
+    if (completed) return;
+    completed = true;
+    if (fallbackTimer) clearTimeout(fallbackTimer);
+    if (deadlineTimer) clearTimeout(deadlineTimer);
+    sendState('reply_retryable', message || 'Could not send reply');
+  }
+
+  function parseResponse(request, transport) {
+    console.log('Beepster reply ' + transport + ' completed HTTP ' + request.status);
+    if (request.status < 200 || request.status >= 300) {
+      if (transport === 'POST' && request.status >= 500) { startFallback(); return; }
+      fail('Send failed with ' + request.status);
+      return;
+    }
+    try { finish(JSON.parse(request.responseText)); }
+    catch (error) { fail('Invalid send response'); }
+  }
+
+  function startFallback() {
+    if (completed || fallbackStarted) return;
+    fallbackStarted = true;
+    console.log('Beepster reply falling back to compatible GET transport');
+    var fallback = new XMLHttpRequest();
+    fallback.open('GET', url + path.replace(/\/messages$/, '/reply'), true);
+    fallback.setRequestHeader('Authorization', 'Bearer ' + token);
+    fallback.setRequestHeader('X-Beepster-Reply-Text', encodeURIComponent(String(body.text || '')));
+    fallback.setRequestHeader('X-Beepster-Request-ID', String(body.requestID || ''));
+    fallback.timeout = 10000;
+    fallback.onload = function() { parseResponse(fallback, 'GET'); };
+    fallback.onerror = function() { fail('Gateway unavailable'); };
+    fallback.ontimeout = function() { fail('Send timed out'); };
+    fallback.send();
+  }
+
+  // POST is the canonical Beepster transport and maps directly to Beeper's
+  // documented endpoint. Some Pebble iOS runtimes have failed to complete a
+  // POST callback, so retry the same idempotent request over the already-used
+  // authenticated GET channel if no response arrives promptly.
+  console.log('Beepster reply POST started');
   var xhr = new XMLHttpRequest();
-  xhr.open('GET', url + path, true);
+  xhr.open('POST', url + path, true);
   xhr.setRequestHeader('Authorization', 'Bearer ' + token);
-  // PebbleKit JS on iOS stalls on POST through the private Tailscale HTTPS
-  // route. Its authenticated GET transport is reliable, so the dedicated
-  // no-store reply action carries bounded fields in encrypted headers.
-  xhr.setRequestHeader('X-Beepster-Reply-Text', encodeURIComponent(String(body.text || '')));
-  xhr.setRequestHeader('X-Beepster-Request-ID', String(body.requestID || ''));
+  xhr.setRequestHeader('Content-Type', 'application/json');
   xhr.timeout = 12000;
-  xhr.onload = function() {
-    console.log('Beepster reply request completed HTTP ' + xhr.status);
-    if (xhr.status < 200 || xhr.status >= 300) { sendState('reply_failed', 'Send failed with ' + xhr.status); return; }
-    try { callback(JSON.parse(xhr.responseText)); } catch (error) { sendState('reply_failed', 'Invalid send response'); }
-  };
-  xhr.onerror = function() { console.log('Beepster reply request network error'); sendState('reply_failed', 'Gateway unavailable'); };
-  xhr.ontimeout = function() { console.log('Beepster reply request timed out'); sendState('reply_failed', 'Send timed out'); };
-  xhr.send();
+  xhr.onload = function() { parseResponse(xhr, 'POST'); };
+  xhr.onerror = startFallback;
+  xhr.ontimeout = startFallback;
+  xhr.send(JSON.stringify(body));
+  fallbackTimer = setTimeout(startFallback, 5000);
+  deadlineTimer = setTimeout(function() { fail('No delivery response; retry safely'); }, 18000);
 }
 
 function pollReply(chatID, pendingMessageID, attempt) {
@@ -292,7 +338,8 @@ function pollReply(chatID, pendingMessageID, attempt) {
     if (attempt >= 9) { sendState('reply_pending', 'Still pending in Beeper'); return; }
     setTimeout(function() { pollReply(chatID, pendingMessageID, attempt + 1); }, 1500);
   }, function(error) {
-    sendState('reply_retryable', error || 'Could not confirm delivery');
+    if (attempt >= 9) { sendState('reply_retryable', error || 'Could not confirm delivery'); return; }
+    setTimeout(function() { pollReply(chatID, pendingMessageID, attempt + 1); }, 1500);
   });
 }
 
@@ -303,7 +350,7 @@ function sendReply(chatID, text, requestID) {
     requestID = 'reply-' + Date.now() + '-' + quickReplyCounter;
   }
   sendState('reply_sending');
-  sendRequest('/v1/chats/' + encodeURIComponent(chatID) + '/reply', {text:text,requestID:requestID}, function(data) {
+  sendRequest('/v1/chats/' + encodeURIComponent(chatID) + '/messages', {text:text,requestID:requestID}, function(data) {
     if (!data.pendingMessageID) { sendState('reply_failed', 'Beeper did not return a message ID'); return; }
     sendState('reply_pending');
     pollReply(chatID, data.pendingMessageID, 0);
