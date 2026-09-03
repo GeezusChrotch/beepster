@@ -122,6 +122,7 @@ static AppTimer *s_content_request_timer;
 static int s_expanded_message_index = -1;
 static char s_expanded_message_id[MESSAGE_ID_LEN];
 static bool s_expanded_message_loaded;
+static int32_t s_expanded_scroll_offset;
 static Window *s_media_window;
 static BitmapLayer *s_media_layer;
 static TextLayer *s_media_status_layer;
@@ -832,6 +833,7 @@ static void message_selection_changed(MenuLayer *menu_layer, MenuIndex new_index
       s_expanded_message_index = new_index.row;
       copy_text(s_expanded_message_id, sizeof(s_expanded_message_id), message->id);
       s_expanded_message_loaded = false;
+      s_expanded_scroll_offset = 0;
       clear_media();
       copy_text(s_inline_attachment_id, sizeof(s_inline_attachment_id), message->attachment_id);
       s_inline_media_state = message->attachment_id[0] ? INLINE_MEDIA_LOADING : INLINE_MEDIA_NONE;
@@ -849,17 +851,15 @@ static void message_selection_changed(MenuLayer *menu_layer, MenuIndex new_index
   }
 }
 
-static int16_t message_row_height(MenuLayer *menu_layer, MenuIndex *index, void *context) {
-  if (index->row >= s_message_count) return 80;
-  Message *message = &s_messages[index->row];
-  bool expanded = index->row == s_expanded_message_index &&
-    strcmp(message->id, s_expanded_message_id) == 0;
-  const char *text = expanded && s_expanded_message_loaded && s_detail_text ?
-    s_detail_text : message->text;
+static int32_t message_content_height(MenuLayer *menu_layer, Message *message,
+                                      bool expanded, const char *text) {
   int16_t width = layer_get_bounds(menu_layer_get_layer(menu_layer)).size.w - 16;
   GSize text_size = graphics_text_layout_get_content_size(text && text[0] ? text : "[No text]",
     font_for_text(text), GRect(0, 0, width, 30000), GTextOverflowModeWordWrap, GTextAlignmentLeft);
-  int32_t height = 6 + s_theme_size + 9 + (text_size.h > 24 ? text_size.h : 24) + 8 + 22;
+  int32_t text_height = text_size.h > 24 ? text_size.h : 24;
+  int32_t preview_limit = 3 * (s_theme_size + 6);
+  if (!expanded && text_height > preview_limit) text_height = preview_limit;
+  int32_t height = 6 + s_theme_size + 9 + text_height + 8 + 22;
   if (message->attachment_kind) {
     if (expanded && s_inline_media_state == INLINE_MEDIA_READY && s_media_bitmap) {
       height += s_media_height + 8;
@@ -868,7 +868,20 @@ static int16_t message_row_height(MenuLayer *menu_layer, MenuIndex *index, void 
     }
   }
   if (expanded) height += 19;
-  return (int16_t)(height < 32000 ? height : 32000);
+  return height < 32000 ? height : 32000;
+}
+
+static int16_t message_row_height(MenuLayer *menu_layer, MenuIndex *index, void *context) {
+  if (index->row >= s_message_count) return 80;
+  Message *message = &s_messages[index->row];
+  bool expanded = index->row == s_expanded_message_index &&
+    strcmp(message->id, s_expanded_message_id) == 0;
+  const char *text = expanded && s_expanded_message_loaded && s_detail_text ?
+    s_detail_text : message->text;
+  int32_t height = message_content_height(menu_layer, message, expanded, text);
+  int16_t viewport_height = layer_get_bounds(menu_layer_get_layer(menu_layer)).size.h;
+  if (expanded && height > viewport_height) return viewport_height;
+  return (int16_t)height;
 }
 
 static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, void *context) {
@@ -880,18 +893,22 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
     strcmp(message->id, s_expanded_message_id) == 0;
   const char *body = expanded && s_expanded_message_loaded && s_detail_text ?
     s_detail_text : message->text;
+  int32_t content_scroll = expanded ? s_expanded_scroll_offset : 0;
   int sender_height = s_theme_size + 9;
-  int text_y = sender_height + 1;
-  int time_y = bounds.size.h - 19;
+  int text_y = sender_height + 1 - content_scroll;
   GSize body_size = graphics_text_layout_get_content_size(body && body[0] ? body : "[No text]",
     font_for_text(body), GRect(0, 0, bounds.size.w - 16, 30000),
     GTextOverflowModeWordWrap, GTextAlignmentLeft);
   int text_height = body_size.h > 24 ? body_size.h : 24;
+  int preview_limit = 3 * (s_theme_size + 6);
+  if (!expanded && text_height > preview_limit) text_height = preview_limit;
   int content_y = text_y + text_height + 5;
+  int32_t natural_height = message_content_height(s_message_menu, message, expanded, body);
+  int time_y = natural_height - 19 - content_scroll;
   graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
 
   draw_marquee_text(ctx, message->sender, font_for_text(message->sender),
-    GRect(8, 1, bounds.size.w - 16, sender_height), selected);
+    GRect(8, 1 - content_scroll, bounds.size.w - 16, sender_height), selected);
   graphics_draw_text(ctx, body && body[0] ? body : "[No text]",
     font_for_text(body),
     GRect(8, text_y, bounds.size.w - 16, text_height),
@@ -940,15 +957,6 @@ static void message_long_down(ClickRecognizerRef recognizer, void *context) {
   thread_quick_replies(recognizer, context);
 }
 
-static int32_t message_row_top(int row) {
-  int32_t top = 0;
-  for (int index = 0; index < row && index < s_message_count; index++) {
-    MenuIndex item = {.section = 0, .row = index};
-    top += message_row_height(s_message_menu, &item, NULL);
-  }
-  return top;
-}
-
 static void message_move_selection(int delta) {
   if (!s_message_menu || s_message_count < 1) return;
   MenuIndex selected = menu_layer_get_selected_index(s_message_menu);
@@ -956,34 +964,26 @@ static void message_move_selection(int delta) {
   if (row < 0) row = 0;
   if (row >= s_message_count) row = s_message_count - 1;
   MenuIndex current = {.section = 0, .row = row};
-  int32_t top = message_row_top(row);
-  int32_t height = message_row_height(s_message_menu, &current, NULL);
-  ScrollLayer *scroll = menu_layer_get_scroll_layer(s_message_menu);
-  GPoint content_offset = scroll_layer_get_content_offset(scroll);
-  int32_t viewport_top = -content_offset.y;
-  int32_t viewport_height = layer_get_bounds(menu_layer_get_layer(s_message_menu)).size.h;
-  int32_t content_height = scroll_layer_get_content_size(scroll).h;
-  int32_t max_viewport_top = content_height > viewport_height ?
-    content_height - viewport_height : 0;
-  if (viewport_top < 0) viewport_top = 0;
-  if (viewport_top > max_viewport_top) {
-    viewport_top = max_viewport_top;
-    scroll_layer_set_content_offset(scroll, GPoint(0, -viewport_top), false);
-  }
-  int32_t step = viewport_height > 54 ? viewport_height - 54 : viewport_height;
+  Message *message = &s_messages[row];
+  bool expanded = row == s_expanded_message_index &&
+    strcmp(message->id, s_expanded_message_id) == 0;
+  const char *text = expanded && s_expanded_message_loaded && s_detail_text ?
+    s_detail_text : message->text;
+  int32_t visible_height = message_row_height(s_message_menu, &current, NULL);
+  int32_t content_height = message_content_height(s_message_menu, message, expanded, text);
+  int32_t max_scroll = content_height > visible_height ? content_height - visible_height : 0;
+  int32_t step = visible_height > 54 ? visible_height - 54 : visible_height;
 
-  if (delta > 0 && viewport_top + viewport_height < top + height) {
-    int32_t next = viewport_top + step;
-    int32_t last = top + height - viewport_height;
-    if (last > max_viewport_top) last = max_viewport_top;
-    if (next > last) next = last;
-    scroll_layer_set_content_offset(scroll, GPoint(0, -next), false);
+  if (delta > 0 && expanded && s_expanded_scroll_offset < max_scroll) {
+    s_expanded_scroll_offset += step;
+    if (s_expanded_scroll_offset > max_scroll) s_expanded_scroll_offset = max_scroll;
+    layer_mark_dirty(menu_layer_get_layer(s_message_menu));
     return;
   }
-  if (delta < 0 && viewport_top > top) {
-    int32_t next = viewport_top - step;
-    if (next < top) next = top;
-    scroll_layer_set_content_offset(scroll, GPoint(0, -next), false);
+  if (delta < 0 && expanded && s_expanded_scroll_offset > 0) {
+    s_expanded_scroll_offset -= step;
+    if (s_expanded_scroll_offset < 0) s_expanded_scroll_offset = 0;
+    layer_mark_dirty(menu_layer_get_layer(s_message_menu));
     return;
   }
 
@@ -1111,6 +1111,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     s_expanded_message_index = -1;
     s_expanded_message_id[0] = '\0';
     s_expanded_message_loaded = false;
+    s_expanded_scroll_offset = 0;
     s_inline_attachment_id[0] = '\0';
     s_inline_media_state = INLINE_MEDIA_NONE;
     clear_media();
@@ -1294,6 +1295,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     s_detail_capacity = s_detail_text ? requested + 1 : 0;
     s_detail_length = 0;
     s_expanded_message_loaded = false;
+    s_expanded_scroll_offset = 0;
     if (s_detail_text) s_detail_text[0] = '\0';
     return;
   }

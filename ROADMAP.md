@@ -141,3 +141,10 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Size each chat row from the content it actually contains
 - [x] Collapse empty preview and unread regions instead of leaving dead vertical space
 - [x] Keep preview and unread metadata aligned beneath the chat title when present
+
+## 0.7.3 — Bounded message viewport
+
+- [x] Never give Pebble's MenuLayer a message cell taller than the screen
+- [x] Scroll complete message content inside a stable screen-height thread row
+- [x] Limit unselected previews to three lines while retaining complete selected text
+- [x] Keep overlap between viewport steps so readers do not lose their place
