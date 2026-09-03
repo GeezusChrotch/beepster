@@ -31,6 +31,7 @@ networks; iMessage itself requires Beeper Desktop to run on macOS.
 ## Current capabilities
 
 - Recent chats with contact-name normalization, read-only macOS Contacts enrichment, and service icons
+- User-controlled linking of split Apple email/phone chats into one combined Beepster thread
 - Persistent service filtering, with all networks enabled by default
 - Chronological history that opens on the newest message and pages up to 60 messages
 - Complete in-thread message text with simple two-line scrolling
@@ -41,7 +42,7 @@ networks; iMessage itself requires Beeper Desktop to run on macOS.
 - Six presets and saved custom themes using five font families and five sizes
 - Pebble-native emoji where possible, with readable text fallbacks elsewhere
 - Explicit setup, loading, empty, timeout, offline, and retry states
-- Keychain-backed Mac companion, private HTTPS pairing, and idempotent reply transport
+- Keychain-backed Mac companion, native readiness/permission app, private HTTPS pairing, and idempotent reply transport
 
 Animated GIF playback and multiple attachments per message remain planned. See the
 [roadmap](ROADMAP.md) and [UX requirements](docs/UX_REQUIREMENTS.md).

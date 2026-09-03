@@ -48,6 +48,14 @@ Beeper sometimes supplies only the participant's network identifier. Run
 reopen Beepster. `./scripts/doctor.sh` reports whether both the helper and permission are ready.
 Beepster falls back to the original Beeper label when there is no exact local match.
 
+## One Apple contact appears as separate email and phone threads
+
+Beeper gives Beepster separate chat IDs for these conversations and currently does not expose a
+reliable contact-identity link between them. Open **Beepster → Settings → Link Apple
+conversations**, enter the same name beside both entries, then save. Beepster will show one virtual
+thread containing both histories and will route replies through the most recently active original
+chat. Removing either name restores the separate threads; no Apple Messages data is modified.
+
 ## A long message appears blank while scrolling
 
 - Update to 0.9.0 or newer; full-message text measurements are cached instead of recalculated on

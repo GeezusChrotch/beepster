@@ -23,10 +23,14 @@ fi
 have swiftc && pass 'Swift compiler available' || fail 'Install Xcode Command Line Tools: xcode-select --install'
 have openssl && pass 'OpenSSL available' || fail 'OpenSSL is required to create the gateway credential'
 [ -x "$support_dir/bin/beepster-keychain" ] && pass 'Keychain helper installed' || fail 'Run scripts/install-companion.sh'
+[ -x "$HOME/Applications/Beepster Connector.app/Contents/MacOS/beepster-connector" ] && pass 'Beepster Connector app installed' || warn 'Run scripts/install-connector-app.sh for the visual readiness checker'
 contacts_helper="$support_dir/bin/Beepster Contacts.app/Contents/MacOS/beepster-contacts"
 [ -x "$contacts_helper" ] && pass 'Contacts helper installed' || warn 'Run scripts/install-contact-helper.sh to show Apple contact names'
 if [ -x "$contacts_helper" ]; then
-  contacts_status=$("$contacts_helper" --status 2>/dev/null || true)
+  contacts_status_file=$(mktemp -t beepster-contacts-status)
+  open -W -n "$support_dir/bin/Beepster Contacts.app" --args --status-file "$contacts_status_file" >/dev/null 2>&1 || true
+  contacts_status=$(sed -n '1p' "$contacts_status_file" 2>/dev/null || true)
+  rm -f "$contacts_status_file"
   [ "$contacts_status" = authorized ] && pass 'Read-only Contacts access granted' || warn 'Grant Beepster Contacts access to show Apple contact names'
 fi
 [ -f "$agent" ] && pass 'LaunchAgent installed' || fail 'Run scripts/install-companion.sh'
@@ -37,7 +41,14 @@ else
   fail 'Companion is not running; reinstall it or run launchctl kickstart -k gui/$(id -u)/org.beepster.gateway'
 fi
 
-health=$(curl -fsS --max-time 4 http://127.0.0.1:8794/health 2>/dev/null || true)
+health=''
+health_attempt=1
+while [ "$health_attempt" -le 5 ]; do
+  health=$(curl -fsS --max-time 4 http://127.0.0.1:8794/health 2>/dev/null || true)
+  [ -n "$health" ] && break
+  sleep 1
+  health_attempt=$((health_attempt + 1))
+done
 case "$health" in
   *'"ok":true'*'"beeperConfigured":true'*) pass 'Local gateway healthy and Beeper token configured' ;;
   *'"ok":true'*) fail 'Gateway is running but its Beeper token is missing; run scripts/set-beeper-token.sh' ;;

@@ -9,6 +9,7 @@ agent="$HOME/Library/LaunchAgents/org.beepster.gateway.plist"
 mkdir -p "$bin_dir" "$logs_dir" "$(dirname "$agent")"
 swiftc -framework Security "$project_dir/mac/BeepsterKeychain.swift" -o "$bin_dir/beepster-keychain"
 "$project_dir/scripts/install-contact-helper.sh"
+"$project_dir/scripts/install-connector-app.sh"
 gateway_token=$(openssl rand -hex 32)
 pairing_code=$(jot -r 1 100000 999999)
 printf %s "$gateway_token" | "$bin_dir/beepster-keychain" set gateway-token
@@ -21,4 +22,5 @@ launchctl bootout "gui/$(id -u)/org.beepster.gateway" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$agent"
 unset pairing_code
 echo "Companion installed. Run scripts/show-pairing-code.sh when ready to pair."
-echo "Add a dedicated Beeper token with scripts/set-beeper-token.sh"
+echo "Use Beepster Connector to add the dedicated Beeper token and verify readiness."
+open "$HOME/Applications/Beepster Connector.app" >/dev/null 2>&1 || true

@@ -143,6 +143,60 @@ test('a saved service filter requests a wider page and sends only included chats
   assert.equal(appMessages.at(-1)[4], 1);
 });
 
+test('Apple email and phone destinations with the same alias become one watch thread', () => {
+  const { context, requests, appMessages, storage } = replyRuntime();
+  storage.set('beepster_apple_aliases', JSON.stringify({
+    'apple-email':'Jane',
+    'apple-phone':'Jane'
+  }));
+  context.loadChats();
+  assert.equal(requests[0].url, 'https://gateway.example/v1/chats?limit=50');
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items:[
+    {id:'apple-phone',name:'Jane (phone)',preview:'Newest',network:'iMessage',unreadCount:1},
+    {id:'apple-email',name:'Jane (email)',preview:'Earlier',network:'iMessage',unreadCount:2},
+    {id:'signal-1',name:'Someone else',preview:'Hello',network:'Signal'}
+  ]});
+  requests[0].onload();
+
+  const chats = appMessages.filter((message) => message[0] === 'chat');
+  assert.equal(chats.length, 2);
+  assert.match(chats[0][5], /^beepster-merged-/);
+  assert.equal(chats[0][6], 'Jane');
+  assert.equal(chats[0][7], 'Newest');
+  assert.equal(chats[0][8], 3);
+  assert.deepEqual(Array.from(context.mergedChats[chats[0][5]].members), ['apple-phone','apple-email']);
+  assert.equal(context.mergedChats[chats[0][5]].primary, 'apple-phone');
+});
+
+test('a linked Apple thread combines history and routes replies to its newest destination', () => {
+  const { context, requests, appMessages, storage } = replyRuntime();
+  storage.set('beepster_apple_aliases', JSON.stringify({'apple-email':'Jane','apple-phone':'Jane'}));
+  context.loadChats();
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items:[
+    {id:'apple-phone',name:'Jane (phone)',network:'iMessage'},
+    {id:'apple-email',name:'Jane (email)',network:'iMessage'}
+  ]});
+  requests[0].onload();
+  const virtualID = appMessages.find((message) => message[0] === 'chat')[5];
+
+  context.loadMessages(virtualID);
+  assert.match(requests[1].url, /\/v1\/chats\/apple-phone\/messages\?limit=60$/);
+  assert.match(requests[2].url, /\/v1\/chats\/apple-email\/messages\?limit=60$/);
+  requests[1].status = 200;
+  requests[1].responseText = JSON.stringify({items:[{id:'phone-new',text:'new',timestamp:'2026-09-03T17:00:00Z'}]});
+  requests[1].onload();
+  requests[2].status = 200;
+  requests[2].responseText = JSON.stringify({items:[{id:'email-old',text:'old',timestamp:'2026-09-03T16:00:00Z'}]});
+  requests[2].onload();
+  const messages = appMessages.filter((message) => message[0] === 'message');
+  assert.deepEqual(messages.map((message) => message[11]), ['old','new']);
+
+  context.sendReply(virtualID, 'On my way', 'linked-reply');
+  assert.equal(requests[3].url, 'https://gateway.example/v1/chats/apple-phone/messages');
+});
+
 test('a late response from an abandoned chat cannot replace the active thread', () => {
   const { context, requests, appMessages } = replyRuntime();
   context.loadMessages('chat-old');

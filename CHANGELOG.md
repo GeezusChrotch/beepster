@@ -16,6 +16,8 @@ All notable changes to Beepster are documented here.
 - Add a synthetic-data demo build for privacy-safe Store screenshots.
 - Add a persistent included-services checklist with all networks enabled by default.
 - Add optional read-only macOS Contacts enrichment for Apple chats that expose only an identifier.
+- Add user-controlled linking of Apple email and phone destinations into one combined watch thread.
+- Add a native Beepster Connector readiness app with permission, gateway, Tailscale, and pairing checks.
 
 ## 0.8.3
 

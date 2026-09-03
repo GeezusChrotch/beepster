@@ -1,8 +1,10 @@
-import { spawn } from 'node:child_process';
-import { access } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { homedir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 
 const POSITIVE_CACHE_MS = 6 * 60 * 60 * 1000;
 const NEGATIVE_CACHE_MS = 15 * 60 * 1000;
@@ -17,39 +19,29 @@ export function normalizeContactIdentifier(value) {
   return '';
 }
 
-function runHelper(helperPath, identifiers) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(helperPath, ['--lookup'], { stdio: ['pipe', 'pipe', 'pipe'] });
-    const stdout = [];
-    const stderr = [];
-    let outputBytes = 0;
-    const timer = setTimeout(() => {
-      child.kill();
-      reject(new Error('Contacts lookup timed out'));
-    }, 5000);
-    child.stdout.on('data', (chunk) => {
-      outputBytes += chunk.length;
-      if (outputBytes <= 256 * 1024) stdout.push(chunk);
-      else child.kill();
+const execFileAsync = promisify(execFile);
+
+async function runHelper(helperPath, identifiers) {
+  const directory = await mkdtemp(join(tmpdir(), 'beepster-contacts-'));
+  const requestPath = join(directory, 'request.json');
+  const responsePath = join(directory, 'response.json');
+  try {
+    await writeFile(requestPath, JSON.stringify({ identifiers }), { mode: 0o600 });
+    await execFileAsync('/usr/bin/open', ['-W', '-n', helperPath, '--args', '--lookup-file', requestPath, responsePath], {
+      timeout: 8000,
+      maxBuffer: 32 * 1024
     });
-    child.stderr.on('data', (chunk) => stderr.push(chunk));
-    child.on('error', (error) => { clearTimeout(timer); reject(error); });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code !== 0) {
-        reject(new Error(Buffer.concat(stderr).toString('utf8').trim() || `Contacts helper exited with ${code}`));
-        return;
-      }
-      try { resolve(JSON.parse(Buffer.concat(stdout).toString('utf8'))); }
-      catch { reject(new Error('Contacts helper returned invalid data')); }
-    });
-    child.stdin.end(JSON.stringify({ identifiers }));
-  });
+    const data = await readFile(responsePath, 'utf8');
+    if (data.length > 256 * 1024) throw new Error('Contacts helper returned too much data');
+    return JSON.parse(data);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 }
 
 export class MacContactsResolver {
   constructor({
-    helperPath = join(homedir(), 'Library/Application Support/Beepster/bin/Beepster Contacts.app/Contents/MacOS/beepster-contacts'),
+    helperPath = join(homedir(), 'Library/Application Support/Beepster/bin/Beepster Contacts.app'),
     runner = runHelper,
     now = () => Date.now()
   } = {}) {

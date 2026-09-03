@@ -10,6 +10,10 @@ node --check "$project_dir/gateway/src/emoji.js"
 node --check "$project_dir/gateway/src/image-preview.js"
 node --check "$project_dir/gateway/src/html-to-text.js"
 node --check "$project_dir/gateway/src/server.js"
+if [ "$(uname -s)" = Darwin ]; then
+  swiftc -target "$(uname -m)-apple-macosx13.0" -framework AppKit -typecheck "$project_dir/mac/BeepsterConnector.swift"
+  plutil -lint "$project_dir/mac/BeepsterConnector-Info.plist" "$project_dir/mac/BeepsterContacts-Info.plist" >/dev/null
+fi
 npm --prefix "$project_dir/gateway" test
 
 if rg -n --hidden \

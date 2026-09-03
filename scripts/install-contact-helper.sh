@@ -15,7 +15,11 @@ codesign --force --deep --sign - --identifier org.beepster.contacts "$app" >/dev
 
 printf 'Beepster needs read-only Contacts access to replace Apple message email addresses and phone numbers with names.\n'
 open -W "$app" >/dev/null 2>&1 || true
-if [ "$("$helper" --status 2>/dev/null || true)" = authorized ]; then
+status_file=$(mktemp -t beepster-contacts-status)
+open -W -n "$app" --args --status-file "$status_file" >/dev/null 2>&1 || true
+contacts_status=$(sed -n '1p' "$status_file" 2>/dev/null || true)
+rm -f "$status_file"
+if [ "$contacts_status" = authorized ]; then
   echo 'Contacts access granted.'
 else
   echo 'Contacts access was not granted. Beepster will continue using Beeper-provided labels.' >&2

@@ -65,6 +65,7 @@ var messageHistory = [];
 var oldestMessageCursor = '';
 var hasOlderMessages = false;
 var loadingOlderMessages = false;
+var mergedChats = {};
 var MAX_WATCH_MESSAGES = 60;
 var DEFAULT_QUICK_REPLIES = ['Yes', 'No', 'On my way', 'Thanks! 👍'];
 
@@ -189,6 +190,85 @@ function serviceID(network) {
 
 function serviceEnabled(network, enabled) {
   return enabled.indexOf(serviceID(network)) !== -1;
+}
+
+function configuredAppleAliases() {
+  var aliases = {};
+  try {
+    var saved = JSON.parse(localStorage.getItem('beepster_apple_aliases') || '{}');
+    if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+      Object.keys(saved).slice(0, 100).forEach(function(chatID) {
+        var name = String(saved[chatID] || '').trim();
+        if (chatID && name) aliases[chatID] = name.slice(0, 56);
+      });
+    }
+  } catch (error) {}
+  return aliases;
+}
+
+function stableMergedChatID(chatIDs) {
+  var source = chatIDs.slice().sort().join('|'), hash = 5381;
+  for (var i = 0; i < source.length; i++) {
+    hash = ((hash << 5) + hash) ^ source.charCodeAt(i);
+  }
+  return 'beepster-merged-' + (hash >>> 0).toString(16);
+}
+
+function rememberAppleCandidates(items) {
+  var aliases = configuredAppleAliases();
+  var candidates = items.filter(function(chat) { return serviceID(chat.network) === 'apple_messages'; })
+    .slice(0, 50).map(function(chat) {
+      return {id:String(chat.id || ''),label:String(chat.name || 'Apple conversation').slice(0,80),alias:aliases[chat.id] || ''};
+    }).filter(function(chat) { return chat.id; });
+  localStorage.setItem('beepster_apple_candidates', JSON.stringify(candidates));
+}
+
+function configuredAppleCandidates() {
+  try {
+    var candidates = JSON.parse(localStorage.getItem('beepster_apple_candidates') || '[]');
+    if (Array.isArray(candidates)) return candidates.slice(0, 50);
+  } catch (error) {}
+  return [];
+}
+
+function applyAppleAliases(items) {
+  var aliases = configuredAppleAliases(), groups = {}, output = [];
+  mergedChats = {};
+  items.forEach(function(chat) {
+    var alias = serviceID(chat.network) === 'apple_messages' ? aliases[chat.id] : '';
+    if (!alias) { output.push(chat); return; }
+    var key = alias.toLowerCase();
+    if (!groups[key]) groups[key] = {name:alias,items:[]};
+    groups[key].items.push(chat);
+  });
+  Object.keys(groups).forEach(function(key) {
+    var group = groups[key];
+    if (group.items.length === 1) {
+      group.items[0].name = group.name;
+      output.push(group.items[0]);
+      return;
+    }
+    var memberIDs = group.items.map(function(chat) { return chat.id; });
+    var virtualID = stableMergedChatID(memberIDs), primary = group.items[0], unread = 0;
+    group.items.forEach(function(chat) { unread += Number(chat.unreadCount || 0); });
+    mergedChats[virtualID] = {members:memberIDs,primary:primary.id,name:group.name};
+    output.push({id:virtualID,name:group.name,network:'iMessage',unreadCount:unread,preview:primary.preview,timestamp:primary.timestamp});
+  });
+  output.sort(function(a,b) {
+    function sourceIndex(item) {
+      for (var index = 0; index < items.length; index++) {
+        if (items[index].id === item.id || (mergedChats[item.id] && mergedChats[item.id].members.indexOf(items[index].id) !== -1)) return index;
+      }
+      return items.length;
+    }
+    var ai = sourceIndex(a), bi = sourceIndex(b);
+    return ai - bi;
+  });
+  return output;
+}
+
+function routedChatID(chatID) {
+  return mergedChats[chatID] ? mergedChats[chatID].primary : chatID;
 }
 
 function watchQuickReply(value) {
@@ -423,6 +503,7 @@ function pollReply(chatID, pendingMessageID, attempt) {
 
 function sendReply(chatID, text, requestID) {
   if (!chatID || !text) { sendState('reply_failed', 'Reply data missing'); return; }
+  chatID = routedChatID(chatID);
   if (!requestID) {
     quickReplyCounter++;
     requestID = 'reply-' + Date.now() + '-' + quickReplyCounter;
@@ -451,13 +532,17 @@ function loadChats() {
   if (DEMO_MODE) { loadDemoChats(); return; }
   var generation = ++chatLoadGeneration;
   var enabledServices = configuredServices();
-  var requestLimit = enabledServices.length === SERVICE_IDS.length ? 12 : 50;
+  // Keep enough recent Apple destinations on the phone for the Settings linker,
+  // even though only twelve conversations are transferred to the watch.
+  var requestLimit = 50;
   if (!hasLoadedChats) sendState('loading');
   request('/v1/chats?limit=' + requestLimit, function(data) {
     if (generation !== chatLoadGeneration) { scheduleRefresh(); return; }
+    rememberAppleCandidates(data.items || []);
     var items = (data.items || []).filter(function(chat) {
       return serviceEnabled(chat.network, enabledServices);
-    }).slice(0, 12);
+    });
+    items = applyAppleAliases(items).slice(0, 12);
     discardQueuedCommands(['chat', 'chats_ready']);
     if (items.length === 0) {
       var empty = {}; empty[KEY_COMMAND] = 'chats_ready'; empty[KEY_TOTAL] = 0; enqueue(empty);
@@ -553,6 +638,10 @@ function loadMessages(chatID) {
   loadingOlderMessages = false;
   messageTextByID = {};
   sendState('loading');
+  if (mergedChats[chatID]) {
+    loadMergedMessages(chatID, mergedChats[chatID], generation);
+    return;
+  }
   request('/v1/chats/' + encodeURIComponent(chatID) + '/messages?limit=12', function(data) {
     if (generation !== messageLoadGeneration || chatID !== activeMessageChatID) return;
     var items = (data.items || []).slice(0, MAX_WATCH_MESSAGES);
@@ -566,6 +655,38 @@ function loadMessages(chatID) {
     console.log('Beepster queued newest messages count=' + items.length);
   }, function(error) {
     if (generation === messageLoadGeneration && chatID === activeMessageChatID) sendState('error', error);
+  });
+}
+
+function loadMergedMessages(chatID, merged, generation) {
+  var remaining = merged.members.length, combined = [], failed = false;
+  function complete() {
+    remaining--;
+    if (remaining > 0 || generation !== messageLoadGeneration || chatID !== activeMessageChatID) return;
+    if (failed && combined.length === 0) { sendState('error', 'Merged Apple history unavailable'); return; }
+    combined.sort(function(a,b) {
+      var aTime = Date.parse(a.timestamp || '') || 0;
+      var bTime = Date.parse(b.timestamp || '') || 0;
+      return aTime - bTime;
+    });
+    var items = combined.slice(-MAX_WATCH_MESSAGES);
+    if (!items.length) { sendState('empty'); return; }
+    messageHistory = items;
+    hasOlderMessages = false;
+    var start = {}; start[KEY_COMMAND] = 'messages_start'; start[KEY_TOTAL] = items.length; enqueue(start);
+    for (var i = 0; i < items.length; i++) queueMessage(items[i], i, items.length);
+    finishMessageBatch('initial', items.length - 1);
+    console.log('Beepster queued merged Apple messages count=' + items.length + ' sources=' + merged.members.length);
+  }
+  merged.members.forEach(function(memberID, memberIndex) {
+    request('/v1/chats/' + encodeURIComponent(memberID) + '/messages?limit=60', function(data) {
+      (data.items || []).forEach(function(item) {
+        var copy = Object.assign({}, item);
+        copy.id = 'm' + memberIndex + '-' + String(item.id || 'message');
+        combined.push(copy);
+      });
+      complete();
+    }, function() { failed = true; complete(); });
   });
 }
 
@@ -700,6 +821,8 @@ Pebble.addEventListener('showConfiguration', function() {
     themes: configuredThemes(),
     quickReplies: configuredQuickReplies(),
     services: configuredServices(),
+    appleAliases: configuredAppleAliases(),
+    appleCandidates: configuredAppleCandidates(),
     textSize: configuredTheme().textSize,
     refresh: Number(localStorage.getItem('beepster_refresh') || '180')
   };
@@ -716,6 +839,7 @@ Pebble.addEventListener('webviewclosed', function(event) {
     if (settings.themes) localStorage.setItem('beepster_themes', JSON.stringify(settings.themes.slice(0,20)));
     if (settings.quickReplies && Array.isArray(settings.quickReplies)) localStorage.setItem('beepster_quick_replies', JSON.stringify(settings.quickReplies.slice(0,8)));
     if (Array.isArray(settings.services)) localStorage.setItem('beepster_services', JSON.stringify(settings.services.filter(function(value) { return SERVICE_IDS.indexOf(value) !== -1; })));
+    if (settings.appleAliases && typeof settings.appleAliases === 'object') localStorage.setItem('beepster_apple_aliases', JSON.stringify(settings.appleAliases));
     if (settings.textSize) localStorage.setItem('beepster_text_size', settings.textSize);
     if (typeof settings.refresh === 'number') localStorage.setItem('beepster_refresh', String(settings.refresh));
     lastThemeSignature = '';

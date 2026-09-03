@@ -38,6 +38,24 @@ inbox. All services are enabled by default. You can select any combination—inc
 Messages—and save without pairing again. Unknown or newly added Beeper networks are controlled by
 **Other services**.
 
+## Linking split Apple conversations
+
+Apple Messages may appear through Beeper as separate email and phone conversations even when the
+Messages app presents them as one person. In Beepster Settings, find both entries under **Link Apple
+conversations** and enter the same contact name beside each. After saving, the watch shows one
+thread with both histories in chronological order. Replies use the most recently active underlying
+conversation. Delete either alias to separate them again.
+
+This is intentionally user-controlled: Beepster will not guess that two addresses belong to the
+same person, and it never changes the source conversations.
+
+## Mac Connector
+
+Open **Beepster Connector** from `~/Applications` to check Contacts permission, the local
+gateway/Beeper token, and the private Tailscale Serve route. It can request Contacts access, open
+the correct macOS Privacy pane, securely store a dedicated Beeper token, start the private route,
+and show the one-time pairing code. No Beeper or gateway token is shown or copied.
+
 ## Themes and accessibility
 
 Settings includes six presets and saved custom themes. A custom theme controls background, body,

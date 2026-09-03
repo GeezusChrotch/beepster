@@ -25,6 +25,14 @@ function participantIdentifiers(chat) {
     .map(normalizeContactIdentifier).filter(Boolean);
 }
 
+function appleIdentifierKind(chat) {
+  if (!/imessage|apple messages/i.test(String(chat?.network || chat?.accountID || ''))) return '';
+  const participant = chat?.participants?.items?.find((item) => !item.isSelf);
+  const candidate = String(participant?.email || participant?.phoneNumber || chat?.title || '').trim();
+  if (candidate.includes('@')) return 'email';
+  return normalizeContactIdentifier(candidate) ? 'phone' : '';
+}
+
 function contactMatchesParticipant(contact, participant) {
   if (contact.id && contact.id === participant?.id) return true;
   const participantKeys = [participant?.email, participant?.phoneNumber]
@@ -170,9 +178,26 @@ export class BeeperClient {
       network: chat.network || '',
       unreadCount: chat.unreadCount || 0,
       preview: normalizeEmojiForPebble(normalizePreview(chat.preview)),
-      timestamp: normalizeTime(chat.lastActivity || chat.lastActivityAt || chat.preview?.timestamp)
+      timestamp: normalizeTime(chat.lastActivity || chat.lastActivityAt || chat.preview?.timestamp),
+      identifierKind: appleIdentifierKind(chat)
     }));
-    return { items, hasMore: Boolean(result.hasMore), nextCursor: result.oldestCursor || null };
+    const appleNameCounts = new Map();
+    for (const item of items) {
+      if (!item.identifierKind) continue;
+      const key = item.name.toLocaleLowerCase();
+      appleNameCounts.set(key, (appleNameCounts.get(key) || 0) + 1);
+    }
+    return {
+      items: items.map((item) => {
+        const { identifierKind, ...watchItem } = item;
+        if (identifierKind && appleNameCounts.get(item.name.toLocaleLowerCase()) > 1) {
+          watchItem.name = `${item.name} (${identifierKind})`;
+        }
+        return watchItem;
+      }),
+      hasMore: Boolean(result.hasMore),
+      nextCursor: result.oldestCursor || null
+    };
   }
 
   async listMessages(chatID, limit, cursor = '') {
@@ -188,6 +213,7 @@ export class BeeperClient {
         sender: message.isSender ? 'Me' : normalizeEmojiForPebble(message.senderName || 'Unknown'),
         text: normalizeEmojiForPebble(htmlToText(message.text || '')),
         time: normalizeTime(message.timestamp),
+        timestamp: message.timestamp || '',
         attachment
       };
     });

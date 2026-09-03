@@ -18,9 +18,14 @@ source URLs never cross the gateway boundary: the phone receives an opaque ID an
 of watch-native pixels.
 
 For an Apple message participant that Beeper exposes only as an email address or phone number, the
-gateway can invoke the local `beepster-contacts` helper. The helper asks macOS Contacts for an exact,
-read-only match and returns only the display name. Successful matches are cached for six hours and
+gateway can invoke the local `beepster-contacts` helper. The helper scans macOS Contacts locally for
+a normalized, exact match and returns only the display name. Successful matches are cached for six hours and
 misses for fifteen minutes.
+
+When Beeper exposes one Apple contact as separate email and phone chat IDs, the user can assign the
+same local alias to both in Settings. PebbleKit JS constructs a virtual chat ID, combines and sorts
+bounded message pages from the underlying chats, and routes replies to the most recently active
+member. The alias map stays in Pebble app storage; the gateway and upstream chats are unchanged.
 
 The phone component is a transport adapter. It must not contain the Beeper Desktop token. The watch
 owns presentation and interaction state and must remain understandable when transport is unavailable.

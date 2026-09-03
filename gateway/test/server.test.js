@@ -52,6 +52,9 @@ test('configuration page supports editing an existing paired connection', async 
     assert.match(html, /Beeper \/ Matrix/);
     assert.match(html, /Other services/);
     assert.match(html, /services:services/);
+    assert.match(html, /Link Apple conversations/);
+    assert.match(html, /appleCandidates/);
+    assert.match(html, /appleAliases:savedAppleAliases/);
   });
 });
 

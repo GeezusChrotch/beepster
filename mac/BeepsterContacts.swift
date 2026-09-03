@@ -45,8 +45,24 @@ func displayName(_ contact: CNContact) -> String? {
     return organization.isEmpty ? nil : organization
 }
 
+func normalizeIdentifier(_ value: String) -> String? {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.contains("@") {
+        return trimmed.replacingOccurrences(of: "^mailto:", with: "", options: [.regularExpression, .caseInsensitive]).lowercased()
+    }
+    let digits = trimmed.filter(\.isNumber)
+    guard digits.count >= 7 else { return nil }
+    return digits.count == 11 && digits.first == "1" ? String(digits.dropFirst()) : digits
+}
+
 let store = CNContactStore()
 let arguments = CommandLine.arguments
+
+if let statusIndex = arguments.firstIndex(of: "--status-file"), arguments.count > statusIndex + 1 {
+    try authorizationLabel(CNContactStore.authorizationStatus(for: .contacts)).write(
+        toFile: arguments[statusIndex + 1], atomically: true, encoding: .utf8)
+    exit(0)
+}
 
 if arguments.contains("--status") {
     print(authorizationLabel(CNContactStore.authorizationStatus(for: .contacts)))
@@ -60,32 +76,43 @@ if !arguments.contains("--lookup") && !arguments.contains("--status") {
     exit(granted ? 0 : 1)
 }
 
+let fileLookupIndex = arguments.firstIndex(of: "--lookup-file")
+let input: Data
+let outputPath: String?
+if let fileLookupIndex, arguments.count > fileLookupIndex + 2 {
+    input = try Data(contentsOf: URL(fileURLWithPath: arguments[fileLookupIndex + 1]))
+    outputPath = arguments[fileLookupIndex + 2]
+} else {
+    input = FileHandle.standardInput.readDataToEndOfFile()
+    outputPath = nil
+}
+
 guard CNContactStore.authorizationStatus(for: .contacts) == .authorized else {
-    let response = LookupResponse(authorized: false, names: [:])
-    let data = try JSONEncoder().encode(response)
-    FileHandle.standardOutput.write(data)
+    let data = try JSONEncoder().encode(LookupResponse(authorized: false, names: [:]))
+    if let outputPath { try data.write(to: URL(fileURLWithPath: outputPath), options: .atomic) }
+    else { FileHandle.standardOutput.write(data) }
     exit(0)
 }
 
-let input = FileHandle.standardInput.readDataToEndOfFile()
 let request = try JSONDecoder().decode(LookupRequest.self, from: input)
 let nameDescriptor = CNContactFormatter.descriptorForRequiredKeys(for: .fullName)
-let keys: [CNKeyDescriptor] = [nameDescriptor, CNContactNicknameKey as CNKeyDescriptor, CNContactOrganizationNameKey as CNKeyDescriptor]
+let keys: [CNKeyDescriptor] = [nameDescriptor, CNContactNicknameKey as CNKeyDescriptor,
+    CNContactOrganizationNameKey as CNKeyDescriptor, CNContactEmailAddressesKey as CNKeyDescriptor,
+    CNContactPhoneNumbersKey as CNKeyDescriptor]
 var names: [String: String] = [:]
+let requested = Set(request.identifiers.compactMap(normalizeIdentifier))
+let fetchRequest = CNContactFetchRequest(keysToFetch: keys)
 
-for identifier in Set(request.identifiers) {
-    let predicate: NSPredicate
-    if identifier.contains("@") {
-        predicate = CNContact.predicateForContacts(matchingEmailAddress: identifier)
-    } else {
-        predicate = CNContact.predicateForContacts(matching: CNPhoneNumber(stringValue: identifier))
-    }
-    if let contact = try store.unifiedContacts(matching: predicate, keysToFetch: keys).first,
-       let name = displayName(contact) {
+try store.enumerateContacts(with: fetchRequest) { contact, _ in
+    guard let name = displayName(contact) else { return }
+    let identifiers = contact.emailAddresses.compactMap { normalizeIdentifier($0.value as String) } +
+        contact.phoneNumbers.compactMap { normalizeIdentifier($0.value.stringValue) }
+    for identifier in identifiers where requested.contains(identifier) {
         names[identifier] = name
     }
 }
 
 let response = LookupResponse(authorized: true, names: names)
 let data = try JSONEncoder().encode(response)
-FileHandle.standardOutput.write(data)
+if let outputPath { try data.write(to: URL(fileURLWithPath: outputPath), options: .atomic) }
+else { FileHandle.standardOutput.write(data) }
