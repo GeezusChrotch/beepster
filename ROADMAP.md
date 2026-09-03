@@ -129,3 +129,9 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Automatically load the selected photo, GIF poster, or video poster inline
 - [x] Tag chunked text and media packets so late responses cannot overwrite another selected message
 - [x] Stream one preview directly into its bitmap to stay within Time 2 memory limits
+
+## 0.7.1 — Long-message scroll stability
+
+- [x] Stop stale scroll animations before expanding or collapsing dynamic message rows
+- [x] Clamp manual thread offsets to the MenuLayer's current content bounds
+- [x] Re-anchor newly selected rows after their heights change

@@ -832,6 +832,7 @@ static void message_selection_changed(MenuLayer *menu_layer, MenuIndex new_index
       s_inline_media_state = message->attachment_id[0] ? INLINE_MEDIA_LOADING : INLINE_MEDIA_NONE;
       s_inline_media_error[0] = '\0';
       menu_layer_reload_data(s_message_menu);
+      menu_layer_set_selected_index(s_message_menu, new_index, MenuRowAlignTop, false);
       s_content_request_timer = app_timer_register(250, request_selected_content, NULL);
     }
   }
@@ -956,26 +957,35 @@ static void message_move_selection(int delta) {
   GPoint content_offset = scroll_layer_get_content_offset(scroll);
   int32_t viewport_top = -content_offset.y;
   int32_t viewport_height = layer_get_bounds(menu_layer_get_layer(s_message_menu)).size.h;
+  int32_t content_height = scroll_layer_get_content_size(scroll).h;
+  int32_t max_viewport_top = content_height > viewport_height ?
+    content_height - viewport_height : 0;
+  if (viewport_top < 0) viewport_top = 0;
+  if (viewport_top > max_viewport_top) {
+    viewport_top = max_viewport_top;
+    scroll_layer_set_content_offset(scroll, GPoint(0, -viewport_top), false);
+  }
   int32_t step = viewport_height > 54 ? viewport_height - 54 : viewport_height;
 
   if (delta > 0 && viewport_top + viewport_height < top + height) {
     int32_t next = viewport_top + step;
     int32_t last = top + height - viewport_height;
+    if (last > max_viewport_top) last = max_viewport_top;
     if (next > last) next = last;
-    scroll_layer_set_content_offset(scroll, GPoint(0, -next), true);
+    scroll_layer_set_content_offset(scroll, GPoint(0, -next), false);
     return;
   }
   if (delta < 0 && viewport_top > top) {
     int32_t next = viewport_top - step;
     if (next < top) next = top;
-    scroll_layer_set_content_offset(scroll, GPoint(0, -next), true);
+    scroll_layer_set_content_offset(scroll, GPoint(0, -next), false);
     return;
   }
 
   int next_row = row + delta;
   if (next_row < 0 || next_row >= s_message_count) return;
   MenuIndex target = {.section = 0, .row = next_row};
-  menu_layer_set_selected_index(s_message_menu, target, MenuRowAlignTop, true);
+  menu_layer_set_selected_index(s_message_menu, target, MenuRowAlignTop, false);
 }
 
 static void message_up(ClickRecognizerRef recognizer, void *context) {
