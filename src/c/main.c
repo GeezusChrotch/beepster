@@ -1146,7 +1146,7 @@ static void message_move_selection(int delta) {
   int32_t visible_height = message_row_height(s_message_menu, &current, NULL);
   int32_t content_height = message_content_height(s_message_menu, message, expanded, text);
   int32_t max_scroll = content_height > visible_height ? content_height - visible_height : 0;
-  int32_t step = visible_height > 54 ? visible_height - 54 : visible_height;
+  int32_t step = 2 * (s_theme_size + 6);
 
   if (delta > 0 && expanded && s_expanded_scroll_offset < max_scroll) {
     s_expanded_scroll_offset += step;

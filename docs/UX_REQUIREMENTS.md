@@ -66,7 +66,8 @@ review, and information must remain understandable without color.
   no separate message-reading screen.
 - Hold Select anywhere in the thread to start confirmed voice dictation.
 - Hold Down anywhere in the thread to open up to eight configured canned replies.
-- Short Up and Down scroll within oversized selected messages before moving to the adjacent message.
+- Each short Up or Down press moves exactly two text-line heights within an oversized selected
+  message; at its beginning or end, the same button moves to the adjacent message.
 - Automatically load a selected Photo, GIF poster, or Video poster inline. Keep one decoded preview
   in watch memory at a time and show an explicit loading or failure label while it is unavailable.
 - A chat shows cached messages immediately when available.

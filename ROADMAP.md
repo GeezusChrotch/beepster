@@ -155,3 +155,8 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Cover every currently supported Beeper network plus Beeper/Matrix and unknown fallbacks
 - [x] Preserve marquee behavior and readable text width beside the icon
 - [x] Avoid bitmap-resource overhead with native integer-coordinate Pebble drawing
+
+## 0.8.1 — Simple thread scrolling
+
+- [x] Move exactly two text-line heights per short Up or Down press
+- [x] Move to an adjacent message only after reaching the current message boundary
