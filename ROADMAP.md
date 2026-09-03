@@ -160,3 +160,10 @@ sent until Beeper resolves the pending message with a successful send status.
 
 - [x] Move exactly two text-line heights per short Up or Down press
 - [x] Move to an adjacent message only after reaching the current message boundary
+
+## 0.8.2 — Stable thread theming
+
+- [x] Keep every thread row on the saved background and body-text colors
+- [x] Indicate selection with only the sender and service-icon accent
+- [x] Normalize smart punctuation without changing message meaning
+- [x] Match Pebble emoji fallback fonts to the nearest configured text size

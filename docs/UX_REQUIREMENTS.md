@@ -68,6 +68,10 @@ review, and information must remain understandable without color.
 - Hold Down anywhere in the thread to open up to eight configured canned replies.
 - Each short Up or Down press moves exactly two text-line heights within an oversized selected
   message; at its beginning or end, the same button moves to the adjacent message.
+- Thread backgrounds and body text always use the saved theme colors; selection may accent the
+  sender and service icon but must never invert an entire message or change its text color.
+- Normalize smart punctuation to watch-safe equivalents so it does not force an otherwise ordinary
+  message into Pebble's emoji fallback font.
 - Automatically load a selected Photo, GIF poster, or Video poster inline. Keep one decoded preview
   in watch memory at a time and show an explicit loading or failure label while it is unavailable.
 - A chat shows cached messages immediately when available.

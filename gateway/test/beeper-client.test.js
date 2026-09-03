@@ -29,6 +29,10 @@ test('supported emoji survive while unsupported emoji get meaningful fallbacks',
   assert.equal(normalizeEmojiForPebble('Family 👨‍👩‍👧 and flag 🇺🇸'), 'Family [emoji] and flag [flag]');
 });
 
+test('smart punctuation stays in the selected theme font', () => {
+  assert.equal(normalizeEmojiForPebble('“Hello”—it’s fine… • yes'), '"Hello"-it\'s fine... * yes');
+});
+
 test('chat and message requests are bounded and normalized', async () => {
   const paths = [];
   const fetchImpl = async (url) => {

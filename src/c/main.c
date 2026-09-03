@@ -485,7 +485,7 @@ static void apply_theme_to_layers(void) {
   }
   if (s_message_menu) {
     menu_layer_set_normal_colors(s_message_menu, s_theme.background, s_theme.text);
-    menu_layer_set_highlight_colors(s_message_menu, s_theme.accent, s_theme.accent_text);
+    menu_layer_set_highlight_colors(s_message_menu, s_theme.background, s_theme.text);
     layer_mark_dirty(menu_layer_get_layer(s_message_menu));
   }
   if (s_reply_menu) {
@@ -565,8 +565,8 @@ static GFont pome_theme_font(void) {
 static GFont gothic_font(bool bold) {
   if (s_theme_size <= 14) return fonts_get_system_font(bold ? FONT_KEY_GOTHIC_14_BOLD : FONT_KEY_GOTHIC_14);
   if (s_theme_size <= 18) return fonts_get_system_font(bold ? FONT_KEY_GOTHIC_18_BOLD : FONT_KEY_GOTHIC_18);
-  if (s_theme_size >= 28) return fonts_get_system_font(bold ? FONT_KEY_GOTHIC_28_BOLD : FONT_KEY_GOTHIC_28);
-  return fonts_get_system_font(bold ? FONT_KEY_GOTHIC_24_BOLD : FONT_KEY_GOTHIC_24);
+  if (s_theme_size <= 22) return fonts_get_system_font(bold ? FONT_KEY_GOTHIC_24_BOLD : FONT_KEY_GOTHIC_24);
+  return fonts_get_system_font(bold ? FONT_KEY_GOTHIC_28_BOLD : FONT_KEY_GOTHIC_28);
 }
 
 static GFont theme_font(void) {
@@ -1073,16 +1073,17 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
   int content_y = text_y + text_height + 5;
   int32_t natural_height = message_content_height(s_message_menu, message, expanded, body);
   int time_y = natural_height - 19 - content_scroll;
-  GColor foreground = selected ? s_theme.accent_text : s_theme.text;
-  graphics_context_set_text_color(ctx, foreground);
+  GColor sender_color = selected ? s_theme.accent : s_theme.text;
+  graphics_context_set_text_color(ctx, sender_color);
 
   draw_marquee_text(ctx, message->sender, font_for_text(message->sender),
     GRect(25, 1 - content_scroll, bounds.size.w - 33, sender_height), selected);
-  graphics_context_set_fill_color(ctx, selected ? s_theme.accent : s_theme.background);
+  graphics_context_set_fill_color(ctx, s_theme.background);
   graphics_fill_rect(ctx, GRect(0, 1 - content_scroll, 24, sender_height), 0, GCornerNone);
   draw_service_icon(ctx,
     GRect(7, 1 - content_scroll + (sender_height - 14) / 2, 14, 14),
-    s_active_chat_network, foreground);
+    s_active_chat_network, sender_color);
+  graphics_context_set_text_color(ctx, s_theme.text);
   graphics_draw_text(ctx, body && body[0] ? body : "[No text]",
     font_for_text(body),
     GRect(8, text_y, bounds.size.w - 16, text_height),
@@ -1106,13 +1107,15 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
     }
   }
   if (expanded) {
+    graphics_context_set_text_color(ctx, s_theme.muted);
     graphics_draw_text(ctx, "Hold Select: voice  •  Down: quick",
       fonts_get_system_font(FONT_KEY_GOTHIC_14),
       GRect(8, content_y, bounds.size.w - 16, 16),
       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
   }
-  graphics_context_set_fill_color(ctx, selected ? s_theme.accent : s_theme.background);
+  graphics_context_set_fill_color(ctx, s_theme.background);
   graphics_fill_rect(ctx, GRect(0, time_y - 3, bounds.size.w, 22), 0, GCornerNone);
+  graphics_context_set_text_color(ctx, s_theme.muted);
   graphics_draw_text(ctx, message->time,
     fonts_get_system_font(FONT_KEY_GOTHIC_14),
     GRect(8, time_y, bounds.size.w - 16, 16),
@@ -1698,7 +1701,7 @@ static void message_load(Window *window) {
 
   s_message_menu = menu_layer_create(bounds);
   menu_layer_set_normal_colors(s_message_menu, s_theme.background, s_theme.text);
-  menu_layer_set_highlight_colors(s_message_menu, s_theme.accent, s_theme.accent_text);
+  menu_layer_set_highlight_colors(s_message_menu, s_theme.background, s_theme.text);
   menu_layer_set_callbacks(s_message_menu, NULL, (MenuLayerCallbacks) {
     .get_num_rows = message_rows,
     .get_cell_height = message_row_height,
