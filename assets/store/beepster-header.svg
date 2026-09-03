@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 320" role="img" aria-labelledby="title description">
+  <title id="title">Beepster</title>
+  <desc id="description">Beepster logo and the words messaging on your wrist.</desc>
+  <rect width="1000" height="320" rx="32" fill="#101820"/>
+  <g transform="translate(50 18) scale(.55)">
+    <path fill="#07120F" d="M86 82c0-31 25-56 56-56s56 25 56 56v92c32-24 72-38 116-38 105 0 190 76 190 170s-85 170-190 170c-32 0-63-7-90-20l-96 47c-11 5-24 3-32-5-8-9-10-22-4-33l42-79c-24-24-39-57-39-94 0-3 0-7 1-10V82z"/>
+    <path fill="#55D6BE" d="M141 301c0-61 58-110 130-110h45c72 0 130 49 130 110s-58 110-130 110h-74l-84 45 31-66c-30-20-48-52-48-89z"/>
+    <circle cx="238" cy="302" r="17" fill="#07120F"/><circle cx="294" cy="302" r="17" fill="#07120F"/><circle cx="350" cy="302" r="17" fill="#07120F"/>
+    <path stroke="#55D6BE" stroke-linecap="round" stroke-width="24" fill="none" d="M378 83c32 14 58 40 72 72M353 132c18 8 33 23 41 41"/>
+  </g>
+  <text x="350" y="150" fill="#F7FBFF" font-family="Arial, Helvetica, sans-serif" font-size="86" font-weight="700">Beepster</text>
+  <text x="354" y="210" fill="#55D6BE" font-family="Arial, Helvetica, sans-serif" font-size="30">Messaging on your wrist.</text>
+  <text x="354" y="253" fill="#B7C7D4" font-family="Arial, Helvetica, sans-serif" font-size="22">Open source • private Mac gateway • built for Pebble Time 2</text>
+</svg>

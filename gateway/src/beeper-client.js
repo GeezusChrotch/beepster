@@ -8,6 +8,7 @@ import { createWatchPreview } from './image-preview.js';
 import { htmlToText } from './html-to-text.js';
 
 const MAX_MESSAGE_PAGE = 60;
+const MAX_PREVIEW_CACHE = 8;
 const LOCAL_API_PORTS = Array.from({length: 11}, (_, index) => 23373 + index);
 
 function ensureOK(response, operation) {
@@ -56,6 +57,8 @@ export class BeeperClient {
     this.fetch = fetchImpl;
     this.previewCreator = previewCreator;
     this.attachments = new Map();
+    this.previewCache = new Map();
+    this.previewPromises = new Map();
     this.autoDiscoverLocalAPI = /^http:\/\/(127\.0\.0\.1|localhost):23373$/.test(this.baseURL);
   }
 
@@ -167,6 +170,26 @@ export class BeeperClient {
   async getAttachmentPreview(attachmentID) {
     const attachment = this.attachments.get(attachmentID);
     if (!attachment) return null;
+    const cached = this.previewCache.get(attachmentID);
+    if (cached) {
+      this.previewCache.delete(attachmentID);
+      this.previewCache.set(attachmentID, cached);
+      return cached;
+    }
+    if (this.previewPromises.has(attachmentID)) return this.previewPromises.get(attachmentID);
+    const promise = this.createAttachmentPreview(attachment);
+    this.previewPromises.set(attachmentID, promise);
+    try {
+      const preview = await promise;
+      this.previewCache.set(attachmentID, preview);
+      if (this.previewCache.size > MAX_PREVIEW_CACHE) this.previewCache.delete(this.previewCache.keys().next().value);
+      return preview;
+    } finally {
+      this.previewPromises.delete(attachmentID);
+    }
+  }
+
+  async createAttachmentPreview(attachment) {
     const directory = await mkdtemp(join(tmpdir(), 'beepster-preview-'));
     const inputPath = join(directory, 'source');
     const outputPath = join(directory, 'preview.bmp');

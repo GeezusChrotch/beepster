@@ -1,55 +1,69 @@
 # Beepster
 
-Beepster is a readable, reliable, open-source Beeper client for Pebble watches.
+![Beepster](assets/store/beepster-header-1000x320.png)
 
-The first target is Pebble Time 2 (`emery`) at its native 200×228 resolution. Beepster does not
-reuse PebBeep source code. It connects to Beeper through the official local Desktop API and keeps
-the Beeper access token on the Mac gateway.
+Beepster is a readable, reliable, open-source Beeper client for Pebble Time 2. It brings recent
+chats, complete message text, voice dictation, saved replies, themes, emoji fallbacks, and inline
+photo previews to the watch without putting a Beeper credential on the watch or phone.
 
-## Project principles
+Version 0.9.0 is the public-release candidate. Beepster is usable today from source; the one-tap
+Pebble Store release and public first-run setup page are still awaiting publication.
 
-- Never show a blank screen: every network view has loading, empty, cached, and error states.
-- Prefer a real contact name, with an honest handle fallback when no name is available.
-- Use native-resolution, high-contrast text that follows Pebble's accessibility conventions.
-- Never claim a reply was sent merely because it entered a queue.
-- Keep Beeper credentials off the watch, phone-side JavaScript, source tree, and relay URL.
-- Publish the complete watch, phone, and gateway source under the MIT license.
+## What you need
 
-## Current status
+- A Pebble Time 2 (`emery`) paired with the Pebble mobile app
+- A Mac that can remain online with Beeper Desktop running
+- Node.js 20 or newer
+- Tailscale on the Mac and phone, signed into the same private tailnet
+- A dedicated Beeper Desktop API access token
 
-Version 0.8.3 is a working clean-room daily-driver preview:
+No iMessage bridge such as `imsg` is required. Beeper Desktop supplies the supported messaging
+networks; iMessage itself requires Beeper Desktop to run on macOS.
 
-- Native Emery watch build
-- Explicit setup/loading/empty/error states
-- Recent-chat and message-history protocol
-- Private Mac gateway using the official Beeper Desktop API
-- Contact-name normalization from participant data and Beeper's per-account contact list
-- Theme-colored service icons in the inbox and message headers for every currently supported Beeper network
-- Six presets plus saved custom themes with Pome's Inter, Roboto, Open Sans, Montserrat, and
-  Poppins families at 14, 18, 22, 26, or 30 points
-- Pebble-native emoji preservation with safe fallbacks for unsupported emoji
-- Keychain-backed macOS LaunchAgent companion with private HTTPS pairing
-- Phone settings that persist without re-pairing
-- Confirmed voice dictation replies with Beeper delivery tracking and retry protection
-- Up to eight configurable canned replies, including text and emoji, with one-tap sending
-- Every selected message expands to its complete text directly in the thread; short Up/Down scrolls
-  through long content, press or hold center dictates, hold top opens saved replies, and hold bottom
-  jumps to the newest message
-- Oversized selected chat names, senders, and quick replies marquee like Pome instead of remaining cut off
-- Chronological thread history that opens on the newest message and pages upward through as many as 60 messages
-- Readable Instagram rich-message conversion with HTML tags removed and entities decoded
-- Private photo, GIF-poster, and video-poster previews converted on the Mac and loaded automatically
-  into the selected message row, including Instagram attachments
-- Automated gateway tests, source checks, and emulator media-render tests
+## Start here
 
-Animated GIF playback and multiple attachments per message remain planned. See
-[ROADMAP.md](ROADMAP.md) and [docs/UX_REQUIREMENTS.md](docs/UX_REQUIREMENTS.md).
+- [Install Beepster](docs/INSTALL.md) — complete Mac, Tailscale, watch, and pairing walkthrough
+- [Use Beepster](docs/USER_GUIDE.md) — controls, replies, themes, media, and limitations
+- [Troubleshoot](docs/TROUBLESHOOTING.md) — symptom-based fixes and the private health checker
+- [Privacy](PRIVACY.md) and [security model](SECURITY.md)
+- [Contribute](CONTRIBUTING.md)
+
+## Current capabilities
+
+- Recent chats with contact-name normalization and service icons
+- Chronological history that opens on the newest message and pages up to 60 messages
+- Complete in-thread message text with simple two-line scrolling
+- Center-button voice dictation with confirmation and delivery tracking
+- Up to eight text-or-emoji quick replies
+- Static photo, GIF-poster, and video-poster previews, including Instagram media
+- HTML cleanup for rich Instagram messages
+- Six presets and saved custom themes using five font families and five sizes
+- Pebble-native emoji where possible, with readable text fallbacks elsewhere
+- Explicit setup, loading, empty, timeout, offline, and retry states
+- Keychain-backed Mac companion, private HTTPS pairing, and idempotent reply transport
+
+Animated GIF playback and multiple attachments per message remain planned. See the
+[roadmap](ROADMAP.md) and [UX requirements](docs/UX_REQUIREMENTS.md).
+
+## Architecture
+
+```text
+Pebble watch (C)
+    ⇅ AppMessage
+PebbleKit JS on phone
+    ⇅ private HTTPS with a narrow Beepster gateway credential
+Beepster gateway on Mac
+    ⇅ localhost with the Beeper Desktop token
+Beeper Desktop API
+```
+
+The Mac gateway resolves contacts, sanitizes rich text, resizes media, tracks delivery, caches safe
+fallbacks, and keeps the Beeper token in the macOS Keychain. The phone is a transport adapter; the
+watch owns presentation and interaction state. See [Architecture](docs/ARCHITECTURE.md).
 
 ## Development
 
-Requirements: macOS, Pebble SDK 4.33.1 or newer, Pebble Tool 5, and Node.js 20 or newer. The
-companion uses macOS `sips` to make bounded watch previews without adding an image-processing cloud.
-The bundled Time 2 fonts retain their SIL Open Font License texts under `resources/fonts/licenses`.
+Requirements: macOS, Pebble SDK 4.33.1 or newer, Pebble Tool 5, and Node.js 20 or newer.
 
 ```sh
 npm test
@@ -57,16 +71,15 @@ npm run build
 npm run check
 ```
 
-The gateway setup is described in [gateway/README.md](gateway/README.md). Do not put a Beeper token
-in this repository or in the Pebble application bundle. Personal builds are ignored by Git because
-they contain the user's private settings URL.
+`npm run check` runs JavaScript syntax checks, the gateway/transport test suite, a credential scan, and a
+complete Emery build. Personal builds are ignored by Git because they contain a private settings
+URL. Release packaging instructions are in [Publishing](docs/PUBLISHING.md).
 
-## Relationship to Beeper and Pebble
+## Independence and license
 
 Beepster is an independent community project. It is not affiliated with, endorsed by, or sponsored
 by Beeper, Automattic, Pebble, or Core Devices. Beeper and Pebble are trademarks of their respective
 owners and are used only to describe compatibility.
 
-## License
-
-MIT. See [LICENSE](LICENSE).
+The complete watch, phone, gateway, setup page, and artwork source is available under the MIT
+license. Bundled fonts retain their SIL Open Font License texts in `resources/fonts/licenses`.

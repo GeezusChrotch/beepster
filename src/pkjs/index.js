@@ -49,8 +49,14 @@ var THEME_SIZES = [14,18,22,26,30];
 
 var queue = [];
 var sending = false;
-var DEFAULT_SETTINGS_URL = '';
+var DEMO_MODE = false;
+var DEFAULT_SETTINGS_URL = 'https://geezuschrotch.github.io/beepster/setup/';
 var refreshTimer = null;
+var lastThemeSignature = '';
+var chatLoadGeneration = 0;
+var messageLoadGeneration = 0;
+var attachmentLoadGeneration = 0;
+var hasLoadedChats = false;
 var messageTextByID = {};
 var quickReplyCounter = 0;
 var activeMessageChatID = '';
@@ -163,7 +169,7 @@ function watchQuickReply(value) {
 }
 
 function sendQuickReplies() {
-  var replies = configuredQuickReplies();
+  var replies = DEMO_MODE ? ['Sounds good!', 'On my way', 'Thank you!', 'Call you soon'] : configuredQuickReplies();
   for (var i = 0; i < replies.length; i++) {
     var message = {};
     message[KEY_COMMAND] = 'quick_reply';
@@ -189,6 +195,15 @@ function enqueue(message) {
   drain();
 }
 
+function discardQueuedCommands(commands) {
+  var keepFirst = sending && queue.length > 0;
+  var first = keepFirst ? queue[0] : null;
+  var remaining = queue.slice(keepFirst ? 1 : 0).filter(function(item) {
+    return commands.indexOf(item.message[KEY_COMMAND]) === -1;
+  });
+  queue = first ? [first].concat(remaining) : remaining;
+}
+
 function drain() {
   if (sending || queue.length === 0) return;
   sending = true;
@@ -202,6 +217,7 @@ function drain() {
     console.log('Beepster AppMessage failure retry=' + queue[0].retries + ' code=' + JSON.stringify(error || {}));
     if (queue[0].retries >= 3) {
       queue = [];
+      lastThemeSignature = '';
       sendState('error', 'Watch transport failed');
       return;
     }
@@ -209,23 +225,38 @@ function drain() {
   });
 }
 
-function sendState(state, error) {
-  var theme = configuredTheme();
+function addTheme(message, forceTheme) {
+  var theme = DEMO_MODE ? normalizeTheme(BUILT_IN_THEMES[0]) : configuredTheme();
+  var themeSignature = JSON.stringify(theme);
+  if (forceTheme || themeSignature !== lastThemeSignature) {
+    message[KEY_THEME] = theme.id;
+    message[KEY_TEXT_SIZE] = theme.textSize || localStorage.getItem('beepster_text_size') || 'normal';
+    message[KEY_THEME_BACKGROUND] = pebbleColor(theme.background);
+    message[KEY_THEME_TEXT] = pebbleColor(theme.text);
+    message[KEY_THEME_MUTED] = pebbleColor(theme.muted);
+    message[KEY_THEME_ACCENT] = pebbleColor(theme.accent);
+    message[KEY_THEME_ACCENT_TEXT] = pebbleColor(theme.accentText);
+    message[KEY_THEME_FONT] = THEME_FONTS[theme.font] || 5;
+    message[KEY_THEME_SIZE] = theme.size || 22;
+    lastThemeSignature = themeSignature;
+  }
+}
+
+function sendState(state, error, forceTheme) {
   var message = {};
   message[KEY_COMMAND] = 'state';
   message[KEY_STATE] = state;
-  message[KEY_THEME] = theme.id;
-  message[KEY_TEXT_SIZE] = theme.textSize || localStorage.getItem('beepster_text_size') || 'normal';
-  message[KEY_THEME_BACKGROUND] = pebbleColor(theme.background);
-  message[KEY_THEME_TEXT] = pebbleColor(theme.text);
-  message[KEY_THEME_MUTED] = pebbleColor(theme.muted);
-  message[KEY_THEME_ACCENT] = pebbleColor(theme.accent);
-  message[KEY_THEME_ACCENT_TEXT] = pebbleColor(theme.accentText);
-  message[KEY_THEME_FONT] = THEME_FONTS[theme.font] || 5;
-  message[KEY_THEME_SIZE] = theme.size || 22;
+  addTheme(message, forceTheme);
   if (error) message[KEY_ERROR] = safeSlice(error, 100);
   enqueue(message);
   if (state === 'error' || state === 'empty') scheduleRefresh();
+}
+
+function sendTheme() {
+  var message = {};
+  message[KEY_COMMAND] = 'theme';
+  addTheme(message, true);
+  enqueue(message);
 }
 
 function scheduleRefresh() {
@@ -382,11 +413,17 @@ function sendQuickReply(chatID, index, requestID, watchText) {
 }
 
 function loadChats() {
-  sendState('loading');
+  if (DEMO_MODE) { loadDemoChats(); return; }
+  var generation = ++chatLoadGeneration;
+  if (!hasLoadedChats) sendState('loading');
   request('/v1/chats?limit=12', function(data) {
+    if (generation !== chatLoadGeneration) { scheduleRefresh(); return; }
     var items = data.items || [];
+    discardQueuedCommands(['chat', 'chats_ready']);
     if (items.length === 0) {
-      sendState('empty');
+      var empty = {}; empty[KEY_COMMAND] = 'chats_ready'; empty[KEY_TOTAL] = 0; enqueue(empty);
+      hasLoadedChats = true;
+      scheduleRefresh();
       return;
     }
     for (var i = 0; i < items.length && i < 12; i++) {
@@ -402,9 +439,38 @@ function loadChats() {
       message[KEY_NETWORK] = safeSlice(chat.network, 20);
       enqueue(message);
     }
-    sendState('ready');
+    var ready = {}; ready[KEY_COMMAND] = 'chats_ready'; ready[KEY_TOTAL] = Math.min(items.length, 12); enqueue(ready);
+    hasLoadedChats = true;
+    scheduleRefresh();
+  }, function(error) {
+    if (generation !== chatLoadGeneration) { scheduleRefresh(); return; }
+    if (!hasLoadedChats) sendState('error', error);
+    else console.log('Beepster background chat refresh failed: ' + error);
     scheduleRefresh();
   });
+}
+
+function loadDemoChats() {
+  var items = [
+    {id:'demo-avery',name:'Avery',preview:'The release guide looks great!',unreadCount:2,network:'Signal'},
+    {id:'demo-family',name:'Family group',preview:'Dinner at seven?',unreadCount:1,network:'WhatsApp'},
+    {id:'demo-design',name:'Design team',preview:'New icon approved',unreadCount:0,network:'Slack'}
+  ];
+  sendState('loading');
+  for (var i = 0; i < items.length; i++) {
+    var message = {};
+    message[KEY_COMMAND] = 'chat';
+    message[KEY_INDEX] = i;
+    message[KEY_TOTAL] = items.length;
+    message[KEY_CHAT_ID] = items[i].id;
+    message[KEY_CHAT_NAME] = items[i].name;
+    message[KEY_CHAT_PREVIEW] = items[i].preview;
+    message[KEY_UNREAD] = items[i].unreadCount;
+    message[KEY_NETWORK] = items[i].network;
+    enqueue(message);
+  }
+  var ready = {}; ready[KEY_COMMAND] = 'chats_ready'; ready[KEY_TOTAL] = items.length; enqueue(ready);
+  hasLoadedChats = true;
 }
 
 function queueMessage(item, index, total) {
@@ -436,7 +502,11 @@ function finishMessageBatch(mode, selectedIndex) {
 }
 
 function loadMessages(chatID) {
+  if (DEMO_MODE) { loadDemoMessages(chatID); return; }
   console.log('Beepster loading messages chatIDLength=' + String(chatID || '').length);
+  var generation = ++messageLoadGeneration;
+  chatLoadGeneration++;
+  discardQueuedCommands(['chat', 'chats_ready', 'messages_start', 'messages_prepend_start', 'message', 'messages_ready', 'message_history_failed', 'message_detail_start', 'message_detail_chunk', 'message_detail_end', 'media_start', 'media_chunk', 'media_end', 'media_failed']);
   activeMessageChatID = chatID;
   messageHistory = [];
   oldestMessageCursor = '';
@@ -445,6 +515,7 @@ function loadMessages(chatID) {
   messageTextByID = {};
   sendState('loading');
   request('/v1/chats/' + encodeURIComponent(chatID) + '/messages?limit=12', function(data) {
+    if (generation !== messageLoadGeneration || chatID !== activeMessageChatID) return;
     var items = (data.items || []).slice(0, MAX_WATCH_MESSAGES);
     if (items.length === 0) { sendState('empty'); return; }
     messageHistory = items;
@@ -454,17 +525,36 @@ function loadMessages(chatID) {
     for (var i = 0; i < items.length; i++) queueMessage(items[i], i, items.length);
     finishMessageBatch('initial', items.length - 1);
     console.log('Beepster queued newest messages count=' + items.length);
+  }, function(error) {
+    if (generation === messageLoadGeneration && chatID === activeMessageChatID) sendState('error', error);
   });
 }
 
+function loadDemoMessages(chatID) {
+  activeMessageChatID = chatID;
+  messageTextByID = {};
+  messageHistory = [
+    {id:'demo-message-1',sender:'Avery',text:'Morning! The new Beepster icon looks great on the watch.',time:'9:38 AM'},
+    {id:'demo-message-2',sender:'Me',text:'Thanks! Complete messages stay in the thread now, with simple two-line scrolling.',time:'9:40 AM'},
+    {id:'demo-message-3',sender:'Avery',text:'Perfect. Voice dictation and quick replies make this genuinely useful from the wrist.',time:'9:41 AM'}
+  ];
+  var start = {}; start[KEY_COMMAND] = 'messages_start'; start[KEY_TOTAL] = messageHistory.length; enqueue(start);
+  for (var i = 0; i < messageHistory.length; i++) queueMessage(messageHistory[i], i, messageHistory.length);
+  hasOlderMessages = false;
+  finishMessageBatch('initial', messageHistory.length - 1);
+}
+
 function loadOlderMessages(chatID) {
+  if (DEMO_MODE) { finishMessageBatch('older', 0); return; }
   if (loadingOlderMessages || !hasOlderMessages || chatID !== activeMessageChatID) return;
   var remaining = MAX_WATCH_MESSAGES - messageHistory.length;
   if (remaining <= 0) { hasOlderMessages = false; finishMessageBatch('older', 0); return; }
   loadingOlderMessages = true;
+  var generation = messageLoadGeneration;
   var limit = Math.min(12, remaining);
   var path = '/v1/chats/' + encodeURIComponent(chatID) + '/messages?limit=' + limit + '&cursor=' + encodeURIComponent(oldestMessageCursor) + '&direction=before';
   request(path, function(data) {
+    if (generation !== messageLoadGeneration || chatID !== activeMessageChatID) return;
     var seen = {};
     for (var i = 0; i < messageHistory.length; i++) seen[String(messageHistory[i].id || '')] = true;
     var page = (data.items || []).filter(function(item) { return !seen[String(item.id || '')]; }).slice(-remaining);
@@ -479,12 +569,14 @@ function loadOlderMessages(chatID) {
     finishMessageBatch('older', page.length);
     console.log('Beepster prepended older messages count=' + page.length + ' total=' + messageHistory.length);
   }, function(error) {
+    if (generation !== messageLoadGeneration || chatID !== activeMessageChatID) return;
     loadingOlderMessages = false;
     var failed = {}; failed[KEY_COMMAND] = 'message_history_failed'; failed[KEY_ERROR] = safeSlice(error, 100); enqueue(failed);
   });
 }
 
 function sendMessageDetail(messageID) {
+  discardQueuedCommands(['message_detail_start', 'message_detail_chunk', 'message_detail_end']);
   var text = Object.prototype.hasOwnProperty.call(messageTextByID, messageID) ? messageTextByID[messageID] : '';
   var chunks = utf8Chunks(text || '[This message contains no text]', 500, 30000);
   var completeText = chunks.join('');
@@ -513,8 +605,11 @@ function base64Bytes(value) {
 }
 
 function loadAttachment(attachmentID) {
+  var generation = ++attachmentLoadGeneration;
+  discardQueuedCommands(['media_start', 'media_chunk', 'media_end', 'media_failed']);
   var url = gatewayURL(), token = gatewayToken();
   function fail(message) {
+    if (generation !== attachmentLoadGeneration) return;
     var failed = {}; failed[KEY_COMMAND] = 'media_failed'; failed[KEY_ATTACHMENT_ID] = attachmentID; failed[KEY_ERROR] = message; enqueue(failed);
   }
   if (!url || !token || !attachmentID) { fail('Attachment unavailable'); return; }
@@ -523,6 +618,7 @@ function loadAttachment(attachmentID) {
   xhr.setRequestHeader('Authorization', 'Bearer ' + token);
   xhr.timeout = 30000;
   xhr.onload = function() {
+    if (generation !== attachmentLoadGeneration) return;
     if (xhr.status < 200 || xhr.status >= 300 || !xhr.responseText) { fail('Preview failed with ' + xhr.status); return; }
     var preview;
     try { preview = JSON.parse(xhr.responseText); }
@@ -581,7 +677,9 @@ Pebble.addEventListener('webviewclosed', function(event) {
     if (settings.quickReplies && Array.isArray(settings.quickReplies)) localStorage.setItem('beepster_quick_replies', JSON.stringify(settings.quickReplies.slice(0,8)));
     if (settings.textSize) localStorage.setItem('beepster_text_size', settings.textSize);
     if (typeof settings.refresh === 'number') localStorage.setItem('beepster_refresh', String(settings.refresh));
+    lastThemeSignature = '';
     sendQuickReplies();
+    sendTheme();
     loadChats();
   } catch (error) {
     sendState('error', 'Settings were not saved');

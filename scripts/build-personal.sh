@@ -9,7 +9,7 @@ mkdir -p "$project_dir/local"
 temp_dir=$(mktemp -d "$project_dir/local/.buildtmp.XXXXXX")
 trap 'rm -rf "$temp_dir"' EXIT
 rsync -a --exclude .git --exclude build --exclude local --exclude backups --exclude '.lock-waf_*' "$project_dir/" "$temp_dir/"
-BEEPSTER_SETTINGS_URL="$settings_url" perl -0pi -e 'BEGIN { $u = $ENV{BEEPSTER_SETTINGS_URL} } s|var DEFAULT_SETTINGS_URL = \x27\x27;|var DEFAULT_SETTINGS_URL = \x27$u\x27;|' "$temp_dir/src/pkjs/index.js"
+BEEPSTER_SETTINGS_URL="$settings_url" perl -0pi -e 'BEGIN { $u = $ENV{BEEPSTER_SETTINGS_URL} } s|var DEFAULT_SETTINGS_URL = \x27[^\x27]*\x27;|var DEFAULT_SETTINGS_URL = \x27$u\x27;|' "$temp_dir/src/pkjs/index.js"
 if ! rg -F "var DEFAULT_SETTINGS_URL = '$settings_url';" "$temp_dir/src/pkjs/index.js" >/dev/null; then
   echo "private settings URL injection failed" >&2
   exit 1

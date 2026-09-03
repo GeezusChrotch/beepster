@@ -175,8 +175,11 @@ test('attachments use opaque IDs and can produce watch-native previews', async (
   assert.equal(messages.items[0].attachment.kind, 'gif');
   assert.doesNotMatch(messages.items[0].attachment.id, /private/);
   const preview = await client.getAttachmentPreview(messages.items[0].attachment.id);
+  const cachedPreview = await client.getAttachmentPreview(messages.items[0].attachment.id);
   assert.equal(preview.kind, 'gif');
   assert.deepEqual([...preview.pixels], [0xc0,0xff]);
+  assert.equal(cachedPreview, preview);
+  assert.equal(paths.filter((path) => path.startsWith('/v1/assets/serve')).length, 1);
   assert.ok(convertedInput);
   assert.match(paths[1], /^\/v1\/assets\/serve\?url=mxc%3A%2F%2Fprivate%2Fmedia$/);
 });

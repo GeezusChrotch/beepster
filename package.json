@@ -1,10 +1,13 @@
 {
   "name": "beepster",
   "displayName": "Beepster",
-  "version": "0.8.3",
+  "version": "0.9.0",
   "description": "A readable, reliable, open-source Beeper client for Pebble",
   "author": "Joshua Bessom",
   "license": "MIT",
+  "repository": "GeezusChrotch/beepster",
+  "homepage": "https://github.com/GeezusChrotch/beepster",
+  "bugs": "https://github.com/GeezusChrotch/beepster/issues",
   "private": false,
   "keywords": [
     "pebble-app",
@@ -15,7 +18,9 @@
   "scripts": {
     "build": "pebble build",
     "test": "npm --prefix gateway test",
-    "check": "scripts/check.sh"
+    "check": "scripts/check.sh",
+    "doctor": "scripts/doctor.sh",
+    "release": "scripts/package-release.sh"
   },
   "dependencies": {},
   "pebble": {
@@ -71,6 +76,16 @@
     },
     "resources": {
       "media": [
+        {
+          "type": "bitmap",
+          "name": "BEEPSTER_MENU_ICON",
+          "file": "images/beepster-menu-icon.png",
+          "menuIcon": true,
+          "memoryFormat": "Smallest",
+          "targetPlatforms": [
+            "emery"
+          ]
+        },
         {
           "type": "font",
           "name": "INTER_14",

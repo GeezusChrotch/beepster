@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">Beepster mark</title>
+  <desc id="description">A lowercase-b-shaped chat bubble with two wireless beep marks.</desc>
+  <g fill="none" fill-rule="evenodd">
+    <path fill="#101820" d="M86 82c0-31 25-56 56-56s56 25 56 56v92c32-24 72-38 116-38 105 0 190 76 190 170s-85 170-190 170c-32 0-63-7-90-20l-96 47c-11 5-24 3-32-5-8-9-10-22-4-33l42-79c-24-24-39-57-39-94 0-3 0-7 1-10V82z"/>
+    <path fill="#55D6BE" d="M141 301c0-61 58-110 130-110h45c72 0 130 49 130 110s-58 110-130 110h-74l-84 45 31-66c-30-20-48-52-48-89z"/>
+    <circle cx="238" cy="302" r="17" fill="#101820"/>
+    <circle cx="294" cy="302" r="17" fill="#101820"/>
+    <circle cx="350" cy="302" r="17" fill="#101820"/>
+    <path stroke="#55D6BE" stroke-linecap="round" stroke-width="24" d="M378 83c32 14 58 40 72 72M353 132c18 8 33 23 41 41"/>
+  </g>
+</svg>

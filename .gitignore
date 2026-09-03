@@ -11,3 +11,4 @@ gateway/node_modules/
 !.env.example
 local/
 backups/
+dist/

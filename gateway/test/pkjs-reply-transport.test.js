@@ -5,7 +5,7 @@ import vm from 'node:vm';
 
 const source = await readFile(new URL('../../src/pkjs/index.js', import.meta.url), 'utf8');
 
-function replyRuntime() {
+function replyRuntime({ autoAck = true } = {}) {
   const requests = [];
   const timers = [];
   const appMessages = [];
@@ -28,7 +28,7 @@ function replyRuntime() {
     XMLHttpRequest: FakeXHR,
     Pebble: {
       addEventListener() {},
-      sendAppMessage(message, success) { appMessages.push(message); if (success) success(); },
+      sendAppMessage(message, success) { appMessages.push(message); if (autoAck && success) success(); },
       openURL() {}
     },
     localStorage: {
@@ -41,7 +41,7 @@ function replyRuntime() {
     Uint8Array
   };
   vm.runInNewContext(source, context);
-  return { context, requests, timers, appMessages };
+  return { context, requests, timers, appMessages, storage };
 }
 
 test('watch replies use canonical authenticated JSON POST first', () => {
@@ -103,4 +103,41 @@ test('a stalled POST falls back to the same idempotent request over GET', () => 
   requests[0].onload();
   assert.equal(responses.length, 1);
   assert.equal(responses[0].pendingMessageID, 'pending-2');
+});
+
+test('theme data is sent once instead of reloading fonts for every state', () => {
+  const { context, appMessages } = replyRuntime();
+  context.sendState('loading');
+  context.sendState('ready');
+  assert.equal(appMessages[0][13], 'classic');
+  assert.equal(appMessages[0][22], 5);
+  assert.equal(appMessages[0][34], 22);
+  assert.equal(appMessages[1][13], undefined);
+  assert.equal(appMessages[1][22], undefined);
+  assert.equal(appMessages[1][34], undefined);
+});
+
+test('a late response from an abandoned chat cannot replace the active thread', () => {
+  const { context, requests, appMessages } = replyRuntime();
+  context.loadMessages('chat-old');
+  context.loadMessages('chat-current');
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items:[{id:'old-message',text:'stale'}]});
+  requests[0].onload();
+  requests[1].status = 200;
+  requests[1].responseText = JSON.stringify({items:[{id:'current-message',text:'current'}]});
+  requests[1].onload();
+  const messagePackets = appMessages.filter((message) => message[0] === 'message');
+  assert.deepEqual(messagePackets.map((message) => message[30]), ['current-message']);
+});
+
+test('new message detail discards unsent chunks for the previous selection', () => {
+  const { context } = replyRuntime({autoAck:false});
+  context.messageTextByID.old = 'A'.repeat(1600);
+  context.messageTextByID.current = 'Newest selection';
+  context.sendMessageDetail('old');
+  context.sendMessageDetail('current');
+  assert.equal(context.queue[0].message[30], 'old');
+  assert.ok(context.queue.slice(1).every((item) => item.message[30] === 'current'));
+  assert.equal(context.queue.at(-1).message[0], 'message_detail_end');
 });

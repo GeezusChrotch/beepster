@@ -174,3 +174,16 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Open saved quick replies by holding Up
 - [x] Start dictation with either a short or long Select press
 - [x] Jump directly to the newest message by holding Down
+
+## 0.9.0 — Public release candidate
+
+- [x] Add original brand, launcher, Store, and header artwork
+- [x] Add a universal first-run setup handoff with no private URL in the public PBW
+- [x] Document installation, controls, troubleshooting, performance, privacy, and publishing
+- [x] Add a private Mac health checker and reproducible release packaging
+- [x] Cache repeated watch text layout and Mac preview conversion
+- [x] Prevent stale chat responses and obsolete detail/media queue backlog
+- [ ] Enable and test the public GitHub Pages setup URL in the Pebble mobile webview
+- [x] Capture Store screenshots using synthetic data
+- [ ] Complete a physical-watch release-candidate smoke test
+- [ ] Publish GitHub and Pebble Store releases

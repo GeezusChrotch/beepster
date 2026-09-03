@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'none'; base-uri 'none'">
+  <title>Connect Beepster</title>
+  <style>
+    :root{font:17px system-ui,-apple-system,sans-serif;color-scheme:dark}*{box-sizing:border-box}
+    body{margin:0;background:#101820;color:#f7fbff}.card{max-width:38rem;margin:0 auto;padding:28px 22px 48px}
+    .brand{display:flex;align-items:center;gap:14px}.brand svg{width:58px;height:58px}.brand h1{margin:0;color:#55d6be}
+    h2{font-size:1.08rem;margin-top:30px}.lead{color:#b7c7d4;line-height:1.5}.steps{padding-left:24px;line-height:1.55}
+    label{display:block;margin:22px 0 7px;font-weight:700}input,button{width:100%;font:inherit;padding:12px;border-radius:10px}
+    input{border:1px solid #789;background:#172633;color:#fff}button{margin-top:12px;border:0;background:#55d6be;color:#07120f;font-weight:800}
+    .error{color:#ffaaaa;min-height:1.5em}.privacy{font-size:.88rem;color:#b7c7d4}
+  </style>
+</head>
+<body><main class="card">
+  <div class="brand" aria-label="Beepster">
+    <svg viewBox="0 0 512 512" aria-hidden="true"><path fill="#07120f" d="M86 82c0-31 25-56 56-56s56 25 56 56v92c32-24 72-38 116-38 105 0 190 76 190 170s-85 170-190 170c-32 0-63-7-90-20l-96 47c-11 5-24 3-32-5-8-9-10-22-4-33l42-79c-24-24-39-57-39-94 0-3 0-7 1-10V82z"/><path fill="#55d6be" d="M141 301c0-61 58-110 130-110h45c72 0 130 49 130 110s-58 110-130 110h-74l-84 45 31-66c-30-20-48-52-48-89z"/><g fill="#07120f"><circle cx="238" cy="302" r="17"/><circle cx="294" cy="302" r="17"/><circle cx="350" cy="302" r="17"/></g><path stroke="#55d6be" stroke-linecap="round" stroke-width="24" fill="none" d="M378 83c32 14 58 40 72 72M353 132c18 8 33 23 41 41"/></svg>
+    <h1>Connect Beepster</h1>
+  </div>
+  <p class="lead">Beepster talks to the Beeper Desktop app through your own private Mac gateway. Enter the private HTTPS address shown during Mac setup.</p>
+  <ol class="steps"><li>Keep Beeper Desktop and the Beepster companion running on your Mac.</li><li>Connect this phone and the Mac to the same Tailscale network.</li><li>Paste the private address ending in <strong>/configure</strong>.</li></ol>
+  <form id="form">
+    <label for="url">Private gateway settings address</label>
+    <input id="url" name="url" type="url" inputmode="url" autocomplete="url" autocapitalize="none" spellcheck="false" placeholder="https://your-mac.your-tailnet.ts.net/configure" required>
+    <button type="submit">Continue securely</button>
+    <p id="error" class="error" role="alert"></p>
+  </form>
+  <p class="privacy">This page does not receive your Beeper token, messages, pairing code, or gateway credential. Your browser goes directly to your Mac after you continue.</p>
+</main>
+<script>
+(() => {
+  const form=document.getElementById('form'),input=document.getElementById('url'),error=document.getElementById('error');
+  let current={};try{current=JSON.parse(decodeURIComponent(location.hash.slice(1)||'%7B%7D'));}catch(_error){}
+  function settingsURL(value){try{const url=new URL(String(value||'').trim());if(url.protocol!=='https:')return null;url.hash='';url.search='';url.pathname=url.pathname.replace(/\/+$/,'')||'/configure';if(!url.pathname.endsWith('/configure'))url.pathname=url.pathname.replace(/\/+$/,'')+'/configure';return url;}catch(_error){return null;}}
+  function continueTo(url){url.hash=encodeURIComponent(JSON.stringify(current));location.replace(url.toString());}
+  const saved=settingsURL(current.gatewayURL);if(saved){continueTo(saved);return;}
+  form.addEventListener('submit',event=>{event.preventDefault();error.textContent='';const url=settingsURL(input.value);if(!url){error.textContent='Use the private HTTPS address ending in /configure.';return;}continueTo(url);});
+})();
+</script></body></html>

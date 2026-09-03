@@ -57,6 +57,7 @@ typedef struct {
   char id[MESSAGE_ID_LEN];
   char attachment_id[MESSAGE_ATTACHMENT_LEN];
   uint8_t attachment_kind;
+  int16_t cached_text_height;
 } Message;
 
 typedef struct {
@@ -124,6 +125,7 @@ static int s_expanded_message_index = -1;
 static char s_expanded_message_id[MESSAGE_ID_LEN];
 static bool s_expanded_message_loaded;
 static int32_t s_expanded_scroll_offset;
+static int32_t s_expanded_text_height;
 static Window *s_media_window;
 static BitmapLayer *s_media_layer;
 static TextLayer *s_media_status_layer;
@@ -460,6 +462,11 @@ static void set_status(TextLayer *layer, ViewState state, bool messages) {
   layer_set_hidden(text_layer_get_layer(layer), state == VIEW_READY);
 }
 
+static void invalidate_message_layouts(void) {
+  s_expanded_text_height = 0;
+  for (int i = 0; i < s_message_count; i++) s_messages[i].cached_text_height = 0;
+}
+
 static void select_theme(const char *name) {
   if (name && strcmp(name, "dark") == 0) {
     s_theme = (Theme) { GColorBlack, GColorWhite, GColorLightGray, GColorVividCerulean, GColorBlack };
@@ -475,6 +482,7 @@ static void select_theme(const char *name) {
 }
 
 static void apply_theme_to_layers(void) {
+  invalidate_message_layouts();
   if (s_main_window) window_set_background_color(s_main_window, s_theme.background);
   if (s_message_window) window_set_background_color(s_message_window, s_theme.background);
   if (s_reply_window) window_set_background_color(s_reply_window, s_theme.background);
@@ -1002,6 +1010,7 @@ static void message_selection_changed(MenuLayer *menu_layer, MenuIndex new_index
       copy_text(s_expanded_message_id, sizeof(s_expanded_message_id), message->id);
       s_expanded_message_loaded = false;
       s_expanded_scroll_offset = 0;
+      s_expanded_text_height = 0;
       clear_media();
       copy_text(s_inline_attachment_id, sizeof(s_inline_attachment_id), message->attachment_id);
       s_inline_media_state = message->attachment_id[0] ? INLINE_MEDIA_LOADING : INLINE_MEDIA_NONE;
@@ -1022,9 +1031,14 @@ static void message_selection_changed(MenuLayer *menu_layer, MenuIndex new_index
 static int32_t message_content_height(MenuLayer *menu_layer, Message *message,
                                       bool expanded, const char *text) {
   int16_t width = layer_get_bounds(menu_layer_get_layer(menu_layer)).size.w - 16;
-  GSize text_size = graphics_text_layout_get_content_size(text && text[0] ? text : "[No text]",
-    font_for_text(text), GRect(0, 0, width, 30000), GTextOverflowModeWordWrap, GTextAlignmentLeft);
-  int32_t text_height = text_size.h > 24 ? text_size.h : 24;
+  int32_t text_height = expanded ? s_expanded_text_height : message->cached_text_height;
+  if (text_height <= 0) {
+    GSize text_size = graphics_text_layout_get_content_size(text && text[0] ? text : "[No text]",
+      font_for_text(text), GRect(0, 0, width, 30000), GTextOverflowModeWordWrap, GTextAlignmentLeft);
+    text_height = text_size.h > 24 ? text_size.h : 24;
+    if (expanded) s_expanded_text_height = text_height;
+    else message->cached_text_height = text_height < INT16_MAX ? (int16_t)text_height : INT16_MAX;
+  }
   int32_t preview_limit = 3 * (s_theme_size + 6);
   if (!expanded && text_height > preview_limit) text_height = preview_limit;
   int32_t height = 6 + s_theme_size + 9 + text_height + 8 + 22;
@@ -1064,10 +1078,11 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
   int32_t content_scroll = expanded ? s_expanded_scroll_offset : 0;
   int sender_height = s_theme_size + 9;
   int text_y = sender_height + 1 - content_scroll;
-  GSize body_size = graphics_text_layout_get_content_size(body && body[0] ? body : "[No text]",
-    font_for_text(body), GRect(0, 0, bounds.size.w - 16, 30000),
-    GTextOverflowModeWordWrap, GTextAlignmentLeft);
-  int text_height = body_size.h > 24 ? body_size.h : 24;
+  int text_height = expanded ? s_expanded_text_height : message->cached_text_height;
+  if (text_height <= 0) {
+    message_content_height(s_message_menu, message, expanded, body);
+    text_height = expanded ? s_expanded_text_height : message->cached_text_height;
+  }
   int preview_limit = 3 * (s_theme_size + 6);
   if (!expanded && text_height > preview_limit) text_height = preview_limit;
   int content_y = text_y + text_height + 5;
@@ -1300,6 +1315,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     s_expanded_message_id[0] = '\0';
     s_expanded_message_loaded = false;
     s_expanded_scroll_offset = 0;
+    s_expanded_text_height = 0;
     s_inline_attachment_id[0] = '\0';
     s_inline_media_state = INLINE_MEDIA_NONE;
     clear_media();
@@ -1389,7 +1405,9 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     return;
   }
 
-  if (strcmp(command->value->cstring, "state") == 0) {
+  if (strcmp(command->value->cstring, "state") == 0 ||
+      strcmp(command->value->cstring, "theme") == 0) {
+    bool theme_only = strcmp(command->value->cstring, "theme") == 0;
     Tuple *state = dict_find(iterator, MESSAGE_KEY_STATE);
     Tuple *error = dict_find(iterator, MESSAGE_KEY_ERROR);
     Tuple *theme = dict_find(iterator, MESSAGE_KEY_THEME);
@@ -1401,7 +1419,10 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     Tuple *theme_accent_text = dict_find(iterator, MESSAGE_KEY_THEME_ACCENT_TEXT);
     Tuple *theme_font = dict_find(iterator, MESSAGE_KEY_THEME_FONT);
     Tuple *theme_size = dict_find(iterator, MESSAGE_KEY_THEME_SIZE);
-    if (theme) select_theme(theme->value->cstring);
+    bool explicit_theme = theme_background || theme_text || theme_muted || theme_accent ||
+      theme_accent_text || theme_font || theme_size;
+    if (theme && !explicit_theme) select_theme(theme->value->cstring);
+    else if (theme && theme->length > 1) persist_write_string(PERSIST_THEME, theme->value->cstring);
     if (theme_background) s_theme.background.argb = theme_background->value->uint8;
     if (theme_text) s_theme.text.argb = theme_text->value->uint8;
     if (theme_muted) s_theme.muted.argb = theme_muted->value->uint8;
@@ -1417,11 +1438,9 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
       s_large_text = strcmp(text_size->value->cstring, "large") == 0;
       if (!theme_size) s_theme_size = s_large_text ? 26 : 22;
       persist_write_bool(PERSIST_TEXT_SIZE, s_large_text);
-      if (s_chat_menu) menu_layer_reload_data(s_chat_menu);
-      if (s_message_menu) menu_layer_reload_data(s_message_menu);
     }
     s_large_text = s_theme_size >= 26;
-    if (theme_background || theme_text || theme_accent || theme_font || theme_size) {
+    if (explicit_theme || text_size) {
       persist_current_theme();
       apply_theme_to_layers();
       if (s_chat_menu) menu_layer_reload_data(s_chat_menu);
@@ -1429,7 +1448,23 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
       if (s_reply_menu) menu_layer_reload_data(s_reply_menu);
       if (s_detail_text && s_detail_scroll) layout_detail();
     }
-    apply_state(state ? state->value->cstring : "error", error ? error->value->cstring : "");
+    if (!theme_only) apply_state(state ? state->value->cstring : "error", error ? error->value->cstring : "");
+    return;
+  }
+
+  if (strcmp(command->value->cstring, "chats_ready") == 0) {
+    Tuple *total = dict_find(iterator, MESSAGE_KEY_TOTAL);
+    int count = total ? total->value->int32 : s_chat_count;
+    if (count < 0) count = 0;
+    if (count > MAX_CHATS) count = MAX_CHATS;
+    s_chat_count = count;
+    s_chat_state = count > 0 ? VIEW_READY : VIEW_EMPTY;
+    set_status(s_status_layer, s_chat_state, false);
+    if (s_chat_menu) {
+      menu_layer_reload_data(s_chat_menu);
+      if (count > 0) menu_layer_set_click_config_onto_window(s_chat_menu, s_main_window);
+      else window_set_click_config_provider(s_main_window, main_clicks);
+    }
     return;
   }
 
@@ -1467,6 +1502,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     Tuple *attachment_kind = dict_find(iterator, MESSAGE_KEY_ATTACHMENT_KIND);
     copy_text(s_messages[slot].attachment_id, sizeof(s_messages[slot].attachment_id), attachment_id ? attachment_id->value->cstring : "");
     s_messages[slot].attachment_kind = attachment_kind ? attachment_kind->value->uint8 : 0;
+    s_messages[slot].cached_text_height = 0;
     if (slot + 1 > s_message_count) s_message_count = slot + 1;
     APP_LOG(APP_LOG_LEVEL_INFO, "message received slot=%d count=%d", slot, s_message_count);
     return;
@@ -1484,6 +1520,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     s_detail_length = 0;
     s_expanded_message_loaded = false;
     s_expanded_scroll_offset = 0;
+    s_expanded_text_height = 0;
     if (s_detail_text) s_detail_text[0] = '\0';
     return;
   }
@@ -1507,6 +1544,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     Tuple *message_id = dict_find(iterator, MESSAGE_KEY_MSG_ID);
     if (!message_id || strcmp(message_id->value->cstring, s_expanded_message_id) != 0) return;
     s_expanded_message_loaded = s_detail_text != NULL;
+    s_expanded_text_height = 0;
     if (s_message_menu) {
       menu_layer_reload_data(s_message_menu);
       if (s_expanded_message_index >= 0 && s_expanded_message_index < s_message_count) {
