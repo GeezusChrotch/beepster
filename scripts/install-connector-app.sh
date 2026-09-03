@@ -80,7 +80,7 @@ build_swift "$project_dir/mac/BeepsterKeychain.swift" Security "$resources/beeps
 contacts_app="$resources/Beepster Contacts.app"
 mkdir -p "$contacts_app/Contents/MacOS"
 cp "$project_dir/mac/BeepsterContacts-Info.plist" "$contacts_app/Contents/Info.plist"
-build_swift "$project_dir/mac/BeepsterContacts.swift" 'AppKit Contacts' "$contacts_app/Contents/MacOS/beepster-contacts"
+build_swift "$project_dir/mac/BeepsterContacts.swift" 'AppKit Contacts CryptoKit' "$contacts_app/Contents/MacOS/beepster-contacts"
 
 for icon_size in 16 32 128 256 512; do
   sips -z "$icon_size" "$icon_size" "$icon_source" --out "$work_dir/Beepster.iconset/icon_${icon_size}x${icon_size}.png" >/dev/null

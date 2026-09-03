@@ -73,38 +73,50 @@ export class MacContactsResolver {
   }
 
   async lookup(values) {
-    if (process.platform !== 'darwin' && this.runner === runHelper) return new Map();
+    return (await this.lookupDetails(values)).names;
+  }
+
+  async lookupDetails(values) {
+    if (process.platform !== 'darwin' && this.runner === runHelper) {
+      return { names: new Map(), contactKeys: new Map() };
+    }
     const identifiers = [...new Set(values.map(normalizeContactIdentifier).filter(Boolean))];
-    if (!identifiers.length) return new Map();
-    const found = new Map();
+    if (!identifiers.length) return { names: new Map(), contactKeys: new Map() };
+    const names = new Map();
+    const contactKeys = new Map();
     const missing = [];
     const now = this.now();
     for (const identifier of identifiers) {
       const cached = this.cache.get(identifier);
       if (cached && cached.expiresAt > now) {
-        if (cached.name) found.set(identifier, cached.name);
+        if (cached.name) names.set(identifier, cached.name);
+        if (cached.contactKey) contactKeys.set(identifier, cached.contactKey);
       } else {
         missing.push(identifier);
       }
     }
-    if (!missing.length) return found;
+    if (!missing.length) return { names, contactKeys };
     try {
       if (this.runner === runHelper) await access(this.helperPath, constants.X_OK);
       const result = await this.runner(this.helperPath, missing);
-      const names = result?.authorized && result.names && typeof result.names === 'object' ? result.names : {};
+      const resolvedNames = result?.authorized && result.names && typeof result.names === 'object' ? result.names : {};
+      const resolvedKeys = result?.authorized && result.contactKeys && typeof result.contactKeys === 'object' ? result.contactKeys : {};
       for (const identifier of missing) {
-        const name = String(names[identifier] || '').trim();
+        const name = String(resolvedNames[identifier] || '').trim();
+        const contactKey = String(resolvedKeys[identifier] || '').trim();
         this.cache.delete(identifier);
         this.cache.set(identifier, {
           name,
+          contactKey,
           expiresAt: now + (name ? POSITIVE_CACHE_MS : NEGATIVE_CACHE_MS)
         });
-        if (name) found.set(identifier, name);
+        if (name) names.set(identifier, name);
+        if (contactKey) contactKeys.set(identifier, contactKey);
       }
       while (this.cache.size > MAX_CACHE_ENTRIES) this.cache.delete(this.cache.keys().next().value);
     } catch {
       // Contact enrichment is optional; Beeper's own label remains the honest fallback.
     }
-    return found;
+    return { names, contactKeys };
   }
 }

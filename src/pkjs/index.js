@@ -306,10 +306,13 @@ function applyAppleAliases(items) {
   var aliases = configuredAppleAliases(), groups = {}, output = [];
   mergedChats = {};
   items.forEach(function(chat) {
-    var alias = serviceID(chat.network) === 'apple_messages' ? aliases[chat.id] : '';
-    if (!alias) { output.push(chat); return; }
-    var key = alias.toLowerCase();
-    if (!groups[key]) groups[key] = {name:alias,items:[]};
+    var isApple = serviceID(chat.network) === 'apple_messages';
+    var alias = isApple ? aliases[chat.id] : '';
+    var contactGroup = isApple ? String(chat.contactGroup || '').trim() : '';
+    var key = alias ? 'alias:' + alias.toLowerCase() : (contactGroup ? 'contact:' + contactGroup : '');
+    if (!key) { output.push(chat); return; }
+    var name = alias || String(chat.name || 'Apple conversation').replace(/ \((email|phone)\)$/, '');
+    if (!groups[key]) groups[key] = {name:name,items:[]};
     groups[key].items.push(chat);
   });
   Object.keys(groups).forEach(function(key) {

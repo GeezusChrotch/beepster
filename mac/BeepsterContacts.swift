@@ -1,5 +1,6 @@
 import AppKit
 import Contacts
+import CryptoKit
 import Foundation
 
 struct LookupRequest: Decodable {
@@ -9,6 +10,7 @@ struct LookupRequest: Decodable {
 struct LookupResponse: Encodable {
     let authorized: Bool
     let names: [String: String]
+    let contactKeys: [String: String]
     let errorDomain: String?
     let errorCode: Int?
 }
@@ -47,6 +49,11 @@ func normalizeIdentifier(_ value: String) -> String? {
     let digits = trimmed.filter(\.isNumber)
     guard digits.count >= 7 else { return nil }
     return digits.count == 11 && digits.first == "1" ? String(digits.dropFirst()) : digits
+}
+
+func opaqueContactKey(_ identifier: String) -> String {
+    SHA256.hash(data: Data(identifier.utf8)).prefix(16)
+        .map { String(format: "%02x", $0) }.joined()
 }
 
 final class ContactsAuthorizationDelegate: NSObject, NSApplicationDelegate {
@@ -112,7 +119,8 @@ if let fileLookupIndex, arguments.count > fileLookupIndex + 2 {
 }
 
 guard CNContactStore.authorizationStatus(for: .contacts) == .authorized else {
-    try writeLookupResponse(LookupResponse(authorized: false, names: [:], errorDomain: nil, errorCode: nil), outputPath: outputPath)
+    try writeLookupResponse(LookupResponse(authorized: false, names: [:], contactKeys: [:],
+        errorDomain: nil, errorCode: nil), outputPath: outputPath)
     exit(0)
 }
 
@@ -123,21 +131,25 @@ do {
         CNContactOrganizationNameKey as CNKeyDescriptor, CNContactEmailAddressesKey as CNKeyDescriptor,
         CNContactPhoneNumbersKey as CNKeyDescriptor]
     var names: [String: String] = [:]
+    var contactKeys: [String: String] = [:]
     let requested = Set(request.identifiers.compactMap(normalizeIdentifier))
     let fetchRequest = CNContactFetchRequest(keysToFetch: keys)
 
     try store.enumerateContacts(with: fetchRequest) { contact, _ in
         guard let name = displayName(contact) else { return }
+        let contactKey = opaqueContactKey(contact.identifier)
         let identifiers = contact.emailAddresses.compactMap { normalizeIdentifier($0.value as String) } +
             contact.phoneNumbers.compactMap { normalizeIdentifier($0.value.stringValue) }
         for identifier in identifiers where requested.contains(identifier) {
             names[identifier] = name
+            contactKeys[identifier] = contactKey
         }
     }
-    try writeLookupResponse(LookupResponse(authorized: true, names: names, errorDomain: nil, errorCode: nil), outputPath: outputPath)
+    try writeLookupResponse(LookupResponse(authorized: true, names: names, contactKeys: contactKeys,
+        errorDomain: nil, errorCode: nil), outputPath: outputPath)
 } catch {
     let failure = error as NSError
-    try? writeLookupResponse(LookupResponse(authorized: true, names: [:], errorDomain: failure.domain,
-        errorCode: failure.code), outputPath: outputPath)
+    try? writeLookupResponse(LookupResponse(authorized: true, names: [:], contactKeys: [:],
+        errorDomain: failure.domain, errorCode: failure.code), outputPath: outputPath)
     exit(1)
 }

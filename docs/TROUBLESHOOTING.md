@@ -54,11 +54,13 @@ Beepster falls back to the original Beeper label when there is no exact local ma
 
 ## One Apple contact appears as separate email and phone threads
 
-Beeper gives Beepster separate chat IDs for these conversations and currently does not expose a
-reliable contact-identity link between them. Open **Beepster → Settings → Link Apple
-conversations**, enter the same name beside both entries, then save. Beepster will show one virtual
-thread containing both histories and will route replies through the most recently active original
-chat. Removing either name restores the separate threads; no Apple Messages data is modified.
+Beeper gives Beepster separate chat IDs for these conversations. With Contacts access enabled,
+Beepster automatically links identifiers that exactly match the same Mac Contacts record. Reopen
+the inbox after enabling permission. If either identifier is absent from Contacts, open **Beepster
+→ Settings → Link Apple conversations**, enter the same name beside both entries, then save.
+Beepster shows one virtual thread containing both histories and routes replies through the most
+recently active original chat. Manual aliases can override automatic linking; no Apple Messages
+data is modified.
 
 ## A long message appears blank while scrolling
 

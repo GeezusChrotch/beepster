@@ -32,7 +32,8 @@ its gateway runtime, so end users do not need Terminal, Git, Node.js, or develop
 
 - Up to 30 chats with persistent pinning, contact-name normalization, read-only macOS Contacts
   enrichment, and service icons
-- User-controlled linking of split Apple email/phone chats into one combined Beepster thread
+- Automatic linking of split Apple email/phone chats matched to one Mac Contacts record, with a
+  user-controlled alias fallback
 - Persistent service filtering, with all networks enabled by default
 - Chronological history that opens on the newest message and pages up to 60 messages
 - Complete in-thread message text with simple two-line scrolling

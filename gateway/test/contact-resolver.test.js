@@ -13,9 +13,12 @@ test('macOS contact names are cached without exposing the address book', async (
   const resolver = new MacContactsResolver({runner: async (_helper, identifiers) => {
     calls++;
     assert.deepEqual(identifiers, ['person@example.com']);
-    return {authorized:true,names:{'person@example.com':'Readable Name'}};
+    return {authorized:true,names:{'person@example.com':'Readable Name'},
+      contactKeys:{'person@example.com':'opaque-contact'}};
   }});
-  assert.equal((await resolver.lookup(['Person@Example.com'])).get('person@example.com'), 'Readable Name');
+  const details = await resolver.lookupDetails(['Person@Example.com']);
+  assert.equal(details.names.get('person@example.com'), 'Readable Name');
+  assert.equal(details.contactKeys.get('person@example.com'), 'opaque-contact');
   assert.equal((await resolver.lookup(['person@example.com'])).get('person@example.com'), 'Readable Name');
   assert.equal(calls, 1);
 });

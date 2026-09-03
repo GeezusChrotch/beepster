@@ -77,8 +77,9 @@ Beepster → Settings**:
 2. Enter the six-digit pairing code shown by the Connector.
 3. Choose the services to include, a theme and font size, and up to eight text-or-emoji quick
    replies.
-4. Under **Link Apple conversations**, give any email and phone conversations for the same person
-   the same alias. Beepster combines them on the watch without changing Beeper or Apple Messages.
+4. Beepster automatically combines Apple email and phone conversations that match the same Mac
+   Contacts record. Under **Link Apple conversations**, you can give unmatched destinations the
+   same alias as a manual fallback.
 5. Tap **Test connection & pair**, then save.
 
 The Mac and phone can share the copied address through Apple's Universal Clipboard. If that is not

@@ -58,13 +58,13 @@ Messages—and save without pairing again. Unknown or newly added Beeper network
 ## Linking split Apple conversations
 
 Apple Messages may appear through Beeper as separate email and phone conversations even when the
-Messages app presents them as one person. In Beepster Settings, find both entries under **Link Apple
-conversations** and enter the same contact name beside each. After saving, the watch shows one
-thread with both histories in chronological order. Replies use the most recently active underlying
-conversation. Delete either alias to separate them again.
+Messages app presents them as one person. When both identifiers match the same Mac Contacts record,
+Beepster combines them automatically. The watch shows one thread with both histories in
+chronological order, and replies use the most recently active underlying conversation.
 
-This is intentionally user-controlled: Beepster will not guess that two addresses belong to the
-same person, and it never changes the source conversations.
+If an identifier is missing from Contacts, use **Link Apple conversations** in Settings and enter
+the same contact name beside both entries. Beepster uses exact contact identity or an explicit
+alias; it never guesses from display names and never changes the source conversations.
 
 ## Mac Connector
 

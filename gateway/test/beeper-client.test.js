@@ -83,7 +83,7 @@ test('raw Apple identifiers can be enriched from read-only macOS Contacts', asyn
   assert.equal((await client.listChats(12)).items[0].name, 'Local Contact Name');
 });
 
-test('separate Apple email and phone threads keep safe destinations and readable labels', async () => {
+test('separate Apple email and phone threads expose an opaque shared contact group', async () => {
   const fetchImpl = async (url) => {
     if (url.includes('/contacts/list')) return new Response(JSON.stringify({items:[]}), {status:200});
     return new Response(JSON.stringify({items:[
@@ -91,14 +91,32 @@ test('separate Apple email and phone threads keep safe destinations and readable
       {id:'chat-phone',accountID:'imessage',network:'iMessage',type:'single',title:'+15550101000',participants:{items:[{phoneNumber:'+15550101000',isSelf:false}]}}
     ]}), {status:200});
   };
-  const contactResolver = {lookup: async () => new Map([
-    ['person@example.com','Readable Name'],['5550101000','Readable Name']
-  ])};
+  const contactResolver = {lookupDetails: async () => ({
+    names:new Map([['person@example.com','Readable Name'],['5550101000','Readable Name']]),
+    contactKeys:new Map([['person@example.com','opaque-contact'],['5550101000','opaque-contact']])
+  })};
   const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl,contactResolver});
   const chats = (await client.listChats(12)).items;
-  assert.deepEqual(chats.map((chat) => [chat.id,chat.name]), [
-    ['chat-email','Readable Name (email)'],['chat-phone','Readable Name (phone)']
+  assert.deepEqual(chats.map((chat) => [chat.id,chat.name,chat.contactGroup]), [
+    ['chat-email','Readable Name (email)','opaque-contact'],['chat-phone','Readable Name (phone)','opaque-contact']
   ]);
+});
+
+test('Apple contact identity is resolved even when Beeper already supplies a display name', async () => {
+  const fetchImpl = async (url) => {
+    if (url.includes('/contacts/list')) return new Response(JSON.stringify({items:[]}), {status:200});
+    return new Response(JSON.stringify({items:[{
+      id:'chat-apple',accountID:'imessage',network:'iMessage',type:'single',title:'Beeper Name',
+      participants:{items:[{email:'person@example.com',fullName:'Beeper Name',isSelf:false}]}
+    }]}), {status:200});
+  };
+  const contactResolver = {lookupDetails: async (identifiers) => {
+    assert.deepEqual(identifiers, ['person@example.com']);
+    return {names:new Map([['person@example.com','Mac Name']]),
+      contactKeys:new Map([['person@example.com','opaque-contact']])};
+  }};
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl,contactResolver});
+  assert.equal((await client.listChats(12)).items[0].contactGroup, 'opaque-contact');
 });
 
 test('chat pagination forwards opaque cursors and returns the oldest cursor', async () => {

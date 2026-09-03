@@ -9,7 +9,7 @@ helper="$app/Contents/MacOS/beepster-contacts"
 mkdir -p "$app/Contents/MacOS"
 cp "$project_dir/mac/BeepsterContacts-Info.plist" "$app/Contents/Info.plist"
 
-swiftc -target "$(uname -m)-apple-macosx13.0" -framework AppKit -framework Contacts \
+swiftc -target "$(uname -m)-apple-macosx13.0" -framework AppKit -framework Contacts -framework CryptoKit \
   "$project_dir/mac/BeepsterContacts.swift" -o "$helper"
 codesign --force --deep --options runtime --entitlements "$project_dir/mac/BeepsterContacts.entitlements" \
   --sign - --identifier org.beepster.contacts "$app" >/dev/null 2>&1

@@ -17,6 +17,8 @@
 - Contacts authorization now runs a real background AppKit lifecycle while macOS presents the
   permission sheet, instead of leaving the access request without a UI-capable app lifecycle.
 - The hardened Contacts helper now includes the required macOS Address Book entitlement.
+- Apple email and phone destinations matched to the same Mac Contacts record are now combined
+  automatically on the watch, including their history, unread count, and newest reply route.
 
 All notable changes to Beepster are documented here.
 

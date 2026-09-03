@@ -11,6 +11,8 @@ For a direct chat, resolve the display label in this order:
 5. Network handle or `Unknown contact`
 
 Stable chat IDs, never display names, are used for navigation and replies.
+Apple email and phone destinations that match the same exact Mac Contacts record are represented by
+one virtual watch thread. Display-name equality alone must never trigger a merge.
 
 ## Readability
 

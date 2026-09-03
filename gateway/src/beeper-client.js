@@ -33,6 +33,15 @@ function appleIdentifierKind(chat) {
   return normalizeContactIdentifier(candidate) ? 'phone' : '';
 }
 
+function appleContactGroup(chat, localContactKeys) {
+  if (chat?.type !== 'single' || !appleIdentifierKind(chat)) return '';
+  for (const identifier of participantIdentifiers(chat)) {
+    const contactKey = localContactKeys.get(identifier);
+    if (contactKey) return contactKey;
+  }
+  return '';
+}
+
 function contactMatchesParticipant(contact, participant) {
   if (contact.id && contact.id === participant?.id) return true;
   const participantKeys = [participant?.email, participant?.phoneNumber]
@@ -169,9 +178,19 @@ export class BeeperClient {
     const localIdentifiers = (result.items || []).flatMap((chat) => {
       const contacts = contactsByAccount.get(chat.accountID) || [];
       const current = resolveChatName(chat, contacts);
-      return normalizeContactIdentifier(current) ? participantIdentifiers(chat) : [];
+      const appleDirect = chat?.type === 'single' && Boolean(appleIdentifierKind(chat));
+      return appleDirect || normalizeContactIdentifier(current) ? participantIdentifiers(chat) : [];
     });
-    const localNames = await this.contactResolver.lookup(localIdentifiers);
+    let localNames;
+    let localContactKeys;
+    if (typeof this.contactResolver.lookupDetails === 'function') {
+      const details = await this.contactResolver.lookupDetails(localIdentifiers);
+      localNames = details.names;
+      localContactKeys = details.contactKeys;
+    } else {
+      localNames = await this.contactResolver.lookup(localIdentifiers);
+      localContactKeys = new Map();
+    }
     const items = (result.items || []).map((chat) => ({
       id: chat.id,
       name: normalizeEmojiForPebble(resolveChatName(chat, contactsByAccount.get(chat.accountID) || [], localNames)),
@@ -179,7 +198,8 @@ export class BeeperClient {
       unreadCount: chat.unreadCount || 0,
       preview: normalizeEmojiForPebble(normalizePreview(chat.preview)),
       timestamp: normalizeTime(chat.lastActivity || chat.lastActivityAt || chat.preview?.timestamp),
-      identifierKind: appleIdentifierKind(chat)
+      identifierKind: appleIdentifierKind(chat),
+      contactGroup: appleContactGroup(chat, localContactKeys)
     }));
     const appleNameCounts = new Map();
     for (const item of items) {

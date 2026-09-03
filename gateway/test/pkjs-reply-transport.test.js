@@ -236,6 +236,36 @@ test('Apple email and phone destinations with the same alias become one watch th
   assert.equal(context.mergedChats[chats[0][5]].primary, 'apple-phone');
 });
 
+test('Apple destinations matched to the same Mac contact merge automatically', () => {
+  const { context, requests, appMessages } = replyRuntime();
+  context.loadChats();
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items:[
+    {id:'apple-phone',name:'Jane (phone)',preview:'Newest',network:'iMessage',unreadCount:1,contactGroup:'opaque-contact'},
+    {id:'apple-email',name:'Jane (email)',preview:'Earlier',network:'iMessage',unreadCount:2,contactGroup:'opaque-contact'}
+  ]});
+  requests[0].onload();
+
+  const chats = appMessages.filter((message) => message[0] === 'chat');
+  assert.equal(chats.length, 1);
+  assert.match(chats[0][5], /^beepster-merged-/);
+  assert.equal(chats[0][6], 'Jane');
+  assert.deepEqual(Array.from(context.mergedChats[chats[0][5]].members), ['apple-phone','apple-email']);
+  assert.equal(context.mergedChats[chats[0][5]].primary, 'apple-phone');
+});
+
+test('same-named Apple contacts with different contact groups stay separate', () => {
+  const { context, requests, appMessages } = replyRuntime();
+  context.loadChats();
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items:[
+    {id:'apple-one',name:'Alex',network:'iMessage',contactGroup:'contact-one'},
+    {id:'apple-two',name:'Alex',network:'iMessage',contactGroup:'contact-two'}
+  ]});
+  requests[0].onload();
+  assert.equal(appMessages.filter((message) => message[0] === 'chat').length, 2);
+});
+
 test('a linked Apple thread combines history and routes replies to its newest destination', () => {
   const { context, requests, appMessages, storage } = replyRuntime();
   storage.set('beepster_apple_aliases', JSON.stringify({'apple-email':'Jane','apple-phone':'Jane'}));
