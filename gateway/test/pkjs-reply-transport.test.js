@@ -54,6 +54,15 @@ test('paired users open settings directly on their saved private gateway', () =>
   assert.doesNotMatch(openedURLs[0], /github\.io/);
 });
 
+test('a personal build migrates a stale saved gateway without losing its credential', () => {
+  const { context, eventListeners, storage, requests } = replyRuntime();
+  context.DEFAULT_SETTINGS_URL = 'https://gateway.example:8794/configure';
+  eventListeners.ready();
+  assert.equal(storage.get('beepster_gateway_url'), 'https://gateway.example:8794');
+  assert.equal(storage.get('beepster_gateway_token'), 'gateway-secret');
+  assert.equal(requests[0].url, 'https://gateway.example:8794/v1/chats?limit=50');
+});
+
 test('watch replies use canonical authenticated JSON POST first', () => {
   const { context, requests } = replyRuntime();
   let response;

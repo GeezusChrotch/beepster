@@ -8,6 +8,8 @@
   preventing Settings from opening another service on the same Mac.
 - Paired watches now open Settings directly on their saved private gateway instead of visiting the
   public first-run fallback.
+- Personal builds now migrate an existing saved gateway origin to their embedded private Connector
+  address while preserving the paired credential, recovering cleanly when the Tailscale port moves.
 
 All notable changes to Beepster are documented here.
 

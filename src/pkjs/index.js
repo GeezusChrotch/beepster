@@ -80,6 +80,18 @@ function gatewayToken() {
   return localStorage.getItem('beepster_gateway_token') || '';
 }
 
+function embeddedPrivateGatewayURL() {
+  var match = String(DEFAULT_SETTINGS_URL || '').match(/^(https:\/\/[^/]+)\/configure(?:[?#]|$)/);
+  return match ? match[1] : '';
+}
+
+function migrateEmbeddedPrivateGateway() {
+  var embeddedGateway = embeddedPrivateGatewayURL();
+  if (embeddedGateway && gatewayURL() !== embeddedGateway) {
+    localStorage.setItem('beepster_gateway_url', embeddedGateway);
+  }
+}
+
 function safeSlice(value, maxCodeUnits) {
   var text = String(value || '');
   if (text.length <= maxCodeUnits) return text;
@@ -443,6 +455,7 @@ function request(path, callback, failure) {
   var url = gatewayURL();
   var token = gatewayToken();
   function fail(message) {
+    console.log('Beepster gateway request failed: ' + message);
     if (failure) failure(message);
     else sendState('error', message);
   }
@@ -832,11 +845,13 @@ function loadAttachment(attachmentID) {
 }
 
 Pebble.addEventListener('ready', function() {
+  migrateEmbeddedPrivateGateway();
   sendQuickReplies();
   loadChats();
 });
 
 Pebble.addEventListener('showConfiguration', function() {
+  migrateEmbeddedPrivateGateway();
   var savedGatewayURL = gatewayURL();
   var privateSettingsURL = savedGatewayURL ? savedGatewayURL.replace(/\/+$/, '') + '/configure' : '';
   var settingsURL = localStorage.getItem('beepster_settings_url') || privateSettingsURL || DEFAULT_SETTINGS_URL;
