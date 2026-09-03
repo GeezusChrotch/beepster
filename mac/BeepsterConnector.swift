@@ -13,7 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         let content = NSView()
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 570, height: 520),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: 650),
                           styleMask: [.titled, .closable, .miniaturizable],
                           backing: .buffered, defer: false)
         window.title = "Beepster Connector"
@@ -23,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 14
+        stack.spacing = 11
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -44,26 +44,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         tailscaleStatus = statusRow("Private Tailscale route")
         [contactStatus, gatewayStatus, tailscaleStatus].forEach(stack.addArrangedSubview)
 
-        let firstButtons = buttonRow([
-            button("Enable Contacts", #selector(enableContacts)),
-            button("Open Privacy Settings", #selector(openPrivacySettings))
-        ])
-        let secondButtons = buttonRow([
-            button("Set Beeper Token", #selector(setBeeperToken)),
-            button("Start Private Route", #selector(startPrivateRoute))
-        ])
-        let thirdButtons = buttonRow([
-            button("Show Pairing Code", #selector(showPairingCode)),
-            button("Install Guide", #selector(openInstallGuide))
-        ])
-        stack.addArrangedSubview(firstButtons)
-        stack.addArrangedSubview(secondButtons)
-        stack.addArrangedSubview(thirdButtons)
+        let actionsTitle = NSTextField(labelWithString: "Actions")
+        actionsTitle.font = .systemFont(ofSize: 18, weight: .semibold)
+        stack.addArrangedSubview(actionsTitle)
 
         refreshButton = button("Run All Checks Again", #selector(refresh))
-        refreshButton.bezelStyle = .rounded
         refreshButton.keyEquivalent = "\r"
-        stack.addArrangedSubview(refreshButton)
+        let actions = [
+            actionRow(refreshButton,
+                      what: "Rechecks every status shown above.",
+                      why: "Confirms that the complete Mac-to-watch path is ready now."),
+            actionRow(button("Enable Contacts", #selector(enableContacts)),
+                      what: "Requests read-only access to your Mac contacts.",
+                      why: "Lets Apple conversations show names instead of email addresses or phone numbers."),
+            actionRow(button("Open Privacy Settings", #selector(openPrivacySettings)),
+                      what: "Opens macOS directly to the Contacts privacy controls.",
+                      why: "Use this if access was previously denied or you want to review it."),
+            actionRow(button("Set Beeper Token", #selector(setBeeperToken)),
+                      what: "Stores a dedicated Beeper Desktop API token in Keychain.",
+                      why: "The local gateway needs it to read conversations and send replies."),
+            actionRow(button("Start Private Route", #selector(startPrivateRoute)),
+                      what: "Starts Tailscale Serve for the local Beepster gateway.",
+                      why: "Gives your phone private HTTPS access without exposing Beepster publicly."),
+            actionRow(button("Show Pairing Code", #selector(showPairingCode)),
+                      what: "Displays the current one-time six-digit pairing code.",
+                      why: "Lets the phone receive its narrow gateway credential without revealing the Beeper token."),
+            actionRow(button("Install Guide", #selector(openInstallGuide)),
+                      what: "Opens the complete step-by-step installation guide.",
+                      why: "Provides exact repair instructions when a readiness check needs attention.")
+        ]
+        for row in actions {
+            stack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
 
         let footer = wrappingLabel("If a check fails, the Install Guide includes exact repair steps. Beepster never displays or copies your Beeper or gateway tokens.")
         footer.textColor = .secondaryLabelColor
@@ -94,10 +107,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return result
     }
 
-    private func buttonRow(_ buttons: [NSButton]) -> NSStackView {
-        let row = NSStackView(views: buttons)
+    private func actionRow(_ button: NSButton, what: String, why: String) -> NSStackView {
+        button.widthAnchor.constraint(equalToConstant: 175).isActive = true
+        let explanation = wrappingLabel("What: \(what)\nWhy: \(why)")
+        explanation.font = .systemFont(ofSize: 12.5)
+        explanation.textColor = .secondaryLabelColor
+        let row = NSStackView(views: [button, explanation])
         row.orientation = .horizontal
-        row.spacing = 10
+        row.alignment = .centerY
+        row.spacing = 14
+        explanation.setContentHuggingPriority(.defaultLow, for: .horizontal)
         return row
     }
 
