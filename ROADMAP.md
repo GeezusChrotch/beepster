@@ -69,3 +69,9 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Center button starts confirmed voice dictation directly
 - [x] Bottom button opens only the configured quick replies
 - [x] Delivery-status transport failures leave Sending and become retryable errors
+
+## 0.6 — Pome typography
+
+- [x] Bundle Pome's five Time 2 font families under their SIL Open Font Licenses
+- [x] Offer the same 14, 18, 22, 26, and 30 point sizes in saved themes
+- [x] Fall back to Pebble Gothic for text containing native emoji glyphs

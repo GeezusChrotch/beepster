@@ -37,8 +37,14 @@ test('configuration page supports editing an existing paired connection', async 
     assert.match(html, /New custom theme/);
     assert.match(html, /Built-in themes cannot be deleted/);
     assert.match(html, /type="color"/);
-    assert.match(html, /Roboto Condensed/);
-    assert.match(html, /Pebble Bold/);
+    assert.match(html, /Inter/);
+    assert.match(html, /Open Sans/);
+    assert.match(html, /Montserrat/);
+    assert.match(html, /Poppins/);
+    assert.match(html, /Font size/);
+    for (const size of [14, 18, 22, 26, 30]) {
+      assert.match(html, new RegExp(`value="${size}"`));
+    }
     assert.match(html, /Add up to eight replies/);
     assert.match(html, /quickReply.*maxLength=240/);
   });

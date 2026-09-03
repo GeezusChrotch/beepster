@@ -15,7 +15,9 @@ Stable chat IDs, never display names, are used for navigation and replies.
 ## Readability
 
 - Render natively for Emery at 200×228.
-- Use high-contrast system fonts at 18 px or larger for primary information.
+- Offer Pome's Time 2 font families—Inter, Roboto, Open Sans, Montserrat, and Poppins—at 14, 18,
+  22, 26, and 30 points, with 22 points as the readable default.
+- Use Pebble Gothic as a per-string fallback when a bundled ASCII font would hide a native emoji.
 - Treat 14 px text as optional metadata only.
 - Respect the user's content-size preference before increasing information density.
 - Never rely on color alone to communicate selection or status.

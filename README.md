@@ -17,14 +17,15 @@ the Beeper access token on the Mac gateway.
 
 ## Current status
 
-Version 0.5.2 is a working clean-room daily-driver preview:
+Version 0.6.0 is a working clean-room daily-driver preview:
 
 - Native Emery watch build
 - Explicit setup/loading/empty/error states
 - Recent-chat and message-history protocol
 - Private Mac gateway using the official Beeper Desktop API
 - Contact-name normalization from participant data and Beeper's per-account contact list
-- Six presets plus saved custom themes with colors, fonts, text size, and live preview
+- Six presets plus saved custom themes with Pome's Inter, Roboto, Open Sans, Montserrat, and
+  Poppins families at 14, 18, 22, 26, or 30 points
 - Pebble-native emoji preservation with safe fallbacks for unsupported emoji
 - Keychain-backed macOS LaunchAgent companion with private HTTPS pairing
 - Phone settings that persist without re-pairing
@@ -44,6 +45,7 @@ Animated GIF playback and multiple attachments per message remain planned. See
 
 Requirements: macOS, Pebble SDK 4.33.1 or newer, Pebble Tool 5, and Node.js 20 or newer. The
 companion uses macOS `sips` to make bounded watch previews without adding an image-processing cloud.
+The bundled Time 2 fonts retain their SIL Open Font License texts under `resources/fonts/licenses`.
 
 ```sh
 npm test

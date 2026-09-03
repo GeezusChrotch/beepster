@@ -34,15 +34,18 @@ var KEY_MSG_ID = 30;
 var KEY_DETAIL_TEXT = 31;
 var KEY_QUICK_REPLY_TEXT = 32;
 var KEY_HAS_MORE = 33;
+var KEY_THEME_SIZE = 34;
 
 var BUILT_IN_THEMES = [
-  {id:'classic',name:'Classic',background:'#FFFFFF',text:'#000000',muted:'#555555',accent:'#0055AA',accentText:'#FFFFFF',font:'gothic',textSize:'normal',builtIn:true},
-  {id:'dark',name:'Midnight',background:'#000000',text:'#FFFFFF',muted:'#AAAAAA',accent:'#00AAFF',accentText:'#000000',font:'gothic',textSize:'normal',builtIn:true},
-  {id:'ocean',name:'Ocean',background:'#001133',text:'#FFFFFF',muted:'#AAFFFF',accent:'#00AAFF',accentText:'#000000',font:'roboto',textSize:'normal',builtIn:true},
-  {id:'contrast',name:'High Contrast',background:'#FFFFFF',text:'#000000',muted:'#000000',accent:'#000000',accentText:'#FFFFFF',font:'gothic',textSize:'large',builtIn:true},
-  {id:'plum',name:'Plum',background:'#330033',text:'#FFFFFF',muted:'#FFAAFF',accent:'#AA00AA',accentText:'#FFFFFF',font:'bold',textSize:'normal',builtIn:true},
-  {id:'forest',name:'Forest',background:'#003300',text:'#FFFFFF',muted:'#AAFFAA',accent:'#00AA55',accentText:'#000000',font:'roboto',textSize:'normal',builtIn:true}
+  {id:'classic',name:'Classic',background:'#FFFFFF',text:'#000000',muted:'#555555',accent:'#0055AA',accentText:'#FFFFFF',font:'inter',size:22,builtIn:true},
+  {id:'dark',name:'Midnight',background:'#000000',text:'#FFFFFF',muted:'#AAAAAA',accent:'#00AAFF',accentText:'#000000',font:'roboto',size:22,builtIn:true},
+  {id:'ocean',name:'Ocean',background:'#001133',text:'#FFFFFF',muted:'#AAFFFF',accent:'#00AAFF',accentText:'#000000',font:'roboto',size:22,builtIn:true},
+  {id:'contrast',name:'High Contrast',background:'#FFFFFF',text:'#000000',muted:'#000000',accent:'#000000',accentText:'#FFFFFF',font:'open-sans',size:26,builtIn:true},
+  {id:'plum',name:'Plum',background:'#330033',text:'#FFFFFF',muted:'#FFAAFF',accent:'#AA00AA',accentText:'#FFFFFF',font:'poppins',size:30,builtIn:true},
+  {id:'forest',name:'Forest',background:'#003300',text:'#FFFFFF',muted:'#AAFFAA',accent:'#00AA55',accentText:'#000000',font:'open-sans',size:26,builtIn:true}
 ];
+var THEME_FONTS = {inter:5,roboto:6,'open-sans':7,montserrat:8,poppins:9};
+var THEME_SIZES = [14,18,22,26,30];
 
 var queue = [];
 var sending = false;
@@ -105,8 +108,13 @@ function selectedTheme() {
 function normalizeTheme(value) {
   var theme = value && typeof value === 'object' ? value : {};
   function color(key, fallback) { return /^#[0-9a-f]{6}$/i.test(theme[key] || '') ? theme[key].toUpperCase() : fallback; }
-  var font = theme.font === 'bitham' ? 'bold' : theme.font;
-  return {id:String(theme.id || ('custom-' + Date.now())).slice(0,40),name:String(theme.name || 'Custom').slice(0,32),background:color('background','#FFFFFF'),text:color('text','#000000'),muted:color('muted','#555555'),accent:color('accent','#0055AA'),accentText:color('accentText','#FFFFFF'),font:['gothic','roboto','bold'].indexOf(font)>=0?font:'gothic',textSize:theme.textSize==='large'?'large':'normal',builtIn:Boolean(theme.builtIn)};
+  var legacyFonts = {gothic:'inter',bold:'montserrat',bitham:'poppins','gothic-bold':'montserrat','roboto-condensed':'roboto'};
+  var font = legacyFonts[theme.font] || theme.font;
+  if (!Object.prototype.hasOwnProperty.call(THEME_FONTS, font)) font = 'inter';
+  var requestedSize = Number(theme.size || (theme.textSize === 'large' ? 26 : 22));
+  var size = THEME_SIZES[0];
+  for (var i=1;i<THEME_SIZES.length;i++) if (Math.abs(THEME_SIZES[i]-requestedSize)<Math.abs(size-requestedSize)) size=THEME_SIZES[i];
+  return {id:String(theme.id || ('custom-' + Date.now())).slice(0,40),name:String(theme.name || 'Custom').slice(0,32),background:color('background','#FFFFFF'),text:color('text','#000000'),muted:color('muted','#555555'),accent:color('accent','#0055AA'),accentText:color('accentText','#FFFFFF'),font:font,size:size,textSize:size>=26?'large':'normal',builtIn:Boolean(theme.builtIn)};
 }
 
 function configuredTheme() {
@@ -201,7 +209,8 @@ function sendState(state, error) {
   message[KEY_THEME_MUTED] = pebbleColor(theme.muted);
   message[KEY_THEME_ACCENT] = pebbleColor(theme.accent);
   message[KEY_THEME_ACCENT_TEXT] = pebbleColor(theme.accentText);
-  message[KEY_THEME_FONT] = theme.font === 'roboto' ? 1 : (theme.font === 'bold' ? 2 : 0);
+  message[KEY_THEME_FONT] = THEME_FONTS[theme.font] || 5;
+  message[KEY_THEME_SIZE] = theme.size || 22;
   if (error) message[KEY_ERROR] = safeSlice(error, 100);
   enqueue(message);
   if (state === 'error' || state === 'empty') scheduleRefresh();

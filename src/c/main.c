@@ -63,6 +63,7 @@ typedef struct {
   uint8_t accent;
   uint8_t accent_text;
   uint8_t font;
+  uint8_t size;
 } PersistedTheme;
 
 static Theme s_theme = {
@@ -73,7 +74,11 @@ static Theme s_theme = {
   .accent_text = GColorWhite
 };
 static bool s_large_text;
-static uint8_t s_font_style;
+static uint8_t s_font_style = 5;
+static uint8_t s_theme_size = 22;
+static GFont s_custom_theme_font;
+static uint8_t s_custom_theme_font_id = 255;
+static uint8_t s_custom_theme_font_size;
 
 static Window *s_main_window;
 static MenuLayer *s_chat_menu;
@@ -129,6 +134,8 @@ static void message_clicks(void *context);
 static void apply_theme_to_layers(void);
 static void set_status(TextLayer *layer, ViewState state, bool messages);
 static void reply_show_status(const char *text);
+static GFont theme_font(void);
+static GFont font_for_text(const char *text);
 
 static void clear_media(void) {
   if (s_media_bitmap) {
@@ -225,40 +232,101 @@ static void apply_theme_to_layers(void) {
   if (s_reply_status_layer) {
     text_layer_set_background_color(s_reply_status_layer, s_theme.background);
     text_layer_set_text_color(s_reply_status_layer, s_theme.text);
+    text_layer_set_font(s_reply_status_layer, theme_font());
   }
   if (s_detail_window) window_set_background_color(s_detail_window, s_theme.background);
   if (s_detail_sender_layer) {
     text_layer_set_background_color(s_detail_sender_layer, s_theme.background);
     text_layer_set_text_color(s_detail_sender_layer, s_theme.text);
+    text_layer_set_font(s_detail_sender_layer, font_for_text(s_detail_sender));
   }
   if (s_detail_text_layer) {
     text_layer_set_background_color(s_detail_text_layer, s_theme.background);
     text_layer_set_text_color(s_detail_text_layer, s_theme.text);
+    text_layer_set_font(s_detail_text_layer, font_for_text(s_detail_text));
   }
   if (s_detail_hint_layer) {
     text_layer_set_background_color(s_detail_hint_layer, s_theme.accent);
     text_layer_set_text_color(s_detail_hint_layer, s_theme.accent_text);
   }
   if (s_detail_top_mask) text_layer_set_background_color(s_detail_top_mask, s_theme.background);
+  if (s_status_layer) text_layer_set_font(s_status_layer, theme_font());
+  if (s_message_status_layer) text_layer_set_font(s_message_status_layer, theme_font());
   set_status(s_status_layer, s_chat_state, false);
   set_status(s_message_status_layer, s_message_state, true);
 }
 
-static GFont title_font(void) {
-  if (s_font_style == 1) return fonts_get_system_font(FONT_KEY_ROBOTO_CONDENSED_21);
-  if (s_font_style == 2) return fonts_get_system_font(s_large_text ? FONT_KEY_GOTHIC_28_BOLD : FONT_KEY_GOTHIC_24_BOLD);
-  return fonts_get_system_font(s_large_text ? FONT_KEY_GOTHIC_28_BOLD : FONT_KEY_GOTHIC_24_BOLD);
+static void unload_custom_theme_font(void) {
+  if (s_custom_theme_font) {
+    fonts_unload_custom_font(s_custom_theme_font);
+    s_custom_theme_font = NULL;
+  }
+  s_custom_theme_font_id = 255;
+  s_custom_theme_font_size = 0;
 }
 
-static GFont body_font(void) {
+static uint8_t custom_size_index(void) {
+  if (s_theme_size <= 14) return 0;
+  if (s_theme_size <= 18) return 1;
+  if (s_theme_size <= 22) return 2;
+  if (s_theme_size <= 26) return 3;
+  return 4;
+}
+
+static GFont pome_theme_font(void) {
+  static const uint32_t font_resources[5][5] = {
+    {RESOURCE_ID_INTER_14, RESOURCE_ID_INTER_18, RESOURCE_ID_INTER_22,
+     RESOURCE_ID_INTER_26, RESOURCE_ID_INTER_30},
+    {RESOURCE_ID_ROBOTO_14, RESOURCE_ID_ROBOTO_18, RESOURCE_ID_ROBOTO_22,
+     RESOURCE_ID_ROBOTO_26, RESOURCE_ID_ROBOTO_30},
+    {RESOURCE_ID_OPEN_SANS_14, RESOURCE_ID_OPEN_SANS_18, RESOURCE_ID_OPEN_SANS_22,
+     RESOURCE_ID_OPEN_SANS_26, RESOURCE_ID_OPEN_SANS_30},
+    {RESOURCE_ID_MONTSERRAT_14, RESOURCE_ID_MONTSERRAT_18, RESOURCE_ID_MONTSERRAT_22,
+     RESOURCE_ID_MONTSERRAT_26, RESOURCE_ID_MONTSERRAT_30},
+    {RESOURCE_ID_POPPINS_14, RESOURCE_ID_POPPINS_18, RESOURCE_ID_POPPINS_22,
+     RESOURCE_ID_POPPINS_26, RESOURCE_ID_POPPINS_30}
+  };
+  uint8_t family = s_font_style >= 5 && s_font_style <= 9 ? s_font_style - 5 : 0;
+  uint8_t size_index = custom_size_index();
+  uint8_t actual_size = (uint8_t[]){14, 18, 22, 26, 30}[size_index];
+  if (s_custom_theme_font && s_custom_theme_font_id == s_font_style &&
+      s_custom_theme_font_size == actual_size) return s_custom_theme_font;
+  unload_custom_theme_font();
+  s_custom_theme_font = fonts_load_custom_font(resource_get_handle(font_resources[family][size_index]));
+  s_custom_theme_font_id = s_font_style;
+  s_custom_theme_font_size = actual_size;
+  return s_custom_theme_font ? s_custom_theme_font : fonts_get_system_font(FONT_KEY_GOTHIC_24);
+}
+
+static GFont gothic_font(bool bold) {
+  if (s_theme_size <= 14) return fonts_get_system_font(bold ? FONT_KEY_GOTHIC_14_BOLD : FONT_KEY_GOTHIC_14);
+  if (s_theme_size <= 18) return fonts_get_system_font(bold ? FONT_KEY_GOTHIC_18_BOLD : FONT_KEY_GOTHIC_18);
+  if (s_theme_size >= 28) return fonts_get_system_font(bold ? FONT_KEY_GOTHIC_28_BOLD : FONT_KEY_GOTHIC_28);
+  return fonts_get_system_font(bold ? FONT_KEY_GOTHIC_24_BOLD : FONT_KEY_GOTHIC_24);
+}
+
+static GFont theme_font(void) {
+  if (s_font_style >= 5 && s_font_style <= 9) return pome_theme_font();
   if (s_font_style == 1) return fonts_get_system_font(FONT_KEY_ROBOTO_CONDENSED_21);
-  if (s_font_style == 2) return fonts_get_system_font(s_large_text ? FONT_KEY_GOTHIC_24_BOLD : FONT_KEY_GOTHIC_18_BOLD);
-  return fonts_get_system_font(s_large_text ? FONT_KEY_GOTHIC_24 : FONT_KEY_GOTHIC_18);
+  if (s_font_style == 2) return gothic_font(true);
+  return gothic_font(false);
+}
+
+static bool has_non_ascii(const char *text) {
+  if (!text) return false;
+  for (const unsigned char *cursor = (const unsigned char *)text; *cursor; cursor++) {
+    if (*cursor >= 0x80) return true;
+  }
+  return false;
+}
+
+static GFont font_for_text(const char *text) {
+  return has_non_ascii(text) ? gothic_font(false) : theme_font();
 }
 
 static void persist_current_theme(void) {
   PersistedTheme saved = {s_theme.background.argb, s_theme.text.argb, s_theme.muted.argb,
-                          s_theme.accent.argb, s_theme.accent_text.argb, s_font_style};
+                          s_theme.accent.argb, s_theme.accent_text.argb, s_font_style, s_theme_size};
   persist_write_data(PERSIST_THEME_DATA, &saved, sizeof(saved));
 }
 
@@ -463,12 +531,17 @@ static void detail_offset_changed(ScrollLayer *scroll_layer, void *context) {
 static void layout_detail(void) {
   if (!s_detail_scroll || !s_detail_text_layer || !s_detail_hint_layer || !s_detail_text) return;
   GRect bounds = layer_get_bounds(scroll_layer_get_layer(s_detail_scroll));
-  GSize text_size = graphics_text_layout_get_content_size(s_detail_text, body_font(),
+  int16_t text_y = s_theme_size + 18;
+  GFont detail_font = font_for_text(s_detail_text);
+  text_layer_set_font(s_detail_text_layer, detail_font);
+  text_layer_set_font(s_detail_sender_layer, font_for_text(s_detail_sender));
+  layer_set_frame(text_layer_get_layer(s_detail_sender_layer), GRect(8, 4, bounds.size.w - 16, s_theme_size + 12));
+  GSize text_size = graphics_text_layout_get_content_size(s_detail_text, detail_font,
     GRect(0, 0, bounds.size.w - 16, 30000), GTextOverflowModeWordWrap, GTextAlignmentLeft);
   int16_t text_height = text_size.h + 8;
   if (text_height < 34) text_height = 34;
-  layer_set_frame(text_layer_get_layer(s_detail_text_layer), GRect(8, 40, bounds.size.w - 16, text_height));
-  scroll_layer_set_content_size(s_detail_scroll, GSize(bounds.size.w, 72 + text_height));
+  layer_set_frame(text_layer_get_layer(s_detail_text_layer), GRect(8, text_y, bounds.size.w - 16, text_height));
+  scroll_layer_set_content_size(s_detail_scroll, GSize(bounds.size.w, text_y + 32 + text_height));
   scroll_layer_set_content_offset(s_detail_scroll, GPointZero, false);
   text_layer_set_text(s_detail_hint_layer, "Up: more\nSelect: dictate • Down: quick");
 }
@@ -499,7 +572,11 @@ static uint16_t chat_rows(MenuLayer *menu_layer, uint16_t section, void *context
 }
 
 static int16_t chat_row_height(MenuLayer *menu_layer, MenuIndex *index, void *context) {
-  return s_large_text ? 78 : 66;
+  if (s_theme_size <= 14) return 58;
+  if (s_theme_size <= 18) return 66;
+  if (s_theme_size <= 22) return 76;
+  if (s_theme_size <= 26) return 88;
+  return 98;
 }
 
 static void draw_chat(GContext *ctx, const Layer *cell, MenuIndex *index, void *context) {
@@ -507,19 +584,19 @@ static void draw_chat(GContext *ctx, const Layer *cell, MenuIndex *index, void *
   Chat *chat = &s_chats[index->row];
   GRect bounds = layer_get_bounds(cell);
   bool selected = menu_layer_is_index_selected(s_chat_menu, index);
-  int name_height = s_large_text ? 35 : 30;
-  int preview_y = s_large_text ? 35 : 31;
-  int preview_height = s_large_text ? 33 : 25;
-  int unread_y = s_large_text ? 62 : 49;
+  int name_height = s_theme_size + 8;
+  int preview_y = name_height;
+  int preview_height = s_theme_size + 7;
+  int unread_y = bounds.size.h - 18;
 
   graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
   graphics_draw_text(ctx, chat->name,
-    title_font(),
+    font_for_text(chat->name),
     GRect(8, 2, bounds.size.w - 16, name_height),
     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 
   graphics_draw_text(ctx, chat->preview,
-    body_font(),
+    font_for_text(chat->preview),
     GRect(8, preview_y, bounds.size.w - 16, preview_height),
     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 
@@ -568,7 +645,11 @@ static void message_selection_changed(MenuLayer *menu_layer, MenuIndex new_index
 }
 
 static int16_t message_row_height(MenuLayer *menu_layer, MenuIndex *index, void *context) {
-  return s_large_text ? 140 : 116;
+  if (s_theme_size <= 14) return 96;
+  if (s_theme_size <= 18) return 116;
+  if (s_theme_size <= 22) return 132;
+  if (s_theme_size <= 26) return 150;
+  return 170;
 }
 
 static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, void *context) {
@@ -576,18 +657,18 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
   Message *message = &s_messages[index->row];
   GRect bounds = layer_get_bounds(cell);
   bool selected = menu_layer_is_index_selected(s_message_menu, index);
-  int sender_height = s_large_text ? 36 : 31;
+  int sender_height = s_theme_size + 9;
   int text_y = sender_height + 1;
   int time_y = bounds.size.h - 19;
   int text_height = time_y - text_y - 9;
   graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
 
   graphics_draw_text(ctx, message->sender,
-    title_font(),
+    font_for_text(message->sender),
     GRect(8, 1, bounds.size.w - 16, sender_height),
     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
   graphics_draw_text(ctx, message->text,
-    body_font(),
+    font_for_text(message->text),
     GRect(8, text_y, bounds.size.w - 16, text_height),
     GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
   graphics_context_set_fill_color(ctx, selected ? s_theme.accent : s_theme.background);
@@ -779,6 +860,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     Tuple *theme_accent = dict_find(iterator, MESSAGE_KEY_THEME_ACCENT);
     Tuple *theme_accent_text = dict_find(iterator, MESSAGE_KEY_THEME_ACCENT_TEXT);
     Tuple *theme_font = dict_find(iterator, MESSAGE_KEY_THEME_FONT);
+    Tuple *theme_size = dict_find(iterator, MESSAGE_KEY_THEME_SIZE);
     if (theme) select_theme(theme->value->cstring);
     if (theme_background) s_theme.background.argb = theme_background->value->uint8;
     if (theme_text) s_theme.text.argb = theme_text->value->uint8;
@@ -786,15 +868,26 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     if (theme_accent) s_theme.accent.argb = theme_accent->value->uint8;
     if (theme_accent_text) s_theme.accent_text.argb = theme_accent_text->value->uint8;
     if (theme_font) s_font_style = theme_font->value->uint8;
+    if (theme_size) {
+      int requested_size = theme_size->value->int32;
+      s_theme_size = requested_size <= 14 ? 14 : (requested_size <= 18 ? 18 :
+        (requested_size <= 22 ? 22 : (requested_size <= 26 ? 26 : 30)));
+    }
     if (text_size) {
       s_large_text = strcmp(text_size->value->cstring, "large") == 0;
+      if (!theme_size) s_theme_size = s_large_text ? 26 : 22;
       persist_write_bool(PERSIST_TEXT_SIZE, s_large_text);
       if (s_chat_menu) menu_layer_reload_data(s_chat_menu);
       if (s_message_menu) menu_layer_reload_data(s_message_menu);
     }
-    if (theme_background || theme_text || theme_accent) {
+    s_large_text = s_theme_size >= 26;
+    if (theme_background || theme_text || theme_accent || theme_font || theme_size) {
       persist_current_theme();
       apply_theme_to_layers();
+      if (s_chat_menu) menu_layer_reload_data(s_chat_menu);
+      if (s_message_menu) menu_layer_reload_data(s_message_menu);
+      if (s_reply_menu) menu_layer_reload_data(s_reply_menu);
+      if (s_detail_text && s_detail_scroll) layout_detail();
     }
     apply_state(state ? state->value->cstring : "error", error ? error->value->cstring : "");
     return;
@@ -929,7 +1022,11 @@ static uint16_t reply_rows(MenuLayer *menu_layer, uint16_t section, void *contex
 }
 
 static int16_t reply_row_height(MenuLayer *menu_layer, MenuIndex *index, void *context) {
-  return s_large_text ? 70 : 58;
+  if (s_theme_size <= 14) return 50;
+  if (s_theme_size <= 18) return 58;
+  if (s_theme_size <= 22) return 66;
+  if (s_theme_size <= 26) return 74;
+  return 82;
 }
 
 static void draw_reply(GContext *ctx, const Layer *cell, MenuIndex *index, void *context) {
@@ -938,7 +1035,7 @@ static void draw_reply(GContext *ctx, const Layer *cell, MenuIndex *index, void 
     bool selected = menu_layer_is_index_selected(s_reply_menu, index);
     graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
     GRect bounds = layer_get_bounds(cell);
-    graphics_draw_text(ctx, s_quick_replies[quick_index], body_font(),
+    graphics_draw_text(ctx, s_quick_replies[quick_index], font_for_text(s_quick_replies[quick_index]),
       GRect(8, 3, bounds.size.w - 16, bounds.size.h - 6),
       GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
   }
@@ -968,7 +1065,7 @@ static void reply_load(Window *window) {
   s_reply_status_layer = text_layer_create(GRect(14, 58, bounds.size.w - 28, 110));
   text_layer_set_background_color(s_reply_status_layer, s_theme.background);
   text_layer_set_text_color(s_reply_status_layer, s_theme.text);
-  text_layer_set_font(s_reply_status_layer, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
+  text_layer_set_font(s_reply_status_layer, theme_font());
   text_layer_set_text_alignment(s_reply_status_layer, GTextAlignmentCenter);
   text_layer_set_overflow_mode(s_reply_status_layer, GTextOverflowModeWordWrap);
   layer_set_hidden(text_layer_get_layer(s_reply_status_layer), true);
@@ -1004,7 +1101,7 @@ static void main_load(Window *window) {
   s_status_layer = text_layer_create(GRect(14, 58, bounds.size.w - 28, 110));
   text_layer_set_background_color(s_status_layer, s_theme.background);
   text_layer_set_text_color(s_status_layer, s_theme.text);
-  text_layer_set_font(s_status_layer, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
+  text_layer_set_font(s_status_layer, theme_font());
   text_layer_set_text_alignment(s_status_layer, GTextAlignmentCenter);
   text_layer_set_overflow_mode(s_status_layer, GTextOverflowModeWordWrap);
   layer_add_child(root, text_layer_get_layer(s_status_layer));
@@ -1041,7 +1138,7 @@ static void message_load(Window *window) {
   s_message_status_layer = text_layer_create(GRect(14, 58, bounds.size.w - 28, 110));
   text_layer_set_background_color(s_message_status_layer, s_theme.background);
   text_layer_set_text_color(s_message_status_layer, s_theme.text);
-  text_layer_set_font(s_message_status_layer, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
+  text_layer_set_font(s_message_status_layer, theme_font());
   text_layer_set_text_alignment(s_message_status_layer, GTextAlignmentCenter);
   text_layer_set_overflow_mode(s_message_status_layer, GTextOverflowModeWordWrap);
   layer_add_child(root, text_layer_get_layer(s_message_status_layer));
@@ -1066,18 +1163,18 @@ static void detail_load(Window *window) {
   });
   layer_add_child(root, scroll_layer_get_layer(s_detail_scroll));
 
-  s_detail_sender_layer = text_layer_create(GRect(8, 4, bounds.size.w - 16, 34));
+  s_detail_sender_layer = text_layer_create(GRect(8, 4, bounds.size.w - 16, s_theme_size + 12));
   text_layer_set_background_color(s_detail_sender_layer, s_theme.background);
   text_layer_set_text_color(s_detail_sender_layer, s_theme.text);
-  text_layer_set_font(s_detail_sender_layer, title_font());
+  text_layer_set_font(s_detail_sender_layer, font_for_text(s_detail_sender));
   text_layer_set_overflow_mode(s_detail_sender_layer, GTextOverflowModeTrailingEllipsis);
   text_layer_set_text(s_detail_sender_layer, s_detail_sender);
   scroll_layer_add_child(s_detail_scroll, text_layer_get_layer(s_detail_sender_layer));
 
-  s_detail_text_layer = text_layer_create(GRect(8, 40, bounds.size.w - 16, 120));
+  s_detail_text_layer = text_layer_create(GRect(8, s_theme_size + 18, bounds.size.w - 16, 120));
   text_layer_set_background_color(s_detail_text_layer, s_theme.background);
   text_layer_set_text_color(s_detail_text_layer, s_theme.text);
-  text_layer_set_font(s_detail_text_layer, body_font());
+  text_layer_set_font(s_detail_text_layer, font_for_text(s_detail_text));
   text_layer_set_overflow_mode(s_detail_text_layer, GTextOverflowModeWordWrap);
   text_layer_set_text(s_detail_text_layer, s_detail_text ? "Loading full message…" : "Not enough memory to open message");
   scroll_layer_add_child(s_detail_scroll, text_layer_get_layer(s_detail_text_layer));
@@ -1151,6 +1248,7 @@ static void init(void) {
   char saved_theme[20] = "classic";
   if (persist_exists(PERSIST_THEME)) persist_read_string(PERSIST_THEME, saved_theme, sizeof(saved_theme));
   s_large_text = persist_exists(PERSIST_TEXT_SIZE) && persist_read_bool(PERSIST_TEXT_SIZE);
+  s_theme_size = s_large_text ? 26 : 22;
   s_quick_reply_count = persist_exists(PERSIST_QUICK_REPLY_COUNT) ? persist_read_int(PERSIST_QUICK_REPLY_COUNT) : 0;
   if (s_quick_reply_count < 0) s_quick_reply_count = 0;
   if (s_quick_reply_count > MAX_QUICK_REPLIES) s_quick_reply_count = MAX_QUICK_REPLIES;
@@ -1169,6 +1267,8 @@ static void init(void) {
     s_theme.accent.argb = saved.accent;
     s_theme.accent_text.argb = saved.accent_text;
     s_font_style = saved.font;
+    s_theme_size = saved.size;
+    s_large_text = s_theme_size >= 26;
   }
   s_main_window = window_create();
   window_set_window_handlers(s_main_window, (WindowHandlers) {
@@ -1211,6 +1311,7 @@ static void deinit(void) {
   cancel_load_watchdog();
   if (s_message_request_timer) app_timer_cancel(s_message_request_timer);
   if (s_dictation_session) dictation_session_destroy(s_dictation_session);
+  unload_custom_theme_font();
   clear_media();
   window_destroy(s_media_window);
   window_destroy(s_reply_window);
