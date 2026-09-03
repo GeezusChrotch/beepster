@@ -1,8 +1,8 @@
 import http from 'node:http';
-import { createHash } from 'node:crypto';
+import { createHash, randomInt } from 'node:crypto';
 import { BeeperClient } from './beeper-client.js';
 import { configurationPage } from './configuration-page.js';
-import { readSecret } from './secret-store.js';
+import { readSecret, writeSecret } from './secret-store.js';
 
 const MAX_BODY_BYTES = 16 * 1024;
 
@@ -66,11 +66,12 @@ function requestTag(requestID) {
   return createHash('sha256').update(requestID).digest('hex').slice(0, 12);
 }
 
-export function createServer({ beeperClient, gatewayToken, pairingCode = '', logger = console }) {
+export function createServer({ beeperClient, gatewayToken, pairingCode = '', rotatePairingCode = async () => '', logger = console }) {
   if (!gatewayToken) throw new Error('gatewayToken is required');
   const cache = new Map();
   const replyRequests = new Map();
   const pendingReplies = new Map();
+  let activePairingCode = pairingCode;
   let pairingAvailable = Boolean(pairingCode);
 
   async function withCache(key, loader) {
@@ -98,11 +99,18 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '', log
       }
       if (url.pathname === '/pair' && request.method === 'POST') {
         const body = await readJSON(request);
-        if (!pairingAvailable || body.code !== pairingCode) {
+        if (!pairingAvailable || body.code !== activePairingCode) {
           sendJSON(response, 403, { error: 'Pairing code is invalid' });
           return;
         }
         pairingAvailable = false;
+        const nextPairingCode = await rotatePairingCode();
+        if (!nextPairingCode) {
+          sendJSON(response, 503, { error: 'Could not rotate the pairing code; try again after checking the Mac Connector' });
+          return;
+        }
+        activePairingCode = nextPairingCode;
+        pairingAvailable = true;
         sendJSON(response, 200, { gatewayToken });
         return;
       }
@@ -234,5 +242,10 @@ export async function createConfiguredServer(environment = process.env) {
     baseURL: environment.BEEPER_BASE_URL || 'http://127.0.0.1:23373',
     accessToken: beeperToken
   }) : null;
-  return createServer({ beeperClient: client, gatewayToken, pairingCode });
+  const rotatePairingCode = environment.BEEPSTER_PAIRING_CODE ?
+    async () => String(randomInt(100000, 1000000)) : async () => {
+    const nextCode = String(randomInt(100000, 1000000));
+    return await writeSecret('pairing-code', nextCode) ? nextCode : '';
+  };
+  return createServer({ beeperClient: client, gatewayToken, pairingCode, rotatePairingCode });
 }

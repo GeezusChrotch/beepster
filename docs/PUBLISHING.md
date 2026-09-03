@@ -15,7 +15,7 @@ This is the maintainer checklist for the first public release. Do not upload the
 The public bootstrap page does not receive the pairing code, gateway credential, Beeper token, or
 messages. It only redirects the user's browser to the HTTPS gateway address entered by the user.
 
-## Build the universal artifact
+## Build the watch artifact
 
 Set a Store-compatible `major.minor.0` version, update `CHANGELOG.md`, then run:
 
@@ -34,6 +34,27 @@ dist/SHA256SUMS
 Install that exact artifact in Emery QEMU and on a physical Time 2. Exercise inbox refresh, long
 message scrolling, older-history pagination, both dictation gestures, quick replies, confirmed send,
 theme persistence, and an inline photo before publishing.
+
+## Build the signed Mac Connector
+
+The Connector release is a universal DMG containing arm64 and x86_64 Connector executables, the
+local gateway, both Node.js runtimes, the Keychain helper, the Contacts helper app, and open-source
+license notices. Configure a Developer ID Application certificate and a `notarytool` Keychain
+profile, then run:
+
+```sh
+BEEPSTER_CODESIGN_IDENTITY='Developer ID Application: …' \
+BEEPSTER_NOTARY_PROFILE='beepster-notary' \
+./scripts/package-mac-app.sh
+```
+
+This produces `dist/Beepster-Connector-0.9.0.dmg` and a SHA-256 sidecar. The script refuses to
+notarize without a signing identity, waits for Apple's result, staples the ticket, and validates it.
+A run without those variables is an ad-hoc development package and must never be published.
+
+Before release, mount the exact DMG on a Mac that has never had the source installer. Drag the app
+to Applications and verify Install or Repair, Contacts permission, token storage, Tailscale Serve,
+phone-setup copying, pairing, login restart, repair/update preservation, and Gatekeeper acceptance.
 
 ## Store artwork
 
@@ -72,6 +93,9 @@ hostname, or pairing code. Never upload the demo PBW as the release artifact.
 
 - [ ] GitHub Pages setup URL works from the Pebble mobile webview
 - [ ] `npm run release` passes from a clean checkout
+- [ ] Connector DMG is universal, Developer ID signed, notarized, stapled, and Gatekeeper accepted
+- [ ] Fresh-Mac Connector install and existing-user repair both pass without Terminal
+- [ ] Beepster and Node.js license notices are present in the Connector bundle
 - [ ] Universal PBW contains no `.ts.net` address or credential marker
 - [ ] Store PBW and GitHub Release PBW have the same SHA-256 digest
 - [ ] Physical Time 2 smoke test passes

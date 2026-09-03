@@ -20,7 +20,8 @@
     "test": "npm --prefix gateway test",
     "check": "scripts/check.sh",
     "doctor": "scripts/doctor.sh",
-    "release": "scripts/package-release.sh"
+    "release": "scripts/package-release.sh",
+    "release:mac": "scripts/package-mac-app.sh"
   },
   "dependencies": {},
   "pebble": {

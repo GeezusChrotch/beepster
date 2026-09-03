@@ -4,6 +4,8 @@ Beepster is designed for personal, self-hosted use.
 
 - The Mac gateway reads recent chats and messages from the local Beeper Desktop API.
 - Beeper credentials remain on the Mac.
+- The release Connector contains an open-source Node.js runtime and the Beepster gateway; neither
+  component downloads executable code or requires a developer toolchain after installation.
 - The gateway does not include analytics, advertising, or telemetry.
 - The public first-run page only redirects the browser to an address entered by the user. It does
   not receive the pairing code, Beeper token, gateway credential, contacts, or messages.

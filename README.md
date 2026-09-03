@@ -6,19 +6,19 @@ Beepster is a readable, reliable, open-source Beeper client for Pebble Time 2. I
 chats, complete message text, voice dictation, saved replies, themes, emoji fallbacks, and inline
 photo previews to the watch without putting a Beeper credential on the watch or phone.
 
-Version 0.9.0 is the public-release candidate. Beepster is usable today from source; the one-tap
-Pebble Store release and public first-run setup page are still awaiting publication.
+Version 0.9.0 is the public-release candidate. The self-contained Mac Connector and watch app are
+being prepared for signed release; the Pebble Store listing is still awaiting publication.
 
 ## What you need
 
 - A Pebble Time 2 (`emery`) paired with the Pebble mobile app
 - A Mac that can remain online with Beeper Desktop running
-- Node.js 20 or newer
 - Tailscale on the Mac and phone, signed into the same private tailnet
 - A dedicated Beeper Desktop API access token
 
 No iMessage bridge such as `imsg` is required. Beeper Desktop supplies the supported messaging
-networks; iMessage itself requires Beeper Desktop to run on macOS.
+networks; iMessage itself requires Beeper Desktop to run on macOS. The release Connector bundles
+its gateway runtime, so end users do not need Terminal, Git, Node.js, or developer tools.
 
 ## Start here
 
@@ -42,7 +42,8 @@ networks; iMessage itself requires Beeper Desktop to run on macOS.
 - Six presets and saved custom themes using five font families and five sizes
 - Pebble-native emoji where possible, with readable text fallbacks elsewhere
 - Explicit setup, loading, empty, timeout, offline, and retry states
-- Keychain-backed Mac companion, native readiness/permission app, private HTTPS pairing, and idempotent reply transport
+- Self-contained, Keychain-backed Mac Connector with guided install, permissions, private setup,
+  readiness checks, and idempotent reply transport
 
 Animated GIF playback and multiple attachments per message remain planned. See the
 [roadmap](ROADMAP.md) and [UX requirements](docs/UX_REQUIREMENTS.md).

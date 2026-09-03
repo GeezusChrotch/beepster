@@ -11,3 +11,12 @@ export function readSecret(account) {
     });
   });
 }
+
+export function writeSecret(account, value) {
+  return new Promise((resolve) => {
+    const child = execFile(helper, ['set', account], { timeout: 5000 }, (error) => {
+      resolve(!error);
+    });
+    child.stdin?.end(value);
+  });
+}

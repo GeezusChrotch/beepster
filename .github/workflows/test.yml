@@ -23,5 +23,5 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - run: swiftc -framework AppKit -typecheck mac/BeepsterConnector.swift
+      - run: swiftc -framework AppKit -framework Security -typecheck mac/BeepsterConnector.swift
       - run: plutil -lint mac/BeepsterConnector-Info.plist mac/BeepsterContacts-Info.plist

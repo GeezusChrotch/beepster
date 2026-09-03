@@ -41,7 +41,7 @@ async function runHelper(helperPath, identifiers) {
 
 export class MacContactsResolver {
   constructor({
-    helperPath = join(homedir(), 'Library/Application Support/Beepster/bin/Beepster Contacts.app'),
+    helperPath = process.env.BEEPSTER_CONTACT_HELPER || join(homedir(), 'Library/Application Support/Beepster/bin/Beepster Contacts.app'),
     runner = runHelper,
     now = () => Date.now()
   } = {}) {

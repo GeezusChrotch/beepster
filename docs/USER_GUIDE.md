@@ -54,10 +54,11 @@ same person, and it never changes the source conversations.
 
 ## Mac Connector
 
-Open **Beepster Connector** from `~/Applications` to check Contacts permission, the local
-gateway/Beeper token, and the private Tailscale Serve route. It can request Contacts access, open
-the correct macOS Privacy pane, securely store a dedicated Beeper token, start the private route,
-and show the one-time pairing code. No Beeper or gateway token is shown or copied.
+Open **Beepster Connector** from Applications to install or repair the bundled login service and
+check Contacts permission, the local gateway/Beeper token, and the private Tailscale Serve route.
+It can request Contacts access, open the correct macOS Privacy pane, securely store a dedicated
+Beeper token, start the private route, copy the phone setup address, and show the one-time pairing
+code. No Beeper or gateway token is shown or copied, and normal use requires no Terminal commands.
 
 ## Themes and accessibility
 

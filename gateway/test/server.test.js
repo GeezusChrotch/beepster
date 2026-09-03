@@ -76,7 +76,16 @@ test('message history pagination forwards the opaque cursor', async () => {
 });
 
 test('pairing requires the exact code and returns only the gateway credential', async () => {
-  const server = createServer({ beeperClient: {}, gatewayToken: 'gateway-secret', pairingCode: '246810' });
+  let rotations = 0;
+  const server = createServer({
+    beeperClient: {},
+    gatewayToken: 'gateway-secret',
+    pairingCode: '246810',
+    rotatePairingCode: async () => {
+      rotations++;
+      return '135790';
+    }
+  });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   try {
@@ -87,6 +96,33 @@ test('pairing requires the exact code and returns only the gateway credential', 
     assert.deepEqual(await paired.json(), { gatewayToken: 'gateway-secret' });
     const reused = await fetch(`${baseURL}/pair`, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({code:'246810'})});
     assert.equal(reused.status, 403);
+    const next = await fetch(`${baseURL}/pair`, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({code:'135790'})});
+    assert.equal(next.status, 200);
+    assert.equal(rotations, 2);
+  } finally {
+    server.close();
+    await once(server, 'close');
+  }
+});
+
+test('pairing never releases the gateway credential unless the consumed code is rotated', async () => {
+  const server = createServer({
+    beeperClient: {},
+    gatewayToken: 'gateway-secret',
+    pairingCode: '246810',
+    rotatePairingCode: async () => ''
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const baseURL = `http://127.0.0.1:${server.address().port}`;
+    const response = await fetch(`${baseURL}/pair`, {
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({code:'246810'})
+    });
+    assert.equal(response.status, 503);
+    assert.doesNotMatch(await response.text(), /gateway-secret/);
   } finally {
     server.close();
     await once(server, 'close');

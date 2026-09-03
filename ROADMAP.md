@@ -181,6 +181,9 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Add a universal first-run setup handoff with no private URL in the public PBW
 - [x] Document installation, controls, troubleshooting, performance, privacy, and publishing
 - [x] Add a private Mac health checker and reproducible release packaging
+- [x] Bundle the Mac gateway runtime so end users do not need Terminal, Git, Node.js, or source code
+- [x] Let the Connector install or repair its login service without rotating pairing credentials
+- [x] Copy the private phone setup address directly from the Connector
 - [x] Cache repeated watch text layout and Mac preview conversion
 - [x] Prevent stale chat responses and obsolete detail/media queue backlog
 - [x] Let users choose which messaging services appear without re-pairing
@@ -188,4 +191,5 @@ sent until Beeper resolves the pending message with a successful send status.
 - [ ] Enable and test the public GitHub Pages setup URL in the Pebble mobile webview
 - [x] Capture Store screenshots using synthetic data
 - [ ] Complete a physical-watch release-candidate smoke test
+- [ ] Developer ID sign, notarize, and Gatekeeper-test the public Connector DMG
 - [ ] Publish GitHub and Pebble Store releases

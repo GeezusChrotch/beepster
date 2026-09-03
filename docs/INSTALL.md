@@ -1,7 +1,8 @@
 # Install Beepster
 
-This guide deliberately spells out every component. You set it up once; normal use afterward is
-opening Beepster on the watch while the Mac, Beeper Desktop, and Tailscale are running.
+Beepster's normal installation does not require Terminal, Git, Node.js, or an `imsg` bridge. The
+Mac Connector contains the local gateway and everything needed to run it. Set it up once, then use
+Beepster while the Mac, Beeper Desktop, Tailscale, and Pebble mobile app are connected.
 
 ## Before you start
 
@@ -9,182 +10,104 @@ You need:
 
 1. A Pebble Time 2 paired with the Pebble mobile app.
 2. A Mac with [Beeper Desktop](https://www.beeper.com/download) installed and signed in.
-3. [Tailscale](https://tailscale.com/download) installed on the Mac and phone, with both devices in
-   the same tailnet.
-4. Node.js 20 or newer. `node --version` should print `v20` or later.
-5. The Beepster source, downloaded from a GitHub release or cloned with Git.
+3. [Tailscale](https://tailscale.com/download) on the Mac and phone, signed into the same private
+   tailnet.
+4. The Beepster Connector DMG and the Beepster watch app from their official release pages.
 
-Beeper recommends its Desktop API for personal use. Beepster only fetches local data at ordinary
-watch-sized rates and does not automate bulk messaging.
+Beepster requires a Mac because it uses Beeper Desktop's local API. It does not need Full Disk
+Access, Accessibility, Screen Recording, direct Messages database access, or a separate iMessage
+bridge.
 
-## Permission checklist
+## 1. Install Beepster Connector on the Mac
 
-Beepster intentionally needs very little system access:
+Download `Beepster-Connector.dmg` from the latest Beepster release. Open it, drag **Beepster
+Connector** to **Applications**, eject the disk image, and open the app.
 
-- **Mac Contacts — optional but recommended:** used read-only to replace Apple email addresses and
-  phone numbers with names. Beepster Connector can request and verify it.
-- **Tailscale VPN configuration — required:** accept Tailscale's normal macOS and phone prompts so
-  the phone can reach the Mac privately.
-- **Pebble mobile connection — required:** allow the Pebble app's normal Bluetooth/background
-  access and keep the watch connected. Follow any dictation prompt shown by Pebble when using voice
-  reply for the first time.
+On first launch, macOS may ask you to confirm that you downloaded the app from the internet. The
+public release must be Developer ID signed and notarized; do not bypass a warning that says the app
+cannot be checked for malicious software.
 
-Beepster does **not** need Full Disk Access, Accessibility, Screen Recording, Messages database
-access, or an `imsg` bridge. The Connector checks all Mac-side requirements it actually uses.
+Select **Install or Repair**. The Connector installs its bundled gateway in your user account,
+creates private credentials in your login Keychain, and starts the gateway automatically whenever
+you sign in. Existing credentials, Contacts permission, and phone pairing are preserved when you
+update or repair the Connector.
 
-## 1. Download Beepster on the Mac
+## 2. Connect Beeper
 
-```sh
-git clone https://github.com/GeezusChrotch/beepster.git
-cd beepster
-```
+Keep Beeper Desktop open. In Beeper Desktop, open its developer or Desktop API settings and create
+a separate access token for Beepster. The exact wording may change between Beeper releases; use the
+authentication link in Beeper's current [Desktop API documentation](https://developers.beeper.com/desktop-api/).
 
-If you downloaded a release ZIP, open Terminal, type `cd ` with a trailing space, drag the extracted
-Beepster folder into the Terminal window, and press Return.
+In Beepster Connector, select **Set Beeper Token**, paste the dedicated token into the concealed
+field, and save. It goes directly into the macOS login Keychain and is never placed in the watch
+app, copied to the phone, or displayed again.
 
-## 2. Create a dedicated Beeper token
+## 3. Enable names and the private connection
 
-Keep Beeper Desktop open. In Beeper Desktop, open **Settings → Integrations** and create a separate
-access token for Beepster. The exact button wording can change with Beeper releases; its current
-[Desktop API documentation](https://developers.beeper.com/desktop-api/) links to the authentication
-instructions.
+Select **Enable Contacts** and allow read-only Contacts access. This optional permission lets Apple
+conversations show contact names instead of raw phone numbers or email addresses. If permission was
+previously denied, select **Open Privacy Settings** and enable **Beepster Contacts**.
 
-Do not paste this token into a source file, chat, screenshot, or `.env` file. The installer below
-accepts it with hidden terminal input and stores it in your login Keychain.
+Open Tailscale on the Mac and phone and make sure both say connected. In Beepster Connector, select
+**Start Private Route**. Beepster uses Tailscale Serve, which remains private to your tailnet; never
+use Tailscale Funnel or public port forwarding for the gateway.
 
-## 3. Install the Mac companion
+The three status rows should now be green. If one is not, its label identifies the part that needs
+attention; select **Run All Checks Again** after correcting it.
 
-```sh
-./scripts/install-companion.sh
-```
+## 4. Install the watch app
 
-The installer opens **Beepster Connector**. Select **Set Beeper Token**, paste the dedicated token
-into the concealed field, and save. The app stores it in your login Keychain and restarts the
-gateway. Terminal users can instead run `./scripts/set-beeper-token.sh`; its input is hidden.
+On the phone, open the Pebble mobile app, find **Beepster** in the Pebble Store, and tap **Add to
+Watch**. Confirm that the developer is Joshua Bessom and the listing links to this repository.
 
-macOS will also ask whether Beepster may access Contacts. Allowing read-only access lets Apple
-message threads show the same contact names you use on the Mac instead of email addresses or phone
-numbers. If you skip it, messaging still works and you can grant access later with:
+The Mac Connector cannot silently install software over the phone's Bluetooth connection. This
+single Store action is the intended, supported watch-installation step. It also lets future watch
+updates arrive through the Pebble app.
 
-```sh
-./scripts/install-contact-helper.sh
-```
+During the prerelease period, the Store listing may not exist yet. Testers must install the PBW
+manually; that development-only path is documented in [Contributing](../CONTRIBUTING.md) and is not
+part of the final end-user installation.
 
-The companion is a small background service, not another full messaging app. It starts whenever you
-sign into the Mac and listens only on `127.0.0.1:8794`.
+## 5. Configure and pair once
 
-## 4. Make the gateway privately reachable
+On the Mac, select **Copy Phone Setup**, then **Show Pairing Code**. On the phone, open **Pebble →
+Beepster → Settings**:
 
-Open Tailscale on both the Mac and phone and confirm both are connected. In Beepster Connector,
-select **Start Private Route**. Terminal users can instead run:
+1. Paste the copied private setup address when asked.
+2. Enter the six-digit pairing code shown by the Connector.
+3. Choose the services to include, a theme and font size, and up to eight text-or-emoji quick
+   replies.
+4. Under **Link Apple conversations**, give any email and phone conversations for the same person
+   the same alias. Beepster combines them on the watch without changing Beeper or Apple Messages.
+5. Tap **Test connection & pair**, then save.
 
-```sh
-tailscale serve --bg 8794
-```
+The Mac and phone can share the copied address through Apple's Universal Clipboard. If that is not
+enabled, the Connector also displays the address so it can be entered manually; no Terminal lookup
+is needed.
 
-Tailscale prints a private HTTPS address similar to:
+The phone receives a narrow Beepster gateway credential, never the Beeper token. The one-time code
+cannot be reused after successful pairing. Ordinary settings changes, Connector repairs, and app
+updates do not require pairing again.
 
-```text
-https://your-mac.your-tailnet.ts.net
-```
+## 6. Confirm everything works
 
-Keep that address private. Use Tailscale **Serve**, not Funnel: Serve restricts access to your
-tailnet, while Funnel would expose the gateway publicly. If `tailscale` is not on your PATH, use:
+Open Beepster on the watch. It should open the newest end of the chat list. Open a conversation,
+press Center, dictate a harmless reply, confirm it, and verify that Beepster returns to the thread
+after delivery.
 
-```sh
-/Applications/Tailscale.app/Contents/MacOS/Tailscale serve --bg 8794
-```
-
-Verify the complete Mac side without exposing any credential:
-
-```sh
-./scripts/doctor.sh
-```
-
-Every line should say `PASS`.
-
-The installer also adds **Beepster Connector** to `~/Applications`. Open it whenever you want a
-plain-language readiness screen, a Contacts permission button, Beeper-token setup, Tailscale route
-setup, or the current pairing code. The Terminal diagnostic remains available for detailed
-troubleshooting.
-
-## 5. Install the watch app
-
-### After the Pebble Store release
-
-Install **Beepster** from the Pebble Store in the mobile app. Check that the developer is Joshua
-Bessom and that the listing links to this repository.
-
-### During the public preview
-
-The public Store listing and setup site are not live yet. Build a private test bundle with your
-Tailscale address:
-
-```sh
-./scripts/build-personal.sh 'https://your-mac.your-tailnet.ts.net/configure'
-```
-
-This creates `local/beepster-personal.pbw`. Transfer that file to the phone and open it with the
-Pebble mobile app, or use Pebble Tool while the phone's developer connection is enabled:
-
-```sh
-pebble install --cloudpebble local/beepster-personal.pbw
-```
-
-The private URL is the only personalized value in this PBW. The Beeper token and gateway credential
-are never bundled.
-
-## 6. Pair once
-
-On the Mac, display the current one-time code:
-
-```sh
-./scripts/show-pairing-code.sh
-```
-
-In the Pebble mobile app, open **Beepster → Settings**.
-
-1. If asked, enter your private Tailscale address ending in `/configure`.
-2. Enter the one-time pairing code.
-3. Choose a theme, font size, refresh interval, and up to eight quick replies.
-4. Under **Link Apple conversations**, enter the same contact name beside any email and phone
-   conversations that belong to one person. Beepster combines those histories on the watch and
-   sends replies through the most recently active destination. It does not alter the original
-   conversations in Beeper or Apple Messages.
-5. Tap **Test connection & pair**.
-
-The settings page receives a narrow Beepster gateway credential, not the Beeper Desktop token.
-Later settings changes do not require pairing again.
-
-## 7. Confirm the watch
-
-Open Beepster. You should see recent chats. Open one, press the center button, dictate a harmless
-test reply, confirm the transcript, and verify that Beepster returns to the thread after delivery.
-
-If anything fails, run `./scripts/doctor.sh`, then use the [troubleshooting guide](TROUBLESHOOTING.md).
+For help, open **Install Guide** in the Connector or use the symptom-based
+[troubleshooting guide](TROUBLESHOOTING.md). No Terminal commands are required for the normal
+install or readiness check.
 
 ## Updating
 
-```sh
-cd beepster
-git pull --ff-only
-./scripts/install-companion.sh
-./scripts/set-beeper-token.sh
-./scripts/doctor.sh
-```
+Install the newer Connector from its DMG and select **Install or Repair**. Update the watch app from
+the Pebble Store. The dedicated Beeper token, private gateway credential, pairing, Contacts access,
+themes, service filters, aliases, and quick replies should remain intact.
 
-Reinstall the new PBW from the Store or release. Re-running the companion installer rotates the
-gateway credential and pairing code, so pair the phone again after reinstalling it. Ordinary app
-updates do not require rotating the Beeper token.
+## Removing Beepster
 
-## Uninstalling
-
-Remove Beepster from the Pebble mobile app. To stop the private proxy run `tailscale serve reset`.
-The Mac companion can be unloaded with:
-
-```sh
-launchctl bootout "gui/$(id -u)/org.beepster.gateway"
-```
-
-The LaunchAgent and Keychain values are intentionally left in place to avoid destructive cleanup.
-Remove them manually only if you understand what will be deleted.
+Remove the watch app from the Pebble mobile app and quit Beepster Connector. A future release will
+include guided removal of the login service and its Keychain items. Until then, advanced manual
+cleanup instructions are in [Troubleshooting](TROUBLESHOOTING.md); Keychain data is deliberately
+left in place during ordinary app removal so an accidental reinstall cannot destroy configuration.

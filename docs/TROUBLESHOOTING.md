@@ -1,26 +1,29 @@
 # Troubleshooting Beepster
 
-Start with the private diagnostic script on the Mac:
+Start by opening **Beepster Connector** on the Mac and selecting **Run All Checks Again**. It checks
+Contacts permission, the local gateway and Beeper token, and the private Tailscale route without
+showing credentials or message data. Select the action beside the part that needs attention.
+
+Source developers can run the more detailed private diagnostic in Terminal:
 
 ```sh
 cd beepster
 ./scripts/doctor.sh
 ```
 
-It checks dependencies, the LaunchAgent, local gateway health, Beeper-token presence, Tailscale, and
-the Serve route. It never prints either token, message data, contacts, or your private URL.
+It never prints either token, message data, contacts, or your private URL.
 
 ## Settings will not open
 
-- During the preview, install a personal PBW created by `scripts/build-personal.sh`; the ordinary
-  source build points to the not-yet-published public setup site.
+- During the preview, follow the personal-PBW instructions in [Contributing](../CONTRIBUTING.md);
+  the ordinary source build points to the not-yet-published public setup site.
 - Confirm the phone has internet access for the public setup page.
 - Confirm Tailscale is connected before the setup page redirects to the private Mac.
 - The address must use `https://` and end in `/configure`.
 
 ## Pairing code is rejected
 
-- Run `./scripts/show-pairing-code.sh` immediately before pairing.
+- Select **Show Pairing Code** in the Connector immediately before pairing.
 - A code is single-use. Reopen Settings only after generating or reinstalling the companion as
   instructed.
 - Pairing again is not required for ordinary theme or quick-reply edits.
@@ -28,8 +31,8 @@ the Serve route. It never prints either token, message data, contacts, or your p
 ## Chats never finish loading
 
 - Keep Beeper Desktop open and signed in.
-- Run `./scripts/doctor.sh` and resolve the first failure.
-- Run `tailscale serve status`; it should forward to `http://127.0.0.1:8794`.
+- Run all checks in the Connector and resolve the first warning.
+- Select **Start Private Route**, then run the checks again.
 - Open `https://your-private-host/health` on the phone. It should show `ok: true` and
   `beeperConfigured: true` without asking for a token.
 - If Beeper changed its local API port, restart the companion. Beepster also probes the supported
@@ -43,9 +46,8 @@ reporting this symptom.
 
 ## An Apple chat shows an email address or phone number
 
-Beeper sometimes supplies only the participant's network identifier. Run
-`./scripts/install-contact-helper.sh`, allow read-only Contacts access, restart the companion, and
-reopen Beepster. `./scripts/doctor.sh` reports whether both the helper and permission are ready.
+Beeper sometimes supplies only the participant's network identifier. Select **Enable Contacts** in
+the Connector, allow read-only Contacts access, run the checks again, and reopen Beepster.
 Beepster falls back to the original Beeper label when there is no exact local match.
 
 ## One Apple contact appears as separate email and phone threads

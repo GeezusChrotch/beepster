@@ -16,3 +16,13 @@ shown as sent until Beeper has accepted it, and a failed reply must remain recov
 
 See [Performance notes](docs/PERFORMANCE.md) before removing fonts, lowering message limits, or
 changing preview transport; performance work must retain documented functionality.
+
+For prerelease watch testing, build a personal PBW whose settings page points to your private
+gateway, transfer it to the phone, and open it with the Pebble mobile app:
+
+```sh
+./scripts/build-personal.sh 'https://your-private-mac.ts.net/configure'
+```
+
+This developer-only flow requires the source toolchain. End users install the published watch app
+from the Pebble Store and use the self-contained Connector DMG without Terminal.

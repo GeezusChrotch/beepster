@@ -13,3 +13,11 @@ security report unless the maintainer explicitly requests them through a secure 
 
 Release PBWs must be produced with `scripts/package-release.sh`, which scans for credential markers
 and private `.ts.net` addresses before creating the distributable artifact.
+
+Public Connector DMGs must be built from a clean checkout, signed with the maintainer's Developer
+ID Application identity, submitted to Apple's notarization service, stapled, and verified before
+publication. Connector upgrades must preserve the installed Keychain and Contacts helper identities
+so macOS does not silently invalidate access or rotate user credentials.
+
+Pairing codes are single-use. A successful exchange rotates the stored code before returning the
+narrow gateway credential, so restarting the gateway cannot make a consumed code valid again.

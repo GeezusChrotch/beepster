@@ -20,6 +20,11 @@ All notable changes to Beepster are documented here.
 - Add a native Beepster Connector readiness app with permission, gateway, Tailscale, and pairing checks.
 - Explain every Connector action inline with its purpose and why it is needed.
 - Expand the watch inbox from 12 to 30 recent conversations.
+- Package a universal self-contained Mac Connector with bundled Node runtime and local gateway.
+- Add a no-Terminal Connector installer that preserves credentials and permission identities on updates.
+- Add one-click copying and a selectable fallback display of the private phone setup address.
+- Add reproducible Developer ID signing, notarization, DMG, and checksum packaging support.
+- Rotate a successfully consumed pairing code in Keychain so it cannot return after a gateway restart.
 
 ## 0.8.3
 
