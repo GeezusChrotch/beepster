@@ -19,6 +19,7 @@ being prepared for signed release; the Pebble Store listing is still awaiting pu
 No iMessage bridge such as `imsg` is required. Beeper Desktop supplies the supported messaging
 networks; iMessage itself requires Beeper Desktop to run on macOS. The release Connector bundles
 its gateway runtime, so end users do not need Terminal, Git, Node.js, or developer tools.
+The Connector window can be closed after setup; its login background service continues running.
 
 ## Start here
 

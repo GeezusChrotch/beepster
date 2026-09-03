@@ -99,6 +99,11 @@ Everything** verifies Contacts, a live Beeper request, and the private phone rou
 install, token, permission, route, and documentation controls remain under **Advanced options**.
 No Beeper or gateway token is shown or copied, and normal use requires no Terminal commands.
 
+The Connector window is only for setup, status checks, and repairs; it does not need to stay open.
+Closing its window quits the Connector app without stopping the separate Beepster background
+service. Keep the Mac awake, Beeper Desktop open and signed in, and Tailscale connected while using
+Beepster.
+
 ## Themes and accessibility
 
 Settings includes six presets and saved custom themes. A custom theme controls background, body,

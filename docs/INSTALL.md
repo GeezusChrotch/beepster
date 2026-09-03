@@ -4,6 +4,10 @@ Beepster's normal installation does not require Terminal, Git, Node.js, or an `i
 Mac Connector contains the local gateway and everything needed to run it. Set it up once, then use
 Beepster while the Mac, Beeper Desktop, Tailscale, and Pebble mobile app are connected.
 
+The **Beepster Connector window does not need to stay open**. After setup, close it normally. Its
+small background gateway starts at Mac login and continues independently. The Mac must remain awake,
+Beeper Desktop must remain open and signed in, and Tailscale must remain connected.
+
 ## Before you start
 
 You need:

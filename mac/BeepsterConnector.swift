@@ -48,6 +48,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let intro = wrappingLabel("One guided setup keeps your Pebble connected to Beeper through this Mac. No Terminal required.")
         intro.textColor = .secondaryLabelColor
         stack.addArrangedSubview(intro)
+        let runningNote = wrappingLabel("You can close this window after setup. Keep Beeper Desktop open and Tailscale connected; Beepster’s background service keeps working.")
+        runningNote.font = .systemFont(ofSize: 13, weight: .medium)
+        runningNote.textColor = .systemBlue
+        stack.addArrangedSubview(runningNote)
 
         setupSummary = wrappingLabel("Checking your setup…")
         setupSummary.font = .systemFont(ofSize: 18, weight: .semibold)
@@ -126,6 +130,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         refresh()
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
     }
 
     private func wrappingLabel(_ text: String) -> NSTextField {
