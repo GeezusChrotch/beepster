@@ -234,6 +234,34 @@ test('older and newer chat pages keep only a thirty-chat watch window', () => {
   assert.equal(appMessages.at(-1)[33], 1);
 });
 
+test('jumping from an older watch page reloads the actual newest Beeper page', () => {
+  const { context, requests, appMessages, eventListeners } = replyRuntime();
+  context.loadChats();
+  const original = Array.from({length:35}, (_, index) => ({
+    id:'old-' + index,name:'Old ' + index,preview:'Preview',network:'Signal'
+  }));
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items:original,hasMore:false});
+  requests[0].onload();
+  context.loadOlderChats();
+  assert.equal(appMessages.filter((message) => message[0] === 'chat')[30][5], 'old-30');
+
+  appMessages.length = 0;
+  eventListeners.appmessage({payload:{0:'load_chats'}});
+  assert.equal(requests[1].url, 'https://gateway.example/v1/chats?limit=50&inbox=primary');
+  requests[1].status = 200;
+  requests[1].responseText = JSON.stringify({items:[
+    {id:'actual-newest',name:'Newest',preview:'Just now',network:'Signal'},
+    ...original.slice(0, 29)
+  ],hasMore:true,nextCursor:'older-now'});
+  requests[1].onload();
+
+  const reloaded = appMessages.filter((message) => message[0] === 'chat');
+  assert.equal(reloaded.length, 30);
+  assert.equal(reloaded[0][5], 'actual-newest');
+  assert.equal(appMessages.at(-1)[33], 1);
+});
+
 test('service filtering fetches additional pages until the watch page is populated', () => {
   const { context, requests, appMessages, storage } = replyRuntime();
   storage.set('beepster_services', JSON.stringify(['instagram']));

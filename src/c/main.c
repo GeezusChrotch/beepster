@@ -1427,8 +1427,9 @@ static void perform_button_action(ButtonAction action, bool message_view) {
       break;
     case BUTTON_ACTION_PIN_TOGGLE: toggle_chat_pin_at_index(&selected); break;
     case BUTTON_ACTION_JUMP_NEWEST:
-      if (s_chat_menu && s_chat_count > 0) menu_layer_set_selected_index(s_chat_menu,
-        (MenuIndex) {.section = 0, .row = s_has_newer_chats ? 1 : 0}, MenuRowAlignTop, true);
+      // The visible rows may be an older 30-chat page. Reloading from the
+      // phone resets its cursor and fetches Beeper's actual newest page.
+      request_chats();
       break;
     case BUTTON_ACTION_NONE: break;
   }
