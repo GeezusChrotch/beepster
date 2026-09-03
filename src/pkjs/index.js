@@ -35,6 +35,7 @@ var KEY_DETAIL_TEXT = 31;
 var KEY_QUICK_REPLY_TEXT = 32;
 var KEY_HAS_MORE = 33;
 var KEY_THEME_SIZE = 34;
+var KEY_CHAT_PINNED = 35;
 
 var BUILT_IN_THEMES = [
   {id:'classic',name:'Classic',background:'#FFFFFF',text:'#000000',muted:'#555555',accent:'#0055AA',accentText:'#FFFFFF',font:'inter',size:22,builtIn:true},
@@ -66,6 +67,7 @@ var oldestMessageCursor = '';
 var hasOlderMessages = false;
 var loadingOlderMessages = false;
 var mergedChats = {};
+var currentInboxChats = [];
 var MAX_WATCH_CHATS = 30;
 var MAX_WATCH_MESSAGES = 60;
 var DEFAULT_QUICK_REPLIES = ['Yes', 'No', 'On my way', 'Thanks! 👍'];
@@ -167,6 +169,62 @@ function configuredServices() {
     });
   } catch (error) {}
   return SERVICE_IDS.slice();
+}
+
+function configuredPinnedChats() {
+  try {
+    var saved = JSON.parse(localStorage.getItem('beepster_pinned_chats') || '[]');
+    if (Array.isArray(saved)) return saved.map(function(value) {
+      return String(value || '').trim();
+    }).filter(function(value, index, values) {
+      return value && values.indexOf(value) === index;
+    }).slice(0, MAX_WATCH_CHATS);
+  } catch (error) {}
+  return [];
+}
+
+function applyPinnedChats(items) {
+  var pinned = configuredPinnedChats(), byID = {}, output = [];
+  items.forEach(function(chat) { if (chat && chat.id) byID[chat.id] = chat; });
+  pinned.forEach(function(chatID) { if (byID[chatID]) output.push(byID[chatID]); });
+  items.forEach(function(chat) {
+    if (chat && pinned.indexOf(chat.id) === -1) output.push(chat);
+  });
+  return output;
+}
+
+function sendChatList(items) {
+  var pinned = configuredPinnedChats();
+  items = applyPinnedChats(items).slice(0, MAX_WATCH_CHATS);
+  discardQueuedCommands(['chat', 'chats_ready']);
+  if (items.length === 0) {
+    var empty = {}; empty[KEY_COMMAND] = 'chats_ready'; empty[KEY_TOTAL] = 0; enqueue(empty);
+    return;
+  }
+  for (var i = 0; i < items.length; i++) {
+    var chat = items[i], message = {};
+    message[KEY_COMMAND] = 'chat';
+    message[KEY_INDEX] = i;
+    message[KEY_TOTAL] = items.length;
+    message[KEY_CHAT_ID] = safeSlice(chat.id, 120);
+    message[KEY_CHAT_NAME] = safeSlice(chat.name || 'Unknown contact', 56);
+    message[KEY_CHAT_PREVIEW] = safeSlice(chat.preview, 110);
+    message[KEY_UNREAD] = Number(chat.unreadCount || 0);
+    message[KEY_NETWORK] = safeSlice(chat.network, 20);
+    message[KEY_CHAT_PINNED] = pinned.indexOf(chat.id) !== -1 ? 1 : 0;
+    enqueue(message);
+  }
+  var ready = {}; ready[KEY_COMMAND] = 'chats_ready'; ready[KEY_TOTAL] = items.length; enqueue(ready);
+}
+
+function setChatPinned(chatID, shouldPin) {
+  chatID = String(chatID || '').trim();
+  if (!chatID) return;
+  var pinned = configuredPinnedChats().filter(function(value) { return value !== chatID; });
+  if (shouldPin) pinned.unshift(chatID);
+  localStorage.setItem('beepster_pinned_chats', JSON.stringify(pinned.slice(0, MAX_WATCH_CHATS)));
+  if (currentInboxChats.length) sendChatList(currentInboxChats);
+  else loadChats();
 }
 
 function serviceID(network) {
@@ -534,7 +592,7 @@ function loadChats() {
   var generation = ++chatLoadGeneration;
   var enabledServices = configuredServices();
   // Keep enough recent Apple destinations on the phone for the Settings linker,
-  // even though only twelve conversations are transferred to the watch.
+  // even though only thirty conversations are transferred to the watch.
   var requestLimit = 50;
   if (!hasLoadedChats) sendState('loading');
   request('/v1/chats?limit=' + requestLimit, function(data) {
@@ -543,28 +601,8 @@ function loadChats() {
     var items = (data.items || []).filter(function(chat) {
       return serviceEnabled(chat.network, enabledServices);
     });
-    items = applyAppleAliases(items).slice(0, MAX_WATCH_CHATS);
-    discardQueuedCommands(['chat', 'chats_ready']);
-    if (items.length === 0) {
-      var empty = {}; empty[KEY_COMMAND] = 'chats_ready'; empty[KEY_TOTAL] = 0; enqueue(empty);
-      hasLoadedChats = true;
-      scheduleRefresh();
-      return;
-    }
-    for (var i = 0; i < items.length && i < MAX_WATCH_CHATS; i++) {
-      var chat = items[i];
-      var message = {};
-      message[KEY_COMMAND] = 'chat';
-      message[KEY_INDEX] = i;
-      message[KEY_TOTAL] = Math.min(items.length, MAX_WATCH_CHATS);
-      message[KEY_CHAT_ID] = safeSlice(chat.id, 120);
-      message[KEY_CHAT_NAME] = safeSlice(chat.name || 'Unknown contact', 56);
-      message[KEY_CHAT_PREVIEW] = safeSlice(chat.preview, 110);
-      message[KEY_UNREAD] = Number(chat.unreadCount || 0);
-      message[KEY_NETWORK] = safeSlice(chat.network, 20);
-      enqueue(message);
-    }
-    var ready = {}; ready[KEY_COMMAND] = 'chats_ready'; ready[KEY_TOTAL] = Math.min(items.length, MAX_WATCH_CHATS); enqueue(ready);
+    currentInboxChats = applyAppleAliases(items);
+    sendChatList(currentInboxChats);
     hasLoadedChats = true;
     scheduleRefresh();
   }, function(error) {
@@ -582,19 +620,8 @@ function loadDemoChats() {
     {id:'demo-design',name:'Design team',preview:'New icon approved',unreadCount:0,network:'Slack'}
   ];
   sendState('loading');
-  for (var i = 0; i < items.length; i++) {
-    var message = {};
-    message[KEY_COMMAND] = 'chat';
-    message[KEY_INDEX] = i;
-    message[KEY_TOTAL] = items.length;
-    message[KEY_CHAT_ID] = items[i].id;
-    message[KEY_CHAT_NAME] = items[i].name;
-    message[KEY_CHAT_PREVIEW] = items[i].preview;
-    message[KEY_UNREAD] = items[i].unreadCount;
-    message[KEY_NETWORK] = items[i].network;
-    enqueue(message);
-  }
-  var ready = {}; ready[KEY_COMMAND] = 'chats_ready'; ready[KEY_TOTAL] = items.length; enqueue(ready);
+  currentInboxChats = items;
+  sendChatList(currentInboxChats);
   hasLoadedChats = true;
 }
 
@@ -857,6 +884,10 @@ Pebble.addEventListener('appmessage', function(event) {
   var command = payload[KEY_COMMAND] || payload.COMMAND || payload.command;
   console.log('Beepster watch command=' + String(command || 'missing'));
   if (command === 'load_chats') loadChats();
+  if (command === 'set_chat_pinned') setChatPinned(
+    payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || '',
+    Number((payload[KEY_CHAT_PINNED] != null ? payload[KEY_CHAT_PINNED] : payload.CHAT_PINNED) || 0) !== 0
+  );
   if (command === 'load_messages') loadMessages(payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || '');
   if (command === 'load_older_messages') loadOlderMessages(payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || '');
   if (command === 'send_reply') sendReply(payload[KEY_CHAT_ID] || payload.CHAT_ID || '', payload[KEY_REPLY_TEXT] || payload.REPLY_TEXT || '', payload[KEY_REPLY_REQUEST_ID] || payload.REPLY_REQUEST_ID || '');

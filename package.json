@@ -73,7 +73,8 @@
       "DETAIL_TEXT": 31,
       "QUICK_REPLY_TEXT": 32,
       "HAS_MORE": 33,
-      "THEME_SIZE": 34
+      "THEME_SIZE": 34,
+      "CHAT_PINNED": 35
     },
     "resources": {
       "media": [

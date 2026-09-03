@@ -1,7 +1,21 @@
 # Beepster user guide
 
-The inbox keeps up to 30 recent conversations on the watch. This is a bounded local snapshot rather
-than the complete Beeper archive; service filters apply before the 30 most recent results are chosen.
+The inbox keeps up to 30 conversations on the watch. Pinned chats appear first, followed by the
+remaining recent chats. This is a bounded local snapshot rather than the complete Beeper archive;
+service filters apply before the watch list is chosen.
+
+## Inbox controls
+
+| Button | Short press | Long press |
+| --- | --- | --- |
+| Top | Move to the previous chat | Continue moving up |
+| Center | Open the selected chat | Pin or unpin the selected chat |
+| Bottom | Move to the next chat | Continue moving down |
+| Back | Close Beepster | — |
+
+A pinned conversation moves into the pinned group at the top and displays a clear **PIN** badge.
+The most recently pinned conversation appears first. Hold Center on it again to unpin it. Pins are
+stored by stable chat ID on the phone and survive normal refreshes and app restarts.
 
 ## Thread controls
 

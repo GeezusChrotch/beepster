@@ -188,6 +188,7 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Prevent stale chat responses and obsolete detail/media queue backlog
 - [x] Let users choose which messaging services appear without re-pairing
 - [x] Add read-only macOS Contacts enrichment for raw Apple message identifiers
+- [x] Add persistent hold-Center inbox pinning with a visible non-color-only indicator
 - [ ] Enable and test the public GitHub Pages setup URL in the Pebble mobile webview
 - [x] Capture Store screenshots using synthetic data
 - [ ] Complete a physical-watch release-candidate smoke test

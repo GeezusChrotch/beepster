@@ -48,6 +48,7 @@ typedef struct {
   char preview[CHAT_PREVIEW_LEN];
   char network[24];
   int unread;
+  bool pinned;
 } Chat;
 
 typedef struct {
@@ -99,6 +100,7 @@ static ViewState s_chat_state = VIEW_LOADING;
 static Chat *s_chats;
 static int s_chat_capacity;
 static int s_chat_count;
+static char s_pending_pin_chat_id[CHAT_ID_LEN];
 
 static Window *s_message_window;
 static MenuLayer *s_message_menu;
@@ -617,6 +619,21 @@ static bool request_command(const char *command, const char *chat_id) {
   return result == APP_MSG_OK;
 }
 
+static bool request_chat_pin(const char *chat_id, bool pinned) {
+  DictionaryIterator *iterator;
+  AppMessageResult result = app_message_outbox_begin(&iterator);
+  if (result != APP_MSG_OK || !iterator) {
+    APP_LOG(APP_LOG_LEVEL_WARNING, "pin outbox begin failed=%d", result);
+    return false;
+  }
+  dict_write_cstring(iterator, MESSAGE_KEY_COMMAND, "set_chat_pinned");
+  dict_write_cstring(iterator, MESSAGE_KEY_CHAT_ID, chat_id);
+  dict_write_uint8(iterator, MESSAGE_KEY_CHAT_PINNED, pinned ? 1 : 0);
+  result = app_message_outbox_send();
+  if (result != APP_MSG_OK) APP_LOG(APP_LOG_LEVEL_WARNING, "pin outbox send failed=%d", result);
+  return result == APP_MSG_OK;
+}
+
 static void request_chats(void) {
   s_chat_state = VIEW_LOADING;
   s_chat_count = 0;
@@ -942,13 +959,25 @@ static void draw_chat(GContext *ctx, const Layer *cell, MenuIndex *index, void *
   int preview_height = line_height;
   int unread_y = bounds.size.h - 18;
   GColor foreground = selected ? s_theme.accent_text : s_theme.text;
+  int16_t pin_width = chat->pinned ? 38 : 0;
 
   graphics_context_set_text_color(ctx, foreground);
   draw_marquee_text(ctx, chat->name, font_for_text(chat->name),
-    GRect(25, 2, bounds.size.w - 33, name_height), selected);
+    GRect(25, 2, bounds.size.w - 33 - pin_width, name_height), selected);
   graphics_context_set_fill_color(ctx, selected ? s_theme.accent : s_theme.background);
   graphics_fill_rect(ctx, GRect(0, 0, 24, name_height + 3), 0, GCornerNone);
   draw_service_icon(ctx, GRect(7, 2 + (name_height - 14) / 2, 14, 14), chat->network, foreground);
+
+  if (chat->pinned) {
+    GRect badge = GRect(bounds.size.w - 36, 2 + (name_height - 16) / 2, 32, 16);
+    graphics_context_set_fill_color(ctx, selected ? s_theme.accent_text : s_theme.accent);
+    graphics_fill_rect(ctx, badge, 3, GCornersAll);
+    graphics_context_set_text_color(ctx, selected ? s_theme.accent : s_theme.accent_text);
+    graphics_draw_text(ctx, "PIN", fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
+      GRect(badge.origin.x, badge.origin.y - 1, badge.size.w, badge.size.h + 1),
+      GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+    graphics_context_set_text_color(ctx, foreground);
+  }
 
   if (chat->preview[0]) {
     graphics_draw_text(ctx, chat->preview,
@@ -976,6 +1005,45 @@ static void chat_selected(MenuLayer *menu_layer, MenuIndex *index, void *context
   window_stack_push(s_message_window, true);
   if (s_message_request_timer) app_timer_cancel(s_message_request_timer);
   s_message_request_timer = app_timer_register(300, delayed_request_messages, NULL);
+}
+
+static void move_chat_row(int from, int to) {
+  if (from == to || from < 0 || to < 0 || from >= s_chat_count || to >= s_chat_count) return;
+  Chat moved = s_chats[from];
+  if (from > to) {
+    memmove(&s_chats[to + 1], &s_chats[to], (size_t)(from - to) * sizeof(Chat));
+  } else {
+    memmove(&s_chats[from], &s_chats[from + 1], (size_t)(to - from) * sizeof(Chat));
+  }
+  s_chats[to] = moved;
+}
+
+static void chat_long_selected(MenuLayer *menu_layer, MenuIndex *index, void *context) {
+  if (index->row >= s_chat_count) return;
+  int from = index->row;
+  bool pinned = !s_chats[from].pinned;
+  s_chats[from].pinned = pinned;
+  copy_text(s_pending_pin_chat_id, sizeof(s_pending_pin_chat_id), s_chats[from].id);
+
+  int target = 0;
+  if (!pinned) {
+    for (int i = 0; i < s_chat_count; i++) {
+      if (s_chats[i].pinned) target++;
+    }
+    if (target >= s_chat_count) target = s_chat_count - 1;
+  }
+  move_chat_row(from, target);
+  menu_layer_reload_data(s_chat_menu);
+  menu_layer_set_selected_index(s_chat_menu,
+    (MenuIndex) {.section = 0, .row = target}, MenuRowAlignCenter, true);
+  vibes_short_pulse();
+  APP_LOG(APP_LOG_LEVEL_INFO, "chat pin changed pinned=%d", pinned);
+
+  if (!request_chat_pin(s_pending_pin_chat_id, pinned)) {
+    s_pending_pin_chat_id[0] = '\0';
+    vibes_double_pulse();
+    request_chats();
+  }
 }
 
 static void retry_chats(ClickRecognizerRef recognizer, void *context) {
@@ -1463,7 +1531,19 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     set_status(s_status_layer, s_chat_state, false);
     if (s_chat_menu) {
       menu_layer_reload_data(s_chat_menu);
-      if (count > 0) menu_layer_set_click_config_onto_window(s_chat_menu, s_main_window);
+      if (count > 0) {
+        if (s_pending_pin_chat_id[0]) {
+          for (int row = 0; row < count; row++) {
+            if (strcmp(s_chats[row].id, s_pending_pin_chat_id) == 0) {
+              menu_layer_set_selected_index(s_chat_menu,
+                (MenuIndex) {.section = 0, .row = row}, MenuRowAlignCenter, false);
+              break;
+            }
+          }
+          s_pending_pin_chat_id[0] = '\0';
+        }
+        menu_layer_set_click_config_onto_window(s_chat_menu, s_main_window);
+      }
       else window_set_click_config_provider(s_main_window, main_clicks);
     }
     return;
@@ -1478,11 +1558,13 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     Tuple *preview = dict_find(iterator, MESSAGE_KEY_CHAT_PREVIEW);
     Tuple *network = dict_find(iterator, MESSAGE_KEY_NETWORK);
     Tuple *unread = dict_find(iterator, MESSAGE_KEY_UNREAD);
+    Tuple *pinned = dict_find(iterator, MESSAGE_KEY_CHAT_PINNED);
     copy_text(s_chats[slot].id, sizeof(s_chats[slot].id), id ? id->value->cstring : "");
     copy_text(s_chats[slot].name, sizeof(s_chats[slot].name), name ? name->value->cstring : "Unknown contact");
     copy_text(s_chats[slot].preview, sizeof(s_chats[slot].preview), preview ? preview->value->cstring : "");
     copy_text(s_chats[slot].network, sizeof(s_chats[slot].network), network ? network->value->cstring : "");
     s_chats[slot].unread = unread ? unread->value->int32 : 0;
+    s_chats[slot].pinned = pinned && pinned->value->int32 != 0;
     if (slot + 1 > s_chat_count) s_chat_count = slot + 1;
     return;
   }
@@ -1721,6 +1803,7 @@ static void main_load(Window *window) {
     .get_cell_height = chat_row_height,
     .draw_row = draw_chat,
     .select_click = chat_selected,
+    .select_long_click = chat_long_selected,
     .selection_changed = marquee_selection_changed
   });
   menu_layer_set_click_config_onto_window(s_chat_menu, window);

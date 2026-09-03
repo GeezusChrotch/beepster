@@ -30,7 +30,8 @@ its gateway runtime, so end users do not need Terminal, Git, Node.js, or develop
 
 ## Current capabilities
 
-- Up to 30 recent chats with contact-name normalization, read-only macOS Contacts enrichment, and service icons
+- Up to 30 chats with persistent pinning, contact-name normalization, read-only macOS Contacts
+  enrichment, and service icons
 - User-controlled linking of split Apple email/phone chats into one combined Beepster thread
 - Persistent service filtering, with all networks enabled by default
 - Chronological history that opens on the newest message and pages up to 60 messages

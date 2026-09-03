@@ -61,6 +61,8 @@ review, and information must remain understandable without color.
 - Settings expose an included-services checklist. All services are enabled by default, the selection
   persists without re-pairing, and unknown networks are controlled by an `Other services` option.
 - Select on a chat always opens that chat.
+- Hold Select on an inbox chat to pin or unpin it. Pinned chats sort above recent chats, display a
+  text label rather than relying on color alone, and persist by stable chat ID on the phone.
 - Opening a chat selects its newest message at the bottom of a chronological timeline.
 - Moving upward near the oldest loaded message fetches an earlier page without jumping back to the
   newest message; keep up to 60 messages available on the watch.

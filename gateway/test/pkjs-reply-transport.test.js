@@ -161,6 +161,36 @@ test('the watch inbox is bounded at thirty conversations', () => {
   assert.equal(appMessages.at(-1)[4], 30);
 });
 
+test('pinned chats are persisted, marked, and ordered before recent chats', () => {
+  const { context, requests, appMessages, storage } = replyRuntime();
+  storage.set('beepster_pinned_chats', JSON.stringify(['chat-2']));
+  context.loadChats();
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items:[
+    {id:'chat-1',name:'Newest',preview:'One',network:'Signal'},
+    {id:'chat-2',name:'Pinned',preview:'Two',network:'Signal'},
+    {id:'chat-3',name:'Older',preview:'Three',network:'Signal'}
+  ]});
+  requests[0].onload();
+  const chats = appMessages.filter((message) => message[0] === 'chat');
+  assert.deepEqual(chats.map((message) => message[5]), ['chat-2','chat-1','chat-3']);
+  assert.deepEqual(chats.map((message) => message[35]), [1,0,0]);
+
+  appMessages.length = 0;
+  context.setChatPinned('chat-3', true);
+  assert.deepEqual(JSON.parse(storage.get('beepster_pinned_chats')), ['chat-3','chat-2']);
+  const reordered = appMessages.filter((message) => message[0] === 'chat');
+  assert.deepEqual(reordered.map((message) => message[5]), ['chat-3','chat-2','chat-1']);
+  assert.deepEqual(reordered.map((message) => message[35]), [1,1,0]);
+
+  appMessages.length = 0;
+  context.setChatPinned('chat-2', false);
+  assert.deepEqual(JSON.parse(storage.get('beepster_pinned_chats')), ['chat-3']);
+  const unpinned = appMessages.filter((message) => message[0] === 'chat');
+  assert.deepEqual(unpinned.map((message) => message[5]), ['chat-3','chat-1','chat-2']);
+  assert.deepEqual(unpinned.map((message) => message[35]), [1,0,0]);
+});
+
 test('Apple email and phone destinations with the same alias become one watch thread', () => {
   const { context, requests, appMessages, storage } = replyRuntime();
   storage.set('beepster_apple_aliases', JSON.stringify({

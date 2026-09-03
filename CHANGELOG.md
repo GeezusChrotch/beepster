@@ -25,6 +25,8 @@ All notable changes to Beepster are documented here.
 - Add one-click copying and a selectable fallback display of the private phone setup address.
 - Add reproducible Developer ID signing, notarization, DMG, and checksum packaging support.
 - Rotate a successfully consumed pairing code in Keychain so it cannot return after a gateway restart.
+- Add persistent inbox pinning: hold Center to pin or unpin, with pinned chats sorted first and
+  marked by a theme-aware `PIN` badge.
 
 ## 0.8.3
 
