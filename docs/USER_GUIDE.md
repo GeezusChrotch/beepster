@@ -18,8 +18,10 @@ to each Top, Center, and Bottom press or hold independently for the Threads and 
 | Back | Close Beepster | — |
 
 An **Older conversations >** row appears after the last loaded chat when more history is available.
-Select it to open the next page. Select **< Newer conversations** at the top of an older page to go
-back. The phone caches fetched pages while the watch retains only its current 30-chat window.
+Scrolling onto it automatically loads the next page; no extra Center press is needed. Scrolling onto
+**< Newer conversations** at the top of an older page automatically goes back. Beepster displays its
+loading notice during the page change. The phone caches fetched pages while the watch retains only
+its current 30-chat window.
 
 A pinned conversation moves into the pinned group at the top and displays a clear **PIN** badge.
 The most recently pinned conversation appears first. Hold Center on it again to unpin it. Pins are

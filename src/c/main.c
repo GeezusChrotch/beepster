@@ -1051,6 +1051,27 @@ static void draw_chat(GContext *ctx, const Layer *cell, MenuIndex *index, void *
   }
 }
 
+static void chat_selection_changed(MenuLayer *menu_layer, MenuIndex new_index,
+                                   MenuIndex old_index, void *context) {
+  marquee_reset();
+  if (s_chat_state != VIEW_READY || new_index.section != 0) return;
+
+  const char *command = NULL;
+  if (is_newer_chat_row(new_index.row)) command = "load_newer_chats";
+  else if (is_older_chat_row(new_index.row)) command = "load_older_chats";
+  if (!command) return;
+
+  APP_LOG(APP_LOG_LEVEL_INFO, "conversation boundary reached: %s", command);
+  if (!request_command(command, NULL)) {
+    vibes_double_pulse();
+    return;
+  }
+  s_chat_state = VIEW_LOADING;
+  set_status(s_status_layer, s_chat_state, false);
+  menu_layer_reload_data(s_chat_menu);
+  window_set_click_config_provider(s_main_window, main_clicks);
+}
+
 static void open_chat_at_index(MenuIndex *index) {
   if (!index) return;
   if (is_newer_chat_row(index->row) || is_older_chat_row(index->row)) {
@@ -2034,7 +2055,7 @@ static void main_load(Window *window) {
     .get_num_rows = chat_rows,
     .get_cell_height = chat_row_height,
     .draw_row = draw_chat,
-    .selection_changed = marquee_selection_changed
+    .selection_changed = chat_selection_changed
   });
   window_set_click_config_provider(window, main_clicks);
   layer_add_child(root, menu_layer_get_layer(s_chat_menu));
