@@ -207,4 +207,15 @@ export class BeeperClient {
       reason: message.sendStatus?.message || message.sendStatus?.reason || ''
     };
   }
+
+  async findSentReply(chatID, text, sentAfter) {
+    const result = await this.request(`/v1/chats/${encodeURIComponent(chatID)}/messages?limit=20`);
+    const normalizedText = htmlToText(text).trim();
+    const match = (result.items || []).find((message) => {
+      const timestamp = new Date(message.timestamp || 0).getTime();
+      return message.isSender === true && timestamp >= sentAfter &&
+        htmlToText(message.text || '').trim() === normalizedText;
+    });
+    return match ? {id:match.id || '',status:'SUCCESS',reason:''} : null;
+  }
 }

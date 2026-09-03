@@ -108,6 +108,19 @@ test('a resolved sent message without optional sendStatus is successful', async 
   });
 });
 
+test('an outgoing message can confirm a send when an iMessage pending ID never resolves', async () => {
+  const sentAfter = Date.parse('2026-09-03T03:00:00Z');
+  const fetchImpl = async () => new Response(JSON.stringify({items:[
+    {id:'incoming-copy',isSender:false,text:'Yes',timestamp:'2026-09-03T03:00:02Z'},
+    {id:'outgoing-new',isSender:true,text:'Yes',timestamp:'2026-09-03T03:00:01Z'},
+    {id:'outgoing-old',isSender:true,text:'Yes',timestamp:'2026-09-03T02:59:59Z'}
+  ]}), {status:200});
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl});
+  assert.deepEqual(await client.findSentReply('chat-1', 'Yes', sentAfter), {
+    id:'outgoing-new',status:'SUCCESS',reason:''
+  });
+});
+
 test('the default local API address recovers when Beeper selects its next port', async () => {
   const requests = [];
   const fetchImpl = async (url, options = {}) => {

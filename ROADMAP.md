@@ -117,3 +117,5 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Discover Beeper Desktop when it selects a fallback local API port after restart
 - [x] Validate a candidate through Beeper's local `/v1/info` identity endpoint
 - [x] Keep explicit custom API URLs fixed rather than silently replacing them
+- [x] Reconcile missing iMessage pending IDs against newly observed outgoing history
+- [x] Require an exact outgoing text and post-request timestamp match before reporting success

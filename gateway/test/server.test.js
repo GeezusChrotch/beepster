@@ -112,6 +112,33 @@ test('reply requests are idempotent and expose delivery status', async () => {
   });
 });
 
+test('reply status reconciles against outgoing history when Beeper loses its pending ID', async () => {
+  let reconciled = null;
+  const client = {
+    sendReply: async () => ({pendingMessageID:'missing-pending-id'}),
+    getMessageStatus: async () => { throw new Error('GET failed with HTTP 404'); },
+    findSentReply: async (chatID, text, sentAfter) => {
+      reconciled = {chatID,text,sentAfter};
+      return {id:'outgoing-message',status:'SUCCESS',reason:''};
+    }
+  };
+  await withServer(client, async (baseURL) => {
+    const sent = await fetch(`${baseURL}/v1/chats/chat-1/messages`, {
+      method:'POST',
+      headers:{Authorization:'Bearer gateway-secret','Content-Type':'application/json'},
+      body:JSON.stringify({text:'On my way',requestID:'watch-reconcile-1'})
+    });
+    assert.equal(sent.status, 202);
+    const status = await fetch(`${baseURL}/v1/chats/chat-1/messages/missing-pending-id`, {
+      headers:{Authorization:'Bearer gateway-secret'}
+    });
+    assert.deepEqual(await status.json(), {id:'outgoing-message',status:'SUCCESS',reason:''});
+    assert.equal(reconciled.chatID, 'chat-1');
+    assert.equal(reconciled.text, 'On my way');
+    assert.ok(Number.isFinite(reconciled.sentAfter));
+  });
+});
+
 test('watch replies support an authenticated no-store GET compatibility fallback', async () => {
   const client = {
     sendReply: async (chatID, text) => ({pendingMessageID:`pending-${chatID}-${text.length}`})

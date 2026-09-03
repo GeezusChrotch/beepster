@@ -58,6 +58,7 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '', log
   if (!gatewayToken) throw new Error('gatewayToken is required');
   const cache = new Map();
   const replyRequests = new Map();
+  const pendingReplies = new Map();
   let pairingAvailable = Boolean(pairingCode);
 
   async function withCache(key, loader) {
@@ -150,6 +151,7 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '', log
           return;
         }
         logger.info(`reply received transport=${request.method} request=${replyTag} characters=${[...text].length}`);
+        const sentAfter = Date.now();
         const promise = beeperClient.sendReply(chatID, text).then((result) => ({
           state: 'pending',
           pendingMessageID: result.pendingMessageID
@@ -158,6 +160,10 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '', log
         if (replyRequests.size > 100) replyRequests.delete(replyRequests.keys().next().value);
         try {
           const accepted = await promise;
+          if (accepted.pendingMessageID) {
+            pendingReplies.set(`${chatID}:${accepted.pendingMessageID}`, {chatID,text,sentAfter});
+            if (pendingReplies.size > 100) pendingReplies.delete(pendingReplies.keys().next().value);
+          }
           logger.info(`reply accepted request=${replyTag} pending=${Boolean(accepted.pendingMessageID)}`);
           sendJSON(response, 202, accepted);
         } catch (error) {
@@ -170,7 +176,20 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '', log
 
       const messageStatusMatch = url.pathname.match(/^\/v1\/chats\/([^/]+)\/messages\/([^/]+)$/);
       if (messageStatusMatch && request.method === 'GET') {
-        const status = await beeperClient.getMessageStatus(decodeURIComponent(messageStatusMatch[1]), decodeURIComponent(messageStatusMatch[2]));
+        const chatID = decodeURIComponent(messageStatusMatch[1]);
+        const messageID = decodeURIComponent(messageStatusMatch[2]);
+        const pending = pendingReplies.get(`${chatID}:${messageID}`);
+        let status;
+        try {
+          status = await beeperClient.getMessageStatus(chatID, messageID);
+        } catch (error) {
+          if (!pending) throw error;
+          status = await beeperClient.findSentReply(chatID, pending.text, pending.sentAfter);
+          if (!status) throw error;
+        }
+        if (status.status === 'PENDING' && pending) {
+          status = await beeperClient.findSentReply(chatID, pending.text, pending.sentAfter) || status;
+        }
         sendJSON(response, 200, status);
         return;
       }
