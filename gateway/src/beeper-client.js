@@ -36,9 +36,10 @@ function allParticipantIdentifiers(chat) {
 }
 
 function contactSearchQueries(chat) {
-  const participant = chat?.participants?.items?.find((item) => !item.isSelf);
-  return [participant?.email, participant?.phoneNumber, participant?.username, chat?.title]
-    .map((value) => String(value || '').trim()).filter(Boolean);
+  return [...(chat?.participants?.items || []).filter((item) => !item.isSelf)
+    .flatMap((participant) => [participant.id, participant.email, participant.phoneNumber, participant.username]), chat?.title]
+    .map((value) => String(value || '').trim())
+    .filter((value, index, values) => value && values.indexOf(value) === index);
 }
 
 async function mapWithConcurrency(values, concurrency, mapper) {
@@ -60,6 +61,8 @@ function readableDisplayName(value) {
 }
 
 function needsContactEnrichment(chat, contacts = []) {
+  if (chat?.type === 'group') return !readableDisplayName(chat?.title) &&
+    !readableDisplayName(resolveChatName(chat, contacts));
   if (chat?.type !== 'single') return false;
   const participant = chat?.participants?.items?.find((item) => !item.isSelf);
   if (participant?.fullName?.trim()) return false;
@@ -93,12 +96,28 @@ function contactMatchesParticipant(contact, participant) {
   return participantKeys.some((key) => contactKeys.includes(key));
 }
 
+function resolveParticipantName(participant, contacts, localNames) {
+  const contact = contacts.find((item) => contactMatchesParticipant(item, participant));
+  for (const candidate of [participant?.fullName, contact?.fullName]) {
+    const name = readableDisplayName(candidate);
+    if (name) return name;
+  }
+  for (const identifier of personIdentifiers(participant)) {
+    const name = readableDisplayName(localNames.get(identifier));
+    if (name) return name;
+  }
+  for (const candidate of [participant?.username, contact?.username]) {
+    const name = readableDisplayName(candidate);
+    if (name) return name;
+  }
+  return '';
+}
+
 export function resolveChatName(chat, contacts = [], localNames = new Map()) {
   if (chat?.type === 'single') {
     const participant = chat?.participants?.items?.find((item) => !item.isSelf);
-    if (participant?.fullName?.trim()) return participant.fullName.trim();
-    const contact = contacts.find((item) => contactMatchesParticipant(item, participant));
-    if (contact?.fullName?.trim()) return contact.fullName.trim();
+    const participantName = resolveParticipantName(participant, contacts, localNames);
+    if (participantName) return participantName;
     for (const identifier of participantIdentifiers(chat)) {
       const localName = localNames.get(identifier);
       if (localName?.trim()) return localName.trim();
@@ -107,6 +126,20 @@ export function resolveChatName(chat, contacts = [], localNames = new Map()) {
     if (participant?.username?.trim()) return participant.username.trim();
     if (participant?.phoneNumber?.trim()) return participant.phoneNumber.trim();
     if (participant?.email?.trim()) return participant.email.trim();
+  }
+  if (chat?.type === 'group') {
+    const title = readableDisplayName(chat?.title);
+    if (title) return title;
+    const participants = (chat?.participants?.items || []).filter((item) => !item.isSelf);
+    const names = participants.map((participant) => resolveParticipantName(participant, contacts, localNames))
+      .filter((name, index, values) => name && values.indexOf(name) === index);
+    if (names.length) {
+      const total = Math.max(participants.length,
+        Number(chat?.participants?.total || 0) - ((chat?.participants?.items || []).some((item) => item.isSelf) ? 1 : 0));
+      const visible = names.slice(0, 3);
+      const remaining = Math.max(0, total - visible.length);
+      return `${visible.join(', ')}${remaining ? ` +${remaining}` : ''}`;
+    }
   }
   if (chat?.title?.trim()) return chat.title.trim();
   return 'Unknown contact';
@@ -274,9 +307,10 @@ export class BeeperClient {
     const localIdentifiers = (result.items || []).flatMap((chat) => {
       const contacts = contactsByAccount.get(chat.accountID) || [];
       const current = resolveChatName(chat, contacts);
+      const appleChat = /imessage|apple messages/i.test(String(chat?.network || chat?.accountID || ''));
       const appleDirect = chat?.type === 'single' && Boolean(appleIdentifierKind(chat));
       if (appleDirect || normalizeContactIdentifier(current)) return participantIdentifiers(chat);
-      if (/imessage|apple messages/i.test(String(chat?.network || chat?.accountID || ''))) {
+      if (appleChat || (chat?.type === 'group' && !readableDisplayName(chat?.title))) {
         return allParticipantIdentifiers(chat);
       }
       return [];

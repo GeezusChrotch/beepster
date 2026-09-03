@@ -83,6 +83,10 @@ Messages app presents them as one person. When both identifiers match the same M
 Beepster combines them automatically. The watch shows one thread with both histories in
 chronological order, and replies use the most recently active underlying conversation.
 
+For group threads whose Beeper title is only a list of phone numbers or email addresses, Beepster
+builds a readable title from resolved participant names and adds a compact `+N` when some members
+cannot be named. Meaningful group titles supplied by Beeper are kept unchanged.
+
 If an identifier is missing from Contacts, use **Link Apple conversations** in Settings and enter
 the same contact name beside both entries. Beepster uses exact contact identity or an explicit
 alias; it never guesses from display names and never changes the source conversations.

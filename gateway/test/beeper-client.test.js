@@ -22,6 +22,18 @@ test('contact resolution falls back honestly', () => {
   assert.equal(resolveChatName({ type: 'single' }), 'Unknown contact');
 });
 
+test('group thread titles keep real titles and synthesize raw identifier titles from contacts', () => {
+  const participants = {total:4,items:[
+    {id:'self',isSelf:true},
+    {id:'one',phoneNumber:'+15550101001',isSelf:false},
+    {id:'two',email:'two@example.com',isSelf:false},
+    {id:'three',phoneNumber:'+15550101003',isSelf:false}
+  ]};
+  assert.equal(resolveChatName({type:'group',title:'Family',participants}), 'Family');
+  const localNames = new Map([['5550101001','Alice'],['two@example.com','Bob']]);
+  assert.equal(resolveChatName({type:'group',title:'+15550101001, +15550101002',participants}, [], localNames), 'Alice, Bob +1');
+});
+
 test('supported emoji survive while unsupported emoji get meaningful fallbacks', () => {
   assert.equal(normalizeEmojiForPebble('Yes 👍❤️😂'), 'Yes 👍❤😂');
   assert.equal(normalizeEmojiForPebble('Thinking 🤔 then launch 🚀'), 'Thinking [thinking] then launch [rocket]');
@@ -83,6 +95,23 @@ test('older direct chats use exact account contact search beyond the first conta
   const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl,contactResolver});
   assert.equal((await client.listChats(12)).items[0].name, 'Older Contact Name');
   assert.ok(paths.includes('/v1/accounts/signal/contacts?query=older%40example.com'));
+});
+
+test('group threads with raw titles are named from account contacts before reaching the watch', async () => {
+  const fetchImpl = async (url) => {
+    const path = new URL(url).pathname + new URL(url).search;
+    if (path.includes('/contacts/list')) return new Response(JSON.stringify({items:[
+      {id:'one',phoneNumber:'+15550101001',fullName:'Alice'},
+      {id:'two',phoneNumber:'+15550101002',fullName:'Bob'}
+    ]}), {status:200});
+    return new Response(JSON.stringify({items:[{
+      id:'group-1',accountID:'imessage',network:'iMessage',type:'group',title:'+15550101001, +15550101002',
+      participants:{total:3,items:[{id:'self',isSelf:true},{id:'one',phoneNumber:'+15550101001',isSelf:false},{id:'two',phoneNumber:'+15550101002',isSelf:false}]}
+    }]}), {status:200});
+  };
+  const contactResolver = {lookupDetails: async () => ({names:new Map(),contactKeys:new Map()})};
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl,contactResolver});
+  assert.equal((await client.listChats(12)).items[0].name, 'Alice, Bob');
 });
 
 test('direct message sender falls back to the resolved chat contact name', async () => {
