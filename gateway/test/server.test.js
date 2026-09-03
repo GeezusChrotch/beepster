@@ -112,6 +112,24 @@ test('reply requests are idempotent and expose delivery status', async () => {
   });
 });
 
+test('watch replies use the authenticated no-store GET transport required by PebbleKit iOS', async () => {
+  const client = {
+    sendReply: async (chatID, text) => ({pendingMessageID:`pending-${chatID}-${text.length}`})
+  };
+  await withServer(client, async (baseURL) => {
+    const response = await fetch(`${baseURL}/v1/chats/chat-1/reply`, {
+      headers:{
+        Authorization:'Bearer gateway-secret',
+        'X-Beepster-Reply-Text':encodeURIComponent('Yes 👍'),
+        'X-Beepster-Request-ID':'watch-header-1'
+      }
+    });
+    assert.equal(response.status, 202);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await response.json(), {state:'pending',pendingMessageID:'pending-chat-1-6'});
+  });
+});
+
 test('attachment previews require authentication and return dimensions without source paths', async () => {
   const client = {
     getAttachmentPreview: async (id) => id === 'aaaaaaaaaaaaaaaaaaaaaaaa' ?

@@ -91,3 +91,15 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Add privacy-safe reply-path diagnostics to phone logs
 - [x] Verify the complete emulator-to-phone-to-gateway-to-Beeper path against Note to self
 - [x] Marquee oversized selected chat names, message senders, and quick replies using Pome's timing
+
+## 0.6.3 — Physical iOS reply diagnosis
+
+- [x] Prove the physical watch command reaches phone JavaScript
+- [x] Prove physical PebbleKit iOS stalls on POST even after removing its JSON body
+- [x] Keep the gateway backward-compatible while testing a physical transport replacement
+
+## 0.6.4 — PebbleKit iOS method compatibility
+
+- [x] Route watch sends through a dedicated authenticated, no-store GET action because physical iOS stalls on POST
+- [x] Keep reply text in encrypted headers and out of request URLs
+- [x] Retain request-ID deduplication and the conventional POST endpoint

@@ -107,6 +107,7 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '' }) {
       }
 
       const messagesMatch = url.pathname.match(/^\/v1\/chats\/([^/]+)\/messages$/);
+      const watchReplyMatch = url.pathname.match(/^\/v1\/chats\/([^/]+)\/reply$/);
       if (messagesMatch && request.method === 'GET') {
         const chatID = decodeURIComponent(messagesMatch[1]);
         const cursor = url.searchParams.get('cursor') || '';
@@ -116,11 +117,17 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '' }) {
         return;
       }
 
-      if (messagesMatch && request.method === 'POST') {
-        const chatID = decodeURIComponent(messagesMatch[1]);
+      if ((messagesMatch && request.method === 'POST') || (watchReplyMatch && request.method === 'GET')) {
+        const chatID = decodeURIComponent((messagesMatch || watchReplyMatch)[1]);
         const body = await readJSON(request);
-        const text = typeof body.text === 'string' ? body.text.trim() : '';
-        const requestID = typeof body.requestID === 'string' ? body.requestID.trim() : '';
+        const encodedHeaderText = typeof request.headers['x-beepster-reply-text'] === 'string' ?
+          request.headers['x-beepster-reply-text'] : '';
+        let headerText = '';
+        try { headerText = decodeURIComponent(encodedHeaderText); } catch {}
+        const text = (typeof body.text === 'string' ? body.text : headerText).trim();
+        const headerRequestID = typeof request.headers['x-beepster-request-id'] === 'string' ?
+          request.headers['x-beepster-request-id'] : '';
+        const requestID = (typeof body.requestID === 'string' ? body.requestID : headerRequestID).trim();
         if (!text || text.length > 1000 || !requestID || requestID.length > 80) {
           sendJSON(response, 400, { error: 'Reply requires text and a request ID' });
           return;

@@ -255,28 +255,32 @@ function request(path, callback, failure) {
   xhr.send();
 }
 
-function post(path, body, callback) {
+function sendRequest(path, body, callback) {
   var url = gatewayURL();
   var token = gatewayToken();
   if (!url || !token) {
-    console.log('Beepster reply POST blocked: gateway configuration missing');
+    console.log('Beepster reply request blocked: gateway configuration missing');
     sendState('reply_failed', 'Gateway not configured');
     return;
   }
-  console.log('Beepster reply POST started');
+  console.log('Beepster reply request started');
   var xhr = new XMLHttpRequest();
-  xhr.open('POST', url + path, true);
+  xhr.open('GET', url + path, true);
   xhr.setRequestHeader('Authorization', 'Bearer ' + token);
-  xhr.setRequestHeader('Content-Type', 'application/json');
+  // PebbleKit JS on iOS stalls on POST through the private Tailscale HTTPS
+  // route. Its authenticated GET transport is reliable, so the dedicated
+  // no-store reply action carries bounded fields in encrypted headers.
+  xhr.setRequestHeader('X-Beepster-Reply-Text', encodeURIComponent(String(body.text || '')));
+  xhr.setRequestHeader('X-Beepster-Request-ID', String(body.requestID || ''));
   xhr.timeout = 12000;
   xhr.onload = function() {
-    console.log('Beepster reply POST completed HTTP ' + xhr.status);
+    console.log('Beepster reply request completed HTTP ' + xhr.status);
     if (xhr.status < 200 || xhr.status >= 300) { sendState('reply_failed', 'Send failed with ' + xhr.status); return; }
     try { callback(JSON.parse(xhr.responseText)); } catch (error) { sendState('reply_failed', 'Invalid send response'); }
   };
-  xhr.onerror = function() { console.log('Beepster reply POST network error'); sendState('reply_failed', 'Gateway unavailable'); };
-  xhr.ontimeout = function() { console.log('Beepster reply POST timed out'); sendState('reply_failed', 'Send timed out'); };
-  xhr.send(JSON.stringify(body));
+  xhr.onerror = function() { console.log('Beepster reply request network error'); sendState('reply_failed', 'Gateway unavailable'); };
+  xhr.ontimeout = function() { console.log('Beepster reply request timed out'); sendState('reply_failed', 'Send timed out'); };
+  xhr.send();
 }
 
 function pollReply(chatID, pendingMessageID, attempt) {
@@ -299,7 +303,7 @@ function sendReply(chatID, text, requestID) {
     requestID = 'reply-' + Date.now() + '-' + quickReplyCounter;
   }
   sendState('reply_sending');
-  post('/v1/chats/' + encodeURIComponent(chatID) + '/messages', {text:text,requestID:requestID}, function(data) {
+  sendRequest('/v1/chats/' + encodeURIComponent(chatID) + '/reply', {text:text,requestID:requestID}, function(data) {
     if (!data.pendingMessageID) { sendState('reply_failed', 'Beeper did not return a message ID'); return; }
     sendState('reply_pending');
     pollReply(chatID, data.pendingMessageID, 0);
