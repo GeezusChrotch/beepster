@@ -136,7 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         label.textColor = ok ? .systemGreen : .systemOrange
     }
 
-    private func run(_ executable: String, _ arguments: [String], input: String? = nil, timeout: TimeInterval = 8) -> (Int32, String) {
+    private func run(_ executable: String, _ arguments: [String], input: String? = nil, timeout: TimeInterval? = 8) -> (Int32, String) {
         let process = Process()
         let output = Pipe()
         let inputPipe = Pipe()
@@ -150,13 +150,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             inputPipe.fileHandleForWriting.write(Data(input.utf8))
             try? inputPipe.fileHandleForWriting.close()
         }
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
-        if process.isRunning {
-            process.terminate()
-            let terminationDeadline = Date().addingTimeInterval(1)
-            while process.isRunning && Date() < terminationDeadline { Thread.sleep(forTimeInterval: 0.05) }
-            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+        if let timeout {
+            let deadline = Date().addingTimeInterval(timeout)
+            while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
+            if process.isRunning {
+                process.terminate()
+                let terminationDeadline = Date().addingTimeInterval(1)
+                while process.isRunning && Date() < terminationDeadline { Thread.sleep(forTimeInterval: 0.05) }
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            }
         }
         process.waitUntilExit()
         let data = output.fileHandleForReading.readDataToEndOfFile()
@@ -215,9 +217,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func ensureSecret(_ account: String, value: @autoclosure () -> String?) -> Bool {
         let helper = supportDirectory.appendingPathComponent("bin/beepster-keychain").path
-        if run(helper, ["get", account]).0 == 0 { return true }
+        // The first read may wait while macOS presents a Keychain authorization
+        // dialog. Let that request finish so we never orphan the dialog.
+        if run(helper, ["get", account], timeout: nil).0 == 0 { return true }
         guard let secret = value(), !secret.isEmpty else { return false }
-        return run(helper, ["set", account], input: secret).0 == 0
+        return run(helper, ["set", account], input: secret, timeout: nil).0 == 0
     }
 
     fileprivate func installBundledService() -> (Bool, String) {
@@ -420,7 +424,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !token.isEmpty else { return }
         let keychain = keychainHelperPath()
         DispatchQueue.global(qos: .userInitiated).async {
-            let stored = self.run(keychain, ["set", "beeper-access-token"], input: token)
+            let stored = self.run(keychain, ["set", "beeper-access-token"], input: token, timeout: nil)
             _ = self.run("/bin/launchctl", ["kickstart", "-k", "gui/\(getuid())/org.beepster.gateway"])
             DispatchQueue.main.async {
                 if stored.0 != 0 {
@@ -471,7 +475,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showPairingCode() {
         let helper = keychainHelperPath()
-        let value = run(helper, ["get", "pairing-code"]).1
+        let value = run(helper, ["get", "pairing-code"], timeout: nil).1
         let alert = NSAlert()
         alert.messageText = value.isEmpty ? "Pairing code unavailable" : "Pairing code: \(value)"
         alert.informativeText = value.isEmpty

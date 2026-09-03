@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Prevented recurring macOS Keychain prompts by allowing authorization requests
+  to finish instead of killing the helper after five seconds and restarting it.
+
 All notable changes to Beepster are documented here.
 
 ## 0.9.0 — Release candidate
