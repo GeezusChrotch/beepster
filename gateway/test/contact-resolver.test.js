@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MacContactsResolver, normalizeContactIdentifier } from '../src/contact-resolver.js';
+import { MacContactsResolver, normalizeContactIdentifier, waitForHelperResponse } from '../src/contact-resolver.js';
 
 test('contact identifiers normalize emails and North American phone numbers', () => {
   assert.equal(normalizeContactIdentifier('MAILTO:Person@Example.COM'), 'person@example.com');
@@ -23,4 +23,20 @@ test('macOS contact names are cached without exposing the address book', async (
 test('denied Contacts access falls back quietly', async () => {
   const resolver = new MacContactsResolver({runner: async () => ({authorized:false,names:{}})});
   assert.deepEqual([...(await resolver.lookup(['person@example.com']))], []);
+});
+
+test('Contacts lookup waits for the background helper response file', async () => {
+  let attempts = 0;
+  const data = await waitForHelperResponse('/unused', {
+    timeoutMS: 100,
+    intervalMS: 0,
+    sleep: async () => {},
+    reader: async () => {
+      attempts++;
+      if (attempts < 3) throw Object.assign(new Error('not ready'), {code:'ENOENT'});
+      return '{"authorized":true,"names":{}}';
+    }
+  });
+  assert.equal(attempts, 3);
+  assert.match(data, /authorized/);
 });

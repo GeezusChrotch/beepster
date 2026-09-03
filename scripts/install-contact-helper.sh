@@ -9,14 +9,20 @@ helper="$app/Contents/MacOS/beepster-contacts"
 mkdir -p "$app/Contents/MacOS"
 cp "$project_dir/mac/BeepsterContacts-Info.plist" "$app/Contents/Info.plist"
 
-swiftc -target "$(uname -m)-apple-macosx13.0" -framework Contacts \
+swiftc -target "$(uname -m)-apple-macosx13.0" -framework AppKit -framework Contacts \
   "$project_dir/mac/BeepsterContacts.swift" -o "$helper"
-codesign --force --deep --sign - --identifier org.beepster.contacts "$app" >/dev/null 2>&1
+codesign --force --deep --options runtime --entitlements "$project_dir/mac/BeepsterContacts.entitlements" \
+  --sign - --identifier org.beepster.contacts "$app" >/dev/null 2>&1
 
 printf 'Beepster needs read-only Contacts access to replace Apple message email addresses and phone numbers with names.\n'
 open -W "$app" >/dev/null 2>&1 || true
 status_file=$(mktemp -t beepster-contacts-status)
-open -W -n "$app" --args --status-file "$status_file" >/dev/null 2>&1 || true
+open -n "$app" --args --status-file "$status_file" >/dev/null 2>&1 || true
+status_attempt=1
+while [ "$status_attempt" -le 100 ] && [ ! -s "$status_file" ]; do
+  sleep 0.05
+  status_attempt=$((status_attempt + 1))
+done
 contacts_status=$(sed -n '1p' "$status_file" 2>/dev/null || true)
 rm -f "$status_file"
 if [ "$contacts_status" = authorized ]; then

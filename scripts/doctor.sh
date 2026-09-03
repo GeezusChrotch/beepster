@@ -36,7 +36,12 @@ contacts_helper="$support_dir/bin/Beepster Contacts.app/Contents/MacOS/beepster-
 [ -x "$contacts_helper" ] && pass 'Contacts helper installed' || warn 'Run scripts/install-contact-helper.sh to show Apple contact names'
 if [ -x "$contacts_helper" ]; then
   contacts_status_file=$(mktemp -t beepster-contacts-status)
-  open -W -n "$support_dir/bin/Beepster Contacts.app" --args --status-file "$contacts_status_file" >/dev/null 2>&1 || true
+  open -n "$support_dir/bin/Beepster Contacts.app" --args --status-file "$contacts_status_file" >/dev/null 2>&1 || true
+  contacts_status_attempt=1
+  while [ "$contacts_status_attempt" -le 100 ] && [ ! -s "$contacts_status_file" ]; do
+    sleep 0.05
+    contacts_status_attempt=$((contacts_status_attempt + 1))
+  done
   contacts_status=$(sed -n '1p' "$contacts_status_file" 2>/dev/null || true)
   rm -f "$contacts_status_file"
   [ "$contacts_status" = authorized ] && pass 'Read-only Contacts access granted' || warn 'Grant Beepster Contacts access to show Apple contact names'

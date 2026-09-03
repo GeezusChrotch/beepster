@@ -12,6 +12,11 @@
   address while preserving the paired credential, recovering cleanly when the Tailscale port moves.
 - Settings now detects an expired gateway credential and reveals the pairing-code field instead of
   leaving the watch on a generic connection error.
+- Fixed macOS contact enrichment by recognizing file-based lookup launches and waiting for the
+  background Contacts helper's response; raw Apple identifiers can now resolve reliably.
+- Contacts authorization now runs a real background AppKit lifecycle while macOS presents the
+  permission sheet, instead of leaving the access request without a UI-capable app lifecycle.
+- The hardened Contacts helper now includes the required macOS Address Book entitlement.
 
 All notable changes to Beepster are documented here.
 

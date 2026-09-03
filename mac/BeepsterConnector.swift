@@ -274,9 +274,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try manager.copyItem(at: keychain, to: installedKeychain)
             }
             let installedContacts = bin.appendingPathComponent("Beepster Contacts.app")
-            if !manager.fileExists(atPath: installedContacts.path) {
-                try manager.copyItem(at: contacts, to: installedContacts)
-            }
+            try replaceInstalledItem(contacts, at: installedContacts)
             try manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bin.appendingPathComponent("node").path)
             try manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installedKeychain.path)
 
@@ -354,9 +352,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let statusFile = FileManager.default.temporaryDirectory
             .appendingPathComponent("beepster-contacts-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: statusFile) }
-        _ = run("/usr/bin/open", ["-W", "-n", helper, "--args", "--status-file", statusFile.path])
-        return (try? String(contentsOf: statusFile, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)) ?? "unknown"
+        let launched = run("/usr/bin/open", ["-n", helper, "--args", "--status-file", statusFile.path])
+        guard launched.0 == 0 else { return "unknown" }
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if let value = try? String(contentsOf: statusFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+                return value
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        return "unknown"
     }
 
     private func gatewayHealth() -> (Bool, String) {
@@ -412,7 +418,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func enableContacts() {
         let helper = contactsHelperPath()
         DispatchQueue.global(qos: .userInitiated).async {
-            _ = self.run("/usr/bin/open", ["-W", "-n", helper])
+            // This helper now runs an AppKit lifecycle, so -W reliably waits
+            // for the user to finish the macOS permission sheet.
+            _ = self.run("/usr/bin/open", ["-W", "-n", helper], timeout: nil)
             DispatchQueue.main.async { self.refresh() }
         }
     }

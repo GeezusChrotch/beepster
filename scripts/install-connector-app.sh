@@ -80,7 +80,7 @@ build_swift "$project_dir/mac/BeepsterKeychain.swift" Security "$resources/beeps
 contacts_app="$resources/Beepster Contacts.app"
 mkdir -p "$contacts_app/Contents/MacOS"
 cp "$project_dir/mac/BeepsterContacts-Info.plist" "$contacts_app/Contents/Info.plist"
-build_swift "$project_dir/mac/BeepsterContacts.swift" Contacts "$contacts_app/Contents/MacOS/beepster-contacts"
+build_swift "$project_dir/mac/BeepsterContacts.swift" 'AppKit Contacts' "$contacts_app/Contents/MacOS/beepster-contacts"
 
 for icon_size in 16 32 128 256 512; do
   sips -z "$icon_size" "$icon_size" "$icon_source" --out "$work_dir/Beepster.iconset/icon_${icon_size}x${icon_size}.png" >/dev/null
@@ -89,7 +89,8 @@ for icon_size in 16 32 128 256 512; do
 done
 iconutil -c icns "$work_dir/Beepster.iconset" -o "$resources/Beepster.icns"
 
-codesign --force --options runtime --sign "$sign_identity" "$contacts_app" >/dev/null
+codesign --force --options runtime --entitlements "$project_dir/mac/BeepsterContacts.entitlements" \
+  --sign "$sign_identity" "$contacts_app" >/dev/null
 codesign --force --deep --options runtime --sign "$sign_identity" "$staged_app" >/dev/null
 mkdir -p "$(dirname "$app_dir")"
 previous_app="$work_dir/previous-connector.app"

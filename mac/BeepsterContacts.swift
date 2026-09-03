@@ -1,3 +1,4 @@
+import AppKit
 import Contacts
 import Foundation
 
@@ -8,6 +9,14 @@ struct LookupRequest: Decodable {
 struct LookupResponse: Encodable {
     let authorized: Bool
     let names: [String: String]
+    let errorDomain: String?
+    let errorCode: Int?
+}
+
+func writeLookupResponse(_ response: LookupResponse, outputPath: String?) throws {
+    let data = try JSONEncoder().encode(response)
+    if let outputPath { try data.write(to: URL(fileURLWithPath: outputPath), options: .atomic) }
+    else { FileHandle.standardOutput.write(data) }
 }
 
 func authorizationLabel(_ status: CNAuthorizationStatus) -> String {
@@ -18,21 +27,6 @@ func authorizationLabel(_ status: CNAuthorizationStatus) -> String {
     case .notDetermined: return "not_determined"
     @unknown default: return "unknown"
     }
-}
-
-func requestAuthorization(store: CNContactStore) -> (Bool, Error?) {
-    if CNContactStore.authorizationStatus(for: .contacts) == .authorized { return (true, nil) }
-    if CNContactStore.authorizationStatus(for: .contacts) != .notDetermined { return (false, nil) }
-    let semaphore = DispatchSemaphore(value: 0)
-    var granted = false
-    var authorizationError: Error?
-    store.requestAccess(for: .contacts) { allowed, error in
-        granted = allowed
-        authorizationError = error
-        semaphore.signal()
-    }
-    semaphore.wait()
-    return (granted, authorizationError)
 }
 
 func displayName(_ contact: CNContact) -> String? {
@@ -55,8 +49,27 @@ func normalizeIdentifier(_ value: String) -> String? {
     return digits.count == 11 && digits.first == "1" ? String(digits.dropFirst()) : digits
 }
 
+final class ContactsAuthorizationDelegate: NSObject, NSApplicationDelegate {
+    private let store: CNContactStore
+
+    init(store: CNContactStore) {
+        self.store = store
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.activate(ignoringOtherApps: true)
+        store.requestAccess(for: .contacts) { granted, error in
+            if let error { FileHandle.standardError.write(Data("\(error)\n".utf8)) }
+            let status = granted ? "authorized" : authorizationLabel(CNContactStore.authorizationStatus(for: .contacts))
+            FileHandle.standardOutput.write(Data("\(status)\n".utf8))
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
+    }
+}
+
 let store = CNContactStore()
 let arguments = CommandLine.arguments
+let isLookup = arguments.contains("--lookup") || arguments.contains("--lookup-file")
 
 if let statusIndex = arguments.firstIndex(of: "--status-file"), arguments.count > statusIndex + 1 {
     try authorizationLabel(CNContactStore.authorizationStatus(for: .contacts)).write(
@@ -69,11 +82,22 @@ if arguments.contains("--status") {
     exit(0)
 }
 
-if !arguments.contains("--lookup") && !arguments.contains("--status") {
-    let (granted, error) = requestAuthorization(store: store)
-    if let error { FileHandle.standardError.write(Data("\(error)\n".utf8)) }
-    print(granted ? "authorized" : authorizationLabel(CNContactStore.authorizationStatus(for: .contacts)))
-    exit(granted ? 0 : 1)
+if !isLookup && !arguments.contains("--status") {
+    let initialStatus = CNContactStore.authorizationStatus(for: .contacts)
+    if initialStatus != .notDetermined {
+        print(authorizationLabel(initialStatus))
+        exit(initialStatus == .authorized ? 0 : 1)
+    }
+
+    // Contacts authorization is presented by AppKit. Running only a Foundation
+    // run loop leaves this LSUIElement helper alive without ever showing TCC's
+    // permission sheet.
+    let app = NSApplication.shared
+    let delegate = ContactsAuthorizationDelegate(store: store)
+    app.setActivationPolicy(.accessory)
+    app.delegate = delegate
+    app.run()
+    exit(CNContactStore.authorizationStatus(for: .contacts) == .authorized ? 0 : 1)
 }
 
 let fileLookupIndex = arguments.firstIndex(of: "--lookup-file")
@@ -88,31 +112,32 @@ if let fileLookupIndex, arguments.count > fileLookupIndex + 2 {
 }
 
 guard CNContactStore.authorizationStatus(for: .contacts) == .authorized else {
-    let data = try JSONEncoder().encode(LookupResponse(authorized: false, names: [:]))
-    if let outputPath { try data.write(to: URL(fileURLWithPath: outputPath), options: .atomic) }
-    else { FileHandle.standardOutput.write(data) }
+    try writeLookupResponse(LookupResponse(authorized: false, names: [:], errorDomain: nil, errorCode: nil), outputPath: outputPath)
     exit(0)
 }
 
-let request = try JSONDecoder().decode(LookupRequest.self, from: input)
-let nameDescriptor = CNContactFormatter.descriptorForRequiredKeys(for: .fullName)
-let keys: [CNKeyDescriptor] = [nameDescriptor, CNContactNicknameKey as CNKeyDescriptor,
-    CNContactOrganizationNameKey as CNKeyDescriptor, CNContactEmailAddressesKey as CNKeyDescriptor,
-    CNContactPhoneNumbersKey as CNKeyDescriptor]
-var names: [String: String] = [:]
-let requested = Set(request.identifiers.compactMap(normalizeIdentifier))
-let fetchRequest = CNContactFetchRequest(keysToFetch: keys)
+do {
+    let request = try JSONDecoder().decode(LookupRequest.self, from: input)
+    let nameDescriptor = CNContactFormatter.descriptorForRequiredKeys(for: .fullName)
+    let keys: [CNKeyDescriptor] = [nameDescriptor, CNContactNicknameKey as CNKeyDescriptor,
+        CNContactOrganizationNameKey as CNKeyDescriptor, CNContactEmailAddressesKey as CNKeyDescriptor,
+        CNContactPhoneNumbersKey as CNKeyDescriptor]
+    var names: [String: String] = [:]
+    let requested = Set(request.identifiers.compactMap(normalizeIdentifier))
+    let fetchRequest = CNContactFetchRequest(keysToFetch: keys)
 
-try store.enumerateContacts(with: fetchRequest) { contact, _ in
-    guard let name = displayName(contact) else { return }
-    let identifiers = contact.emailAddresses.compactMap { normalizeIdentifier($0.value as String) } +
-        contact.phoneNumbers.compactMap { normalizeIdentifier($0.value.stringValue) }
-    for identifier in identifiers where requested.contains(identifier) {
-        names[identifier] = name
+    try store.enumerateContacts(with: fetchRequest) { contact, _ in
+        guard let name = displayName(contact) else { return }
+        let identifiers = contact.emailAddresses.compactMap { normalizeIdentifier($0.value as String) } +
+            contact.phoneNumbers.compactMap { normalizeIdentifier($0.value.stringValue) }
+        for identifier in identifiers where requested.contains(identifier) {
+            names[identifier] = name
+        }
     }
+    try writeLookupResponse(LookupResponse(authorized: true, names: names, errorDomain: nil, errorCode: nil), outputPath: outputPath)
+} catch {
+    let failure = error as NSError
+    try? writeLookupResponse(LookupResponse(authorized: true, names: [:], errorDomain: failure.domain,
+        errorCode: failure.code), outputPath: outputPath)
+    exit(1)
 }
-
-let response = LookupResponse(authorized: true, names: names)
-let data = try JSONEncoder().encode(response)
-if let outputPath { try data.write(to: URL(fileURLWithPath: outputPath), options: .atomic) }
-else { FileHandle.standardOutput.write(data) }

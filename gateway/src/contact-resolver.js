@@ -21,17 +21,38 @@ export function normalizeContactIdentifier(value) {
 
 const execFileAsync = promisify(execFile);
 
+export async function waitForHelperResponse(responsePath, {
+  timeoutMS = 8000,
+  intervalMS = 50,
+  reader = readFile,
+  sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
+} = {}) {
+  const deadline = Date.now() + timeoutMS;
+  while (Date.now() <= deadline) {
+    try {
+      return await reader(responsePath, 'utf8');
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    await sleep(intervalMS);
+  }
+  throw new Error('Contacts helper response timed out');
+}
+
 async function runHelper(helperPath, identifiers) {
   const directory = await mkdtemp(join(tmpdir(), 'beepster-contacts-'));
   const requestPath = join(directory, 'request.json');
   const responsePath = join(directory, 'response.json');
   try {
     await writeFile(requestPath, JSON.stringify({ identifiers }), { mode: 0o600 });
-    await execFileAsync('/usr/bin/open', ['-W', '-n', helperPath, '--args', '--lookup-file', requestPath, responsePath], {
-      timeout: 8000,
+    // `open -W` cannot reliably wait for this background-only helper and may
+    // return before its response file exists. Launch it, then wait for the
+    // file itself so the temporary request directory remains available.
+    await execFileAsync('/usr/bin/open', ['-n', helperPath, '--args', '--lookup-file', requestPath, responsePath], {
+      timeout: 3000,
       maxBuffer: 32 * 1024
     });
-    const data = await readFile(responsePath, 'utf8');
+    const data = await waitForHelperResponse(responsePath);
     if (data.length > 256 * 1024) throw new Error('Contacts helper returned too much data');
     return JSON.parse(data);
   } finally {
