@@ -272,6 +272,8 @@ function pollReply(chatID, pendingMessageID, attempt) {
     if (status === 'FAIL_PERMANENT') { sendState('reply_failed', data.reason || 'Reply failed'); return; }
     if (attempt >= 9) { sendState('reply_pending', 'Still pending in Beeper'); return; }
     setTimeout(function() { pollReply(chatID, pendingMessageID, attempt + 1); }, 1500);
+  }, function(error) {
+    sendState('reply_retryable', error || 'Could not confirm delivery');
   });
 }
 

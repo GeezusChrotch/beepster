@@ -58,8 +58,9 @@ review, and information must remain understandable without color.
 - Moving upward near the oldest loaded message fetches an earlier page without jumping back to the
   newest message; keep up to 60 messages available on the watch.
 - Select on a message opens its complete text in a dedicated scrolling view.
-- Select in the complete-message view opens reply options: voice dictation followed by up to eight
-  configured canned replies.
+- Select in the complete-message view starts confirmed voice dictation directly.
+- Down in the complete-message view opens up to eight configured canned replies.
+- Up advances through long message text; reopening the message returns to its beginning.
 - Long Select on a message labeled Photo, GIF, or Video opens its full-screen preview.
 - A chat shows cached messages immediately when available.
 - Every fetch ends in content, empty, timed-out, offline, or error state—never a blank view.

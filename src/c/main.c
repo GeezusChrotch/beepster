@@ -323,6 +323,10 @@ static void reply_show_status(const char *text) {
 }
 
 static void reply_show_menu(void) {
+  if (s_quick_reply_count == 0) {
+    reply_show_status("No quick replies\nAdd them in Settings");
+    return;
+  }
   s_reply_showing_status = false;
   if (s_reply_status_layer) layer_set_hidden(text_layer_get_layer(s_reply_status_layer), true);
   if (s_reply_menu) {
@@ -340,6 +344,8 @@ static void send_reply_to_phone(void) {
     set_status(s_message_status_layer, s_message_state, true);
     if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
       reply_show_status(state_text(s_message_state, true));
+    } else if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
+      text_layer_set_text(s_detail_hint_layer, state_text(s_message_state, true));
     }
     return;
   }
@@ -352,6 +358,8 @@ static void send_reply_to_phone(void) {
   set_status(s_message_status_layer, s_message_state, true);
   if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
     reply_show_status(state_text(s_message_state, true));
+  } else if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
+    text_layer_set_text(s_detail_hint_layer, state_text(s_message_state, true));
   }
 }
 
@@ -384,6 +392,8 @@ static void dictation_callback(DictationSession *session, DictationSessionStatus
     set_status(s_message_status_layer, s_message_state, true);
     if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
       reply_show_status("Voice reply failed\nPress Back");
+    } else if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
+      text_layer_set_text(s_detail_hint_layer, "Voice reply failed\nSelect to try again");
     }
   }
 }
@@ -406,10 +416,18 @@ static void message_selected(MenuLayer *menu_layer, MenuIndex *index, void *cont
   }
 }
 
-static void detail_reply(ClickRecognizerRef recognizer, void *context) {
+static void detail_quick_replies(ClickRecognizerRef recognizer, void *context) {
   if (!s_reply_window) return;
   reply_show_menu();
   window_stack_push(s_reply_window, true);
+}
+
+static void detail_dictate(ClickRecognizerRef recognizer, void *context) {
+  if (s_dictation_session) {
+    dictation_session_start(s_dictation_session);
+  } else if (s_detail_hint_layer) {
+    text_layer_set_text(s_detail_hint_layer, "Voice dictation unavailable");
+  }
 }
 
 static void detail_scroll_by(int16_t amount) {
@@ -427,17 +445,13 @@ static void detail_scroll_by(int16_t amount) {
 }
 
 static void detail_up(ClickRecognizerRef recognizer, void *context) {
-  detail_scroll_by(168);
-}
-
-static void detail_down(ClickRecognizerRef recognizer, void *context) {
   detail_scroll_by(-168);
 }
 
 static void detail_clicks(void *context) {
   window_single_repeating_click_subscribe(BUTTON_ID_UP, 140, detail_up);
-  window_single_repeating_click_subscribe(BUTTON_ID_DOWN, 140, detail_down);
-  window_single_click_subscribe(BUTTON_ID_SELECT, detail_reply);
+  window_single_click_subscribe(BUTTON_ID_SELECT, detail_dictate);
+  window_single_click_subscribe(BUTTON_ID_DOWN, detail_quick_replies);
 }
 
 static void detail_offset_changed(ScrollLayer *scroll_layer, void *context) {
@@ -456,7 +470,7 @@ static void layout_detail(void) {
   layer_set_frame(text_layer_get_layer(s_detail_text_layer), GRect(8, 40, bounds.size.w - 16, text_height));
   scroll_layer_set_content_size(s_detail_scroll, GSize(bounds.size.w, 72 + text_height));
   scroll_layer_set_content_offset(s_detail_scroll, GPointZero, false);
-  text_layer_set_text(s_detail_hint_layer, "Select: reply options");
+  text_layer_set_text(s_detail_hint_layer, "Up: more\nSelect: dictate • Down: quick");
 }
 
 static void view_attachment(MenuLayer *menu_layer, MenuIndex *index, void *context) {
@@ -830,7 +844,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     s_detail_length = 0;
     if (s_detail_sender_layer) text_layer_set_text(s_detail_sender_layer, s_detail_sender);
     if (s_detail_text_layer) text_layer_set_text(s_detail_text_layer, "Loading full message…");
-    if (s_detail_hint_layer) text_layer_set_text(s_detail_hint_layer, "Up/Down: scroll");
+    if (s_detail_hint_layer) text_layer_set_text(s_detail_hint_layer, "Up: more\nSelect: dictate • Down: quick");
     return;
   }
 
@@ -911,7 +925,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
 }
 
 static uint16_t reply_rows(MenuLayer *menu_layer, uint16_t section, void *context) {
-  return s_reply_showing_status ? 0 : (uint16_t)(1 + s_quick_reply_count);
+  return s_reply_showing_status ? 0 : (uint16_t)s_quick_reply_count;
 }
 
 static int16_t reply_row_height(MenuLayer *menu_layer, MenuIndex *index, void *context) {
@@ -919,11 +933,7 @@ static int16_t reply_row_height(MenuLayer *menu_layer, MenuIndex *index, void *c
 }
 
 static void draw_reply(GContext *ctx, const Layer *cell, MenuIndex *index, void *context) {
-  if (index->row == 0) {
-    menu_cell_basic_draw(ctx, cell, "Voice dictation", "Speak and confirm", NULL);
-    return;
-  }
-  int quick_index = index->row - 1;
+  int quick_index = index->row;
   if (quick_index >= 0 && quick_index < s_quick_reply_count) {
     bool selected = menu_layer_is_index_selected(s_reply_menu, index);
     graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
@@ -935,15 +945,7 @@ static void draw_reply(GContext *ctx, const Layer *cell, MenuIndex *index, void 
 }
 
 static void reply_selected(MenuLayer *menu_layer, MenuIndex *index, void *context) {
-  if (index->row == 0) {
-    if (s_dictation_session) {
-      dictation_session_start(s_dictation_session);
-    } else {
-      reply_show_status("Voice dictation unavailable\nPress Back");
-    }
-    return;
-  }
-  send_quick_reply_to_phone(index->row - 1);
+  send_quick_reply_to_phone(index->row);
 }
 
 static void reply_load(Window *window) {
@@ -1091,7 +1093,7 @@ static void detail_load(Window *window) {
   text_layer_set_text_color(s_detail_hint_layer, s_theme.accent_text);
   text_layer_set_font(s_detail_hint_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD));
   text_layer_set_text_alignment(s_detail_hint_layer, GTextAlignmentCenter);
-  text_layer_set_text(s_detail_hint_layer, "Up/Down • Select: reply");
+  text_layer_set_text(s_detail_hint_layer, "Up: more\nSelect: dictate • Down: quick");
   layer_add_child(root, text_layer_get_layer(s_detail_hint_layer));
   window_set_click_config_provider(window, detail_clicks);
 }

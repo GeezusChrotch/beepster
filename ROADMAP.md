@@ -63,3 +63,9 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Open every thread with the newest message selected at the bottom
 - [x] Keep messages in chronological order so Up always moves into older history
 - [x] Fetch older messages in cursor-based pages up to a 60-message watch window
+
+## 0.5.2 — Reply controls and recovery
+
+- [x] Center button starts confirmed voice dictation directly
+- [x] Bottom button opens only the configured quick replies
+- [x] Delivery-status transport failures leave Sending and become retryable errors
