@@ -78,6 +78,11 @@ var MAX_WATCH_CHATS = 30;
 var MAX_WATCH_MESSAGES = 60;
 var DEFAULT_QUICK_REPLIES = ['Yes', 'No', 'On my way', 'Thanks! 👍'];
 var INBOX_IDS = ['primary','low-priority','archive'];
+var BUTTON_ACTION_IDS = ['scroll_up','scroll_down','open_chat','dictate','quick_reply','pin_toggle','jump_newest'];
+var DEFAULT_BUTTON_BINDINGS = [
+  'scroll_up','scroll_up','open_chat','pin_toggle','scroll_down','scroll_down',
+  'scroll_up','quick_reply','dictate','dictate','scroll_down','jump_newest'
+];
 
 function gatewayURL() {
   return (localStorage.getItem('beepster_gateway_url') || '').replace(/\/$/, '');
@@ -178,6 +183,20 @@ function configuredQuickReplies() {
     if (saved && Array.isArray(saved)) return saved.map(function(value) { return String(value || '').trim(); }).filter(Boolean).slice(0, 8);
   } catch (error) {}
   return DEFAULT_QUICK_REPLIES.slice();
+}
+
+function configuredButtonBindings() {
+  var bindings = null;
+  try { bindings = JSON.parse(localStorage.getItem('beepster_button_bindings') || 'null'); } catch (error) {}
+  if (!Array.isArray(bindings)) bindings = [];
+  return DEFAULT_BUTTON_BINDINGS.map(function(fallback, index) {
+    return BUTTON_ACTION_IDS.indexOf(bindings[index]) !== -1 ? bindings[index] : fallback;
+  });
+}
+
+function configuredScrollLines() {
+  var lines = Number(localStorage.getItem('beepster_scroll_lines') || '2');
+  return Math.max(1, Math.min(8, isFinite(lines) ? Math.round(lines) : 2));
 }
 
 function configuredServices() {
@@ -501,6 +520,22 @@ function sendTheme() {
   message[KEY_COMMAND] = 'theme';
   addTheme(message, true);
   enqueue(message);
+}
+
+function sendButtonSettings() {
+  var bindings = configuredButtonBindings();
+  for (var i = 0; i < bindings.length; i++) {
+    var binding = {};
+    binding[KEY_COMMAND] = 'button_binding';
+    binding[KEY_INDEX] = i;
+    binding[KEY_STATE] = bindings[i];
+    enqueue(binding);
+  }
+  var ready = {};
+  ready[KEY_COMMAND] = 'button_bindings_ready';
+  ready[KEY_TOTAL] = bindings.length;
+  ready[KEY_INDEX] = configuredScrollLines();
+  enqueue(ready);
 }
 
 function scheduleRefresh() {
@@ -1009,6 +1044,7 @@ function loadAttachment(attachmentID) {
 Pebble.addEventListener('ready', function() {
   migrateEmbeddedPrivateGateway();
   sendQuickReplies();
+  sendButtonSettings();
   loadChats();
 });
 
@@ -1031,6 +1067,8 @@ Pebble.addEventListener('showConfiguration', function() {
     inboxes: configuredInboxes(),
     appleAliases: configuredAppleAliases(),
     appleCandidates: configuredAppleCandidates(),
+    buttonBindings: configuredButtonBindings(),
+    scrollLines: configuredScrollLines(),
     textSize: configuredTheme().textSize,
     refresh: Number(localStorage.getItem('beepster_refresh') || '180')
   };
@@ -1049,10 +1087,13 @@ Pebble.addEventListener('webviewclosed', function(event) {
     if (Array.isArray(settings.services)) localStorage.setItem('beepster_services', JSON.stringify(settings.services.filter(function(value) { return SERVICE_IDS.indexOf(value) !== -1; })));
     if (Array.isArray(settings.inboxes)) localStorage.setItem('beepster_inboxes', JSON.stringify(settings.inboxes.filter(function(value) { return INBOX_IDS.indexOf(value) !== -1; })));
     if (settings.appleAliases && typeof settings.appleAliases === 'object') localStorage.setItem('beepster_apple_aliases', JSON.stringify(settings.appleAliases));
+    if (Array.isArray(settings.buttonBindings)) localStorage.setItem('beepster_button_bindings', JSON.stringify(settings.buttonBindings.slice(0,12)));
+    if (typeof settings.scrollLines === 'number') localStorage.setItem('beepster_scroll_lines', String(Math.max(1, Math.min(8, Math.round(settings.scrollLines)))));
     if (settings.textSize) localStorage.setItem('beepster_text_size', settings.textSize);
     if (typeof settings.refresh === 'number') localStorage.setItem('beepster_refresh', String(settings.refresh));
     lastThemeSignature = '';
     sendQuickReplies();
+    sendButtonSettings();
     sendTheme();
     loadChats();
   } catch (error) {

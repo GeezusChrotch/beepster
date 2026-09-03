@@ -21,7 +21,10 @@
 #define PERSIST_TEXT_SIZE 101
 #define PERSIST_THEME_DATA 102
 #define PERSIST_QUICK_REPLY_COUNT 103
+#define PERSIST_BUTTON_ACTIONS 104
+#define PERSIST_SCROLL_LINES 105
 #define PERSIST_QUICK_REPLY_BASE 110
+#define BUTTON_BINDING_COUNT 12
 
 typedef enum {
   VIEW_SETUP,
@@ -41,6 +44,17 @@ typedef enum {
   INLINE_MEDIA_READY,
   INLINE_MEDIA_FAILED
 } InlineMediaState;
+
+typedef enum {
+  BUTTON_ACTION_SCROLL_UP,
+  BUTTON_ACTION_SCROLL_DOWN,
+  BUTTON_ACTION_OPEN_CHAT,
+  BUTTON_ACTION_DICTATE,
+  BUTTON_ACTION_QUICK_REPLY,
+  BUTTON_ACTION_PIN_TOGGLE,
+  BUTTON_ACTION_JUMP_NEWEST,
+  BUTTON_ACTION_NONE
+} ButtonAction;
 
 typedef struct {
   char id[CHAT_ID_LEN];
@@ -115,6 +129,7 @@ static bool s_loading_older_messages;
 static char s_active_chat_id[CHAT_ID_LEN];
 static char s_active_chat_name[CHAT_NAME_LEN];
 static char s_active_chat_network[24];
+static bool s_active_chat_pinned;
 static DictationSession *s_dictation_session;
 static char s_reply_text[512];
 static char s_reply_request_id[48];
@@ -163,6 +178,15 @@ static AppTimer *s_marquee_timer;
 static int16_t s_marquee_offset;
 static int16_t s_marquee_max;
 static bool s_marquee_at_end;
+static uint8_t s_button_actions[BUTTON_BINDING_COUNT] = {
+  BUTTON_ACTION_SCROLL_UP, BUTTON_ACTION_SCROLL_UP,
+  BUTTON_ACTION_OPEN_CHAT, BUTTON_ACTION_PIN_TOGGLE,
+  BUTTON_ACTION_SCROLL_DOWN, BUTTON_ACTION_SCROLL_DOWN,
+  BUTTON_ACTION_SCROLL_UP, BUTTON_ACTION_QUICK_REPLY,
+  BUTTON_ACTION_DICTATE, BUTTON_ACTION_DICTATE,
+  BUTTON_ACTION_SCROLL_DOWN, BUTTON_ACTION_JUMP_NEWEST
+};
+static uint8_t s_scroll_lines = 2;
 
 static void main_clicks(void *context);
 static void message_clicks(void *context);
@@ -171,6 +195,10 @@ static void set_status(TextLayer *layer, ViewState state, bool messages);
 static void reply_show_status(const char *text);
 static void retry_reply(ClickRecognizerRef recognizer, void *context);
 static void install_message_clicks(void);
+static void configured_main_click(ClickRecognizerRef recognizer, void *context);
+static void configured_main_long_click(ClickRecognizerRef recognizer, void *context);
+static void configured_message_click(ClickRecognizerRef recognizer, void *context);
+static void configured_message_long_click(ClickRecognizerRef recognizer, void *context);
 static GFont theme_font(void);
 static GFont font_for_text(const char *text);
 
@@ -1023,7 +1051,8 @@ static void draw_chat(GContext *ctx, const Layer *cell, MenuIndex *index, void *
   }
 }
 
-static void chat_selected(MenuLayer *menu_layer, MenuIndex *index, void *context) {
+static void open_chat_at_index(MenuIndex *index) {
+  if (!index) return;
   if (is_newer_chat_row(index->row) || is_older_chat_row(index->row)) {
     const char *command = is_newer_chat_row(index->row) ? "load_newer_chats" : "load_older_chats";
     s_chat_state = VIEW_LOADING;
@@ -1042,6 +1071,7 @@ static void chat_selected(MenuLayer *menu_layer, MenuIndex *index, void *context
   copy_text(s_active_chat_id, sizeof(s_active_chat_id), s_chats[chat_index].id);
   copy_text(s_active_chat_name, sizeof(s_active_chat_name), s_chats[chat_index].name);
   copy_text(s_active_chat_network, sizeof(s_active_chat_network), s_chats[chat_index].network);
+  s_active_chat_pinned = s_chats[chat_index].pinned;
   if (!s_message_window) return;
   window_stack_push(s_message_window, true);
   if (s_message_request_timer) app_timer_cancel(s_message_request_timer);
@@ -1059,7 +1089,8 @@ static void move_chat_row(int from, int to) {
   s_chats[to] = moved;
 }
 
-static void chat_long_selected(MenuLayer *menu_layer, MenuIndex *index, void *context) {
+static void toggle_chat_pin_at_index(MenuIndex *index) {
+  if (!index) return;
   int from = chat_index_for_row(index->row);
   if (from < 0) return;
   bool pinned = !s_chats[from].pinned;
@@ -1092,7 +1123,14 @@ static void retry_chats(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void main_clicks(void *context) {
-  if (s_chat_state != VIEW_READY) {
+  if (s_chat_state == VIEW_READY) {
+    window_single_click_subscribe(BUTTON_ID_UP, configured_main_click);
+    window_single_click_subscribe(BUTTON_ID_SELECT, configured_main_click);
+    window_single_click_subscribe(BUTTON_ID_DOWN, configured_main_click);
+    window_long_click_subscribe(BUTTON_ID_UP, 600, configured_main_long_click, NULL);
+    window_long_click_subscribe(BUTTON_ID_SELECT, 600, configured_main_long_click, NULL);
+    window_long_click_subscribe(BUTTON_ID_DOWN, 600, configured_main_long_click, NULL);
+  } else {
     window_single_click_subscribe(BUTTON_ID_SELECT, retry_chats);
   }
 }
@@ -1233,7 +1271,7 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
   }
   if (expanded) {
     graphics_context_set_text_color(ctx, s_theme.muted);
-    graphics_draw_text(ctx, "Select: voice\nHold: Up quick, Down newest",
+    graphics_draw_text(ctx, "Buttons customizable in Settings",
       fonts_get_system_font(FONT_KEY_GOTHIC_14),
       GRect(8, content_y, bounds.size.w - 16, 32),
       GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
@@ -1249,14 +1287,6 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
 
 static void retry_messages(ClickRecognizerRef recognizer, void *context) {
   request_messages();
-}
-
-static void message_long_select(MenuLayer *menu_layer, MenuIndex *index, void *context) {
-  thread_dictate(NULL, NULL);
-}
-
-static void message_long_up(ClickRecognizerRef recognizer, void *context) {
-  thread_quick_replies(recognizer, context);
 }
 
 static void message_jump_newest(ClickRecognizerRef recognizer, void *context) {
@@ -1283,7 +1313,7 @@ static void message_move_selection(int delta) {
   int32_t visible_height = message_row_height(s_message_menu, &current, NULL);
   int32_t content_height = message_content_height(s_message_menu, message, expanded, text);
   int32_t max_scroll = content_height > visible_height ? content_height - visible_height : 0;
-  int32_t step = 2 * (s_theme_size + 6);
+  int32_t step = s_scroll_lines * (s_theme_size + 6);
 
   if (delta > 0 && expanded && s_expanded_scroll_offset < max_scroll) {
     s_expanded_scroll_offset += step;
@@ -1304,14 +1334,6 @@ static void message_move_selection(int delta) {
   menu_layer_set_selected_index(s_message_menu, target, MenuRowAlignTop, false);
 }
 
-static void message_up(ClickRecognizerRef recognizer, void *context) {
-  message_move_selection(-1);
-}
-
-static void message_down(ClickRecognizerRef recognizer, void *context) {
-  message_move_selection(1);
-}
-
 static void install_message_clicks(void) {
   if (!s_message_menu || !s_message_window) return;
   window_set_click_config_provider(s_message_window, message_clicks);
@@ -1319,15 +1341,131 @@ static void install_message_clicks(void) {
 
 static void message_clicks(void *context) {
   if (s_message_state == VIEW_READY) {
-    window_single_click_subscribe(BUTTON_ID_UP, message_up);
-    window_single_click_subscribe(BUTTON_ID_SELECT, thread_dictate);
-    window_single_click_subscribe(BUTTON_ID_DOWN, message_down);
-    window_long_click_subscribe(BUTTON_ID_UP, 600, message_long_up, NULL);
-    window_long_click_subscribe(BUTTON_ID_SELECT, 600, thread_dictate, NULL);
-    window_long_click_subscribe(BUTTON_ID_DOWN, 600, message_jump_newest, NULL);
+    window_single_click_subscribe(BUTTON_ID_UP, configured_message_click);
+    window_single_click_subscribe(BUTTON_ID_SELECT, configured_message_click);
+    window_single_click_subscribe(BUTTON_ID_DOWN, configured_message_click);
+    window_long_click_subscribe(BUTTON_ID_UP, 600, configured_message_long_click, NULL);
+    window_long_click_subscribe(BUTTON_ID_SELECT, 600, configured_message_long_click, NULL);
+    window_long_click_subscribe(BUTTON_ID_DOWN, 600, configured_message_long_click, NULL);
   } else {
     window_single_click_subscribe(BUTTON_ID_SELECT, retry_messages);
   }
+}
+
+static int binding_slot(ButtonId button, bool long_press, bool message_view) {
+  int slot = button == BUTTON_ID_UP ? 0 : (button == BUTTON_ID_SELECT ? 2 : 4);
+  return (message_view ? 6 : 0) + slot + (long_press ? 1 : 0);
+}
+
+static MenuIndex selected_chat_row(void) {
+  return s_chat_menu ? menu_layer_get_selected_index(s_chat_menu) : (MenuIndex) {.section = 0, .row = 0};
+}
+
+static void toggle_active_chat_pin(void) {
+  if (!s_active_chat_id[0]) return;
+  bool pinned = !s_active_chat_pinned;
+  if (!request_chat_pin(s_active_chat_id, pinned)) {
+    vibes_double_pulse();
+    return;
+  }
+  s_active_chat_pinned = pinned;
+  int from = -1;
+  for (int i = 0; i < s_chat_count; i++) {
+    if (strcmp(s_chats[i].id, s_active_chat_id) == 0) {
+      s_chats[i].pinned = pinned;
+      from = i;
+      break;
+    }
+  }
+  if (from >= 0) {
+    int target = 0;
+    if (!pinned) {
+      for (int i = 0; i < s_chat_count; i++) if (s_chats[i].pinned) target++;
+      if (target >= s_chat_count) target = s_chat_count - 1;
+    }
+    move_chat_row(from, target);
+    if (s_chat_menu) menu_layer_reload_data(s_chat_menu);
+  }
+  vibes_short_pulse();
+}
+
+static void perform_button_action(ButtonAction action, bool message_view) {
+  if (message_view) {
+    switch (action) {
+      case BUTTON_ACTION_SCROLL_UP: message_move_selection(-1); break;
+      case BUTTON_ACTION_SCROLL_DOWN: message_move_selection(1); break;
+      case BUTTON_ACTION_DICTATE: thread_dictate(NULL, NULL); break;
+      case BUTTON_ACTION_QUICK_REPLY: thread_quick_replies(NULL, NULL); break;
+      case BUTTON_ACTION_PIN_TOGGLE: toggle_active_chat_pin(); break;
+      case BUTTON_ACTION_JUMP_NEWEST: message_jump_newest(NULL, NULL); break;
+      case BUTTON_ACTION_OPEN_CHAT:
+      case BUTTON_ACTION_NONE: break;
+    }
+    return;
+  }
+
+  MenuIndex selected = selected_chat_row();
+  switch (action) {
+    case BUTTON_ACTION_SCROLL_UP:
+      if (s_chat_menu) menu_layer_set_selected_next(s_chat_menu, true, MenuRowAlignCenter, true);
+      break;
+    case BUTTON_ACTION_SCROLL_DOWN:
+      if (s_chat_menu) menu_layer_set_selected_next(s_chat_menu, false, MenuRowAlignCenter, true);
+      break;
+    case BUTTON_ACTION_OPEN_CHAT: open_chat_at_index(&selected); break;
+    case BUTTON_ACTION_DICTATE:
+      if (chat_index_for_row(selected.row) >= 0) {
+        open_chat_at_index(&selected);
+        thread_dictate(NULL, NULL);
+      }
+      break;
+    case BUTTON_ACTION_QUICK_REPLY:
+      if (chat_index_for_row(selected.row) >= 0) {
+        open_chat_at_index(&selected);
+        thread_quick_replies(NULL, NULL);
+      }
+      break;
+    case BUTTON_ACTION_PIN_TOGGLE: toggle_chat_pin_at_index(&selected); break;
+    case BUTTON_ACTION_JUMP_NEWEST:
+      if (s_chat_menu && s_chat_count > 0) menu_layer_set_selected_index(s_chat_menu,
+        (MenuIndex) {.section = 0, .row = s_has_newer_chats ? 1 : 0}, MenuRowAlignTop, true);
+      break;
+    case BUTTON_ACTION_NONE: break;
+  }
+}
+
+static void configured_button_click(ClickRecognizerRef recognizer, bool long_press, bool message_view) {
+  ButtonId button = click_recognizer_get_button_id(recognizer);
+  int slot = binding_slot(button, long_press, message_view);
+  if (slot >= 0 && slot < BUTTON_BINDING_COUNT) perform_button_action((ButtonAction)s_button_actions[slot], message_view);
+}
+
+static void configured_main_click(ClickRecognizerRef recognizer, void *context) {
+  configured_button_click(recognizer, false, false);
+}
+
+static void configured_main_long_click(ClickRecognizerRef recognizer, void *context) {
+  configured_button_click(recognizer, true, false);
+}
+
+static void configured_message_click(ClickRecognizerRef recognizer, void *context) {
+  configured_button_click(recognizer, false, true);
+}
+
+static void configured_message_long_click(ClickRecognizerRef recognizer, void *context) {
+  configured_button_click(recognizer, true, true);
+}
+
+static ButtonAction button_action_from_name(const char *name) {
+  if (!name) return BUTTON_ACTION_NONE;
+  if (strcmp(name, "scroll_up") == 0) return BUTTON_ACTION_SCROLL_UP;
+  if (strcmp(name, "scroll_down") == 0) return BUTTON_ACTION_SCROLL_DOWN;
+  if (strcmp(name, "open_chat") == 0) return BUTTON_ACTION_OPEN_CHAT;
+  if (strcmp(name, "dictate") == 0) return BUTTON_ACTION_DICTATE;
+  if (strcmp(name, "quick_reply") == 0) return BUTTON_ACTION_QUICK_REPLY;
+  if (strcmp(name, "pin_toggle") == 0) return BUTTON_ACTION_PIN_TOGGLE;
+  if (strcmp(name, "jump_newest") == 0) return BUTTON_ACTION_JUMP_NEWEST;
+  return BUTTON_ACTION_NONE;
 }
 
 static void apply_state(const char *state, const char *error) {
@@ -1398,7 +1536,7 @@ static void apply_state(const char *state, const char *error) {
     set_status(s_status_layer, mapped, false);
     if (s_chat_menu) menu_layer_reload_data(s_chat_menu);
     if (mapped == VIEW_READY) {
-      menu_layer_set_click_config_onto_window(s_chat_menu, s_main_window);
+      window_set_click_config_provider(s_main_window, main_clicks);
     } else {
       window_set_click_config_provider(s_main_window, main_clicks);
     }
@@ -1409,6 +1547,30 @@ static void apply_state(const char *state, const char *error) {
 static void inbox_received(DictionaryIterator *iterator, void *context) {
   Tuple *command = dict_find(iterator, MESSAGE_KEY_COMMAND);
   if (!command) return;
+
+  if (strcmp(command->value->cstring, "button_binding") == 0) {
+    Tuple *index = dict_find(iterator, MESSAGE_KEY_INDEX);
+    Tuple *action = dict_find(iterator, MESSAGE_KEY_STATE);
+    if (!index || !action) return;
+    int slot = index->value->int32;
+    ButtonAction parsed = button_action_from_name(action->value->cstring);
+    if (slot < 0 || slot >= BUTTON_BINDING_COUNT || parsed == BUTTON_ACTION_NONE) return;
+    s_button_actions[slot] = (uint8_t)parsed;
+    return;
+  }
+
+  if (strcmp(command->value->cstring, "button_bindings_ready") == 0) {
+    Tuple *lines = dict_find(iterator, MESSAGE_KEY_INDEX);
+    int requested = lines ? lines->value->int32 : 2;
+    if (requested < 1) requested = 1;
+    if (requested > 8) requested = 8;
+    s_scroll_lines = (uint8_t)requested;
+    persist_write_data(PERSIST_BUTTON_ACTIONS, s_button_actions, sizeof(s_button_actions));
+    persist_write_int(PERSIST_SCROLL_LINES, requested);
+    if (s_main_window) window_set_click_config_provider(s_main_window, main_clicks);
+    if (s_message_window) window_set_click_config_provider(s_message_window, message_clicks);
+    return;
+  }
 
   if (strcmp(command->value->cstring, "chats_start") == 0) {
     s_chat_count = 0;
@@ -1608,11 +1770,11 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
           menu_layer_set_selected_index(s_chat_menu,
             (MenuIndex) {.section = 0, .row = watch_row}, align, false);
         }
-        menu_layer_set_click_config_onto_window(s_chat_menu, s_main_window);
+        window_set_click_config_provider(s_main_window, main_clicks);
       } else if (flags) {
         menu_layer_set_selected_index(s_chat_menu,
           (MenuIndex) {.section = 0, .row = 0}, MenuRowAlignCenter, false);
-        menu_layer_set_click_config_onto_window(s_chat_menu, s_main_window);
+        window_set_click_config_provider(s_main_window, main_clicks);
       } else window_set_click_config_provider(s_main_window, main_clicks);
     }
     return;
@@ -1871,11 +2033,9 @@ static void main_load(Window *window) {
     .get_num_rows = chat_rows,
     .get_cell_height = chat_row_height,
     .draw_row = draw_chat,
-    .select_click = chat_selected,
-    .select_long_click = chat_long_selected,
     .selection_changed = marquee_selection_changed
   });
-  menu_layer_set_click_config_onto_window(s_chat_menu, window);
+  window_set_click_config_provider(window, main_clicks);
   layer_add_child(root, menu_layer_get_layer(s_chat_menu));
 
   s_status_layer = text_layer_create(GRect(14, 58, bounds.size.w - 28, 110));
@@ -1909,7 +2069,6 @@ static void message_load(Window *window) {
     .get_cell_height = message_row_height,
     .draw_row = draw_message,
     .select_click = NULL,
-    .select_long_click = message_long_select,
     .selection_changed = message_selection_changed
   });
   install_message_clicks();
@@ -2057,6 +2216,19 @@ static void init(void) {
     if (persist_exists(PERSIST_QUICK_REPLY_BASE + i)) {
       persist_read_string(PERSIST_QUICK_REPLY_BASE + i, s_quick_replies[i], sizeof(s_quick_replies[i]));
     }
+  }
+  if (persist_get_size(PERSIST_BUTTON_ACTIONS) == sizeof(s_button_actions)) {
+    uint8_t saved_actions[BUTTON_BINDING_COUNT];
+    persist_read_data(PERSIST_BUTTON_ACTIONS, saved_actions, sizeof(saved_actions));
+    bool valid = true;
+    for (int i = 0; i < BUTTON_BINDING_COUNT; i++) {
+      if (saved_actions[i] >= BUTTON_ACTION_NONE) valid = false;
+    }
+    if (valid) memcpy(s_button_actions, saved_actions, sizeof(s_button_actions));
+  }
+  if (persist_exists(PERSIST_SCROLL_LINES)) {
+    int saved_lines = persist_read_int(PERSIST_SCROLL_LINES);
+    s_scroll_lines = saved_lines < 1 ? 1 : (saved_lines > 8 ? 8 : (uint8_t)saved_lines);
   }
   select_theme(saved_theme);
   if (persist_get_size(PERSIST_THEME_DATA) == sizeof(PersistedTheme)) {

@@ -62,9 +62,11 @@ review, and information must remain understandable without color.
   WhatsApp, Messenger, iMessage, LINE, Beeper/Matrix, and an unknown-network fallback.
 - Settings expose an included-services checklist. All services are enabled by default, the selection
   persists without re-pairing, and unknown networks are controlled by an `Other services` option.
-- Select on a chat always opens that chat.
-- Hold Select on an inbox chat to pin or unpin it. Pinned chats sort above recent chats, display a
-  text label rather than relying on color alone, and persist by stable chat ID on the phone.
+- Ship with Select opening a chat and Hold Select pinning or unpinning it as defaults. Settings must
+  expose press and hold for all three buttons independently in Threads and Chat, for 12 bindings.
+  Available actions are scroll up, scroll down, open selected chat, dictate, quick reply, pin/unpin,
+  and jump to newest. Jump to newest must work in both views. Pinned chats sort above recent chats,
+  display a text label rather than relying on color alone, and persist by stable chat ID on the phone.
 - Keep at most 30 chats resident on the watch. Show explicit older/newer navigation rows backed by
   opaque Beeper cursors so all enabled Primary, Low Priority, and Archived chats remain reachable.
 - Opening a chat selects its newest message at the bottom of a chronological timeline.
@@ -72,10 +74,10 @@ review, and information must remain understandable without color.
   newest message; keep up to 60 messages available on the watch.
 - The selected message expands to its complete text directly in the chronological thread; there is
   no separate message-reading screen.
-- Press or hold Select anywhere in the thread to start confirmed voice dictation.
-- Hold Up anywhere in the thread to open up to eight configured canned replies.
-- Hold Down anywhere in the thread to jump directly to the newest message.
-- Each short Up or Down press moves exactly two text-line heights within an oversized selected
+- By default, Press or Hold Select in a thread starts confirmed voice dictation, Hold Up opens quick
+  replies, and Hold Down jumps to the newest message.
+- Settings expose a one-to-eight lines-per-scroll value, defaulting to two. Each configured scroll
+  action moves that many text-line heights within an oversized selected
   message; at its beginning or end, the same button moves to the adjacent message.
 - Thread backgrounds and body text always use the saved theme colors; selection may accent the
   sender and service icon but must never invert an entire message or change its text color.

@@ -7,11 +7,14 @@ empty.
 
 ## Inbox controls
 
+These are the default controls. Open **Beepster Settings → Buttons** to assign any available action
+to each Top, Center, and Bottom press or hold independently for the Threads and Chat views.
+
 | Button | Short press | Long press |
 | --- | --- | --- |
-| Top | Move to the previous chat | Continue moving up |
+| Top | Move to the previous chat | Move to the previous chat |
 | Center | Open the selected chat | Pin or unpin the selected chat |
-| Bottom | Move to the next chat | Continue moving down |
+| Bottom | Move to the next chat | Move to the next chat |
 | Back | Close Beepster | — |
 
 An **Older conversations >** row appears after the last loaded chat when more history is available.
@@ -23,6 +26,9 @@ The most recently pinned conversation appears first. Hold Center on it again to 
 stored by stable chat ID on the phone and survive normal refreshes and app restarts.
 
 ## Thread controls
+
+These defaults are also customizable in the **Buttons** tab. **Lines per scroll** can be set from
+one to eight; it defaults to two.
 
 | Button | Short press | Long press |
 | --- | --- | --- |
@@ -52,6 +58,13 @@ emoji. Beepster sends the original saved reply even when the watch must display 
 as a readable fallback.
 
 Edit replies in **Pebble mobile app → Beepster → Settings**. Blank slots are omitted.
+
+## Custom button controls
+
+The **Buttons** tab contains 12 independent assignments: press and hold for Top, Center, and Bottom
+in both the Threads list and an open Chat. Available actions are Scroll up, Scroll down, Open
+selected chat, Dictate reply, Quick reply, Pin / unpin, and Jump to newest. Jump to newest works in
+both views. Button choices and the lines-per-scroll value persist on the phone and watch.
 
 ## Included messaging services
 

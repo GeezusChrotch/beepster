@@ -136,6 +136,35 @@ test('theme data is sent once instead of reloading fonts for every state', () =>
   assert.equal(appMessages[1][34], undefined);
 });
 
+test('button defaults are sent to the watch and included in settings', () => {
+  const { eventListeners, appMessages, openedURLs } = replyRuntime();
+  eventListeners.ready();
+  const bindings = appMessages.filter((message) => message[0] === 'button_binding');
+  assert.equal(bindings.length, 12);
+  assert.deepEqual(bindings.map((message) => message[1]), [
+    'scroll_up','scroll_up','open_chat','pin_toggle','scroll_down','scroll_down',
+    'scroll_up','quick_reply','dictate','dictate','scroll_down','jump_newest'
+  ]);
+  const ready = appMessages.find((message) => message[0] === 'button_bindings_ready');
+  assert.equal(ready[3], 2);
+  eventListeners.showConfiguration();
+  const state = JSON.parse(decodeURIComponent(openedURLs[0].split('#')[1]));
+  assert.equal(state.buttonBindings.length, 12);
+  assert.equal(state.scrollLines, 2);
+});
+
+test('custom button mappings persist and are applied immediately', () => {
+  const { eventListeners, appMessages, storage } = replyRuntime();
+  const custom = Array(12).fill('jump_newest');
+  eventListeners.webviewclosed({response:encodeURIComponent(JSON.stringify({buttonBindings:custom,scrollLines:7}))});
+  assert.deepEqual(JSON.parse(storage.get('beepster_button_bindings')), custom);
+  assert.equal(storage.get('beepster_scroll_lines'), '7');
+  const bindings = appMessages.filter((message) => message[0] === 'button_binding');
+  assert.equal(bindings.length, 12);
+  assert.ok(bindings.every((message) => message[1] === 'jump_newest'));
+  assert.equal(appMessages.find((message) => message[0] === 'button_bindings_ready')[3], 7);
+});
+
 test('service aliases normalize to stable filter IDs', () => {
   const { context } = replyRuntime();
   assert.equal(context.serviceID('iMessage'), 'apple_messages');

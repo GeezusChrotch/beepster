@@ -36,8 +36,9 @@ its gateway runtime, so end users do not need Terminal, Git, Node.js, or develop
   user-controlled alias fallback
 - Persistent service filtering, with all networks enabled by default
 - Chronological history that opens on the newest message and pages up to 60 messages
-- Complete in-thread message text with simple two-line scrolling
-- Center-button voice dictation with confirmation and delivery tracking
+- Complete in-thread message text with configurable one-to-eight-line scrolling
+- Fully configurable press and hold actions for all three buttons in both inbox and chat views
+- Voice dictation with confirmation and delivery tracking
 - Up to eight text-or-emoji quick replies
 - Static photo, GIF-poster, and video-poster previews, including Instagram media
 - HTML cleanup for rich Instagram messages

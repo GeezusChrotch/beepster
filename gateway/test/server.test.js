@@ -60,6 +60,17 @@ test('configuration page supports editing an existing paired connection', async 
     assert.match(html, /Link Apple conversations/);
     assert.match(html, /appleCandidates/);
     assert.match(html, /appleAliases:savedAppleAliases/);
+    assert.match(html, />Buttons</);
+    assert.match(html, /Button controls/);
+    assert.match(html, /Top press/);
+    assert.match(html, /Middle hold/);
+    assert.match(html, /Open selected chat/);
+    assert.match(html, /Dictate reply/);
+    assert.match(html, /Pin \/ unpin/);
+    assert.match(html, /Jump to newest/);
+    assert.match(html, /Lines per scroll/);
+    assert.match(html, /buttonBindings:buttonBindings/);
+    assert.match(html, /scrollLines:Number/);
   });
 });
 
