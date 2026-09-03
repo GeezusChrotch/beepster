@@ -100,6 +100,9 @@ static char s_active_chat_name[CHAT_NAME_LEN];
 static DictationSession *s_dictation_session;
 static char s_reply_text[512];
 static char s_reply_request_id[48];
+static ViewState s_reply_state = VIEW_READY;
+static AppTimer *s_reply_ack_timer;
+static int s_pending_quick_reply_index = -1;
 static AppTimer *s_load_watchdog;
 static AppTimer *s_message_request_timer;
 static int s_message_command_attempts;
@@ -134,6 +137,7 @@ static void message_clicks(void *context);
 static void apply_theme_to_layers(void);
 static void set_status(TextLayer *layer, ViewState state, bool messages);
 static void reply_show_status(const char *text);
+static void retry_reply(ClickRecognizerRef recognizer, void *context);
 static GFont theme_font(void);
 static GFont font_for_text(const char *text);
 
@@ -381,6 +385,35 @@ static void new_reply_request_id(void) {
   snprintf(s_reply_request_id, sizeof(s_reply_request_id), "%lu-%u", (unsigned long)time(NULL), counter);
 }
 
+static void cancel_reply_ack_timer(void) {
+  if (s_reply_ack_timer) {
+    app_timer_cancel(s_reply_ack_timer);
+    s_reply_ack_timer = NULL;
+  }
+}
+
+static void reply_ack_timeout(void *context) {
+  s_reply_ack_timer = NULL;
+  if (s_reply_state != VIEW_REPLY_SENDING) return;
+  s_reply_state = VIEW_REPLY_RETRYABLE;
+  if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
+    reply_show_status("Phone did not receive reply\nPress Select to retry");
+  } else if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
+    text_layer_set_text(s_detail_hint_layer, "Phone did not receive reply\nHold Select to retry");
+  }
+}
+
+static void start_reply_ack_timer(void) {
+  cancel_reply_ack_timer();
+  s_reply_ack_timer = app_timer_register(6000, reply_ack_timeout, NULL);
+}
+
+static void reply_status_clicks(void *context) {
+  if (s_reply_state == VIEW_REPLY_RETRYABLE) {
+    window_single_click_subscribe(BUTTON_ID_SELECT, retry_reply);
+  }
+}
+
 static void reply_show_status(const char *text) {
   s_reply_showing_status = true;
   if (s_reply_status_layer) {
@@ -388,6 +421,7 @@ static void reply_show_status(const char *text) {
     layer_set_hidden(text_layer_get_layer(s_reply_status_layer), false);
   }
   if (s_reply_menu) layer_set_hidden(menu_layer_get_layer(s_reply_menu), true);
+  if (s_reply_window) window_set_click_config_provider(s_reply_window, reply_status_clicks);
 }
 
 static void reply_show_menu(void) {
@@ -395,25 +429,27 @@ static void reply_show_menu(void) {
     reply_show_status("No quick replies\nAdd them in Settings");
     return;
   }
+  s_reply_state = VIEW_READY;
   s_reply_showing_status = false;
   if (s_reply_status_layer) layer_set_hidden(text_layer_get_layer(s_reply_status_layer), true);
   if (s_reply_menu) {
     layer_set_hidden(menu_layer_get_layer(s_reply_menu), false);
     menu_layer_reload_data(s_reply_menu);
+    menu_layer_set_click_config_onto_window(s_reply_menu, s_reply_window);
   }
 }
 
 static void send_reply_to_phone(void) {
   if (!s_reply_text[0] || !s_active_chat_id[0]) return;
+  cancel_reply_ack_timer();
   DictionaryIterator *iterator;
   AppMessageResult result = app_message_outbox_begin(&iterator);
   if (result != APP_MSG_OK || !iterator) {
-    s_message_state = VIEW_REPLY_RETRYABLE;
-    set_status(s_message_status_layer, s_message_state, true);
+    s_reply_state = VIEW_REPLY_RETRYABLE;
     if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
-      reply_show_status(state_text(s_message_state, true));
+      reply_show_status(state_text(s_reply_state, true));
     } else if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
-      text_layer_set_text(s_detail_hint_layer, state_text(s_message_state, true));
+      text_layer_set_text(s_detail_hint_layer, "Reply failed\nHold Select to retry");
     }
     return;
   }
@@ -422,46 +458,50 @@ static void send_reply_to_phone(void) {
   dict_write_cstring(iterator, MESSAGE_KEY_REPLY_TEXT, s_reply_text);
   dict_write_cstring(iterator, MESSAGE_KEY_REPLY_REQUEST_ID, s_reply_request_id);
   result = app_message_outbox_send();
-  s_message_state = result == APP_MSG_OK ? VIEW_REPLY_SENDING : VIEW_REPLY_RETRYABLE;
-  set_status(s_message_status_layer, s_message_state, true);
+  s_reply_state = result == APP_MSG_OK ? VIEW_REPLY_SENDING : VIEW_REPLY_RETRYABLE;
+  if (result == APP_MSG_OK) start_reply_ack_timer();
   if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
-    reply_show_status(state_text(s_message_state, true));
+    reply_show_status(state_text(s_reply_state, true));
   } else if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
-    text_layer_set_text(s_detail_hint_layer, state_text(s_message_state, true));
+    text_layer_set_text(s_detail_hint_layer, state_text(s_reply_state, true));
   }
 }
 
-static void send_quick_reply_to_phone(int index) {
+static void send_quick_reply_to_phone(int index, bool create_request_id) {
   if (index < 0 || index >= s_quick_reply_count || !s_active_chat_id[0]) return;
+  cancel_reply_ack_timer();
+  s_pending_quick_reply_index = index;
+  if (create_request_id || !s_reply_request_id[0]) new_reply_request_id();
   DictionaryIterator *iterator;
   AppMessageResult result = app_message_outbox_begin(&iterator);
   if (result != APP_MSG_OK || !iterator) {
-    reply_show_status("Could not send\nPress Back");
+    s_reply_state = VIEW_REPLY_RETRYABLE;
+    reply_show_status("Could not send\nPress Select to retry");
     return;
   }
   dict_write_cstring(iterator, MESSAGE_KEY_COMMAND, "send_quick_reply");
   dict_write_cstring(iterator, MESSAGE_KEY_CHAT_ID, s_active_chat_id);
   dict_write_int32(iterator, MESSAGE_KEY_INDEX, index);
-  new_reply_request_id();
   dict_write_cstring(iterator, MESSAGE_KEY_REPLY_REQUEST_ID, s_reply_request_id);
   result = app_message_outbox_send();
-  s_message_state = result == APP_MSG_OK ? VIEW_REPLY_SENDING : VIEW_REPLY_RETRYABLE;
-  reply_show_status(state_text(s_message_state, true));
+  s_reply_state = result == APP_MSG_OK ? VIEW_REPLY_SENDING : VIEW_REPLY_RETRYABLE;
+  if (result == APP_MSG_OK) start_reply_ack_timer();
+  reply_show_status(state_text(s_reply_state, true));
 }
 
 static void dictation_callback(DictationSession *session, DictationSessionStatus status,
                                char *transcription, void *context) {
   if (status == DictationSessionStatusSuccess && transcription && transcription[0]) {
     copy_text(s_reply_text, sizeof(s_reply_text), transcription);
+    s_pending_quick_reply_index = -1;
     new_reply_request_id();
     send_reply_to_phone();
   } else if (status != DictationSessionStatusFailureTranscriptionRejected) {
-    s_message_state = VIEW_ERROR;
-    set_status(s_message_status_layer, s_message_state, true);
+    s_reply_state = VIEW_REPLY_RETRYABLE;
     if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
-      reply_show_status("Voice reply failed\nPress Back");
+      reply_show_status("Voice reply failed\nPress Select to retry");
     } else if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
-      text_layer_set_text(s_detail_hint_layer, "Voice reply failed\nSelect to try again");
+      text_layer_set_text(s_detail_hint_layer, "Voice reply failed\nHold Select to try again");
     }
   }
 }
@@ -491,35 +531,21 @@ static void detail_quick_replies(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void detail_dictate(ClickRecognizerRef recognizer, void *context) {
+  if (s_reply_state == VIEW_REPLY_RETRYABLE && s_reply_request_id[0]) {
+    retry_reply(recognizer, context);
+    return;
+  }
   if (s_dictation_session) {
+    s_pending_quick_reply_index = -1;
     dictation_session_start(s_dictation_session);
   } else if (s_detail_hint_layer) {
     text_layer_set_text(s_detail_hint_layer, "Voice dictation unavailable");
   }
 }
 
-static void detail_scroll_by(int16_t amount) {
-  if (!s_detail_scroll) return;
-  GPoint offset = scroll_layer_get_content_offset(s_detail_scroll);
-  GSize content = scroll_layer_get_content_size(s_detail_scroll);
-  GRect bounds = layer_get_bounds(scroll_layer_get_layer(s_detail_scroll));
-  int16_t minimum = bounds.size.h - content.h;
-  if (minimum > 0) minimum = 0;
-  int16_t next = offset.y + amount;
-  if (next > 0) next = 0;
-  if (next < minimum) next = minimum;
-  offset.y = next;
-  scroll_layer_set_content_offset(s_detail_scroll, offset, true);
-}
-
-static void detail_up(ClickRecognizerRef recognizer, void *context) {
-  detail_scroll_by(-168);
-}
-
 static void detail_clicks(void *context) {
-  window_single_repeating_click_subscribe(BUTTON_ID_UP, 140, detail_up);
-  window_single_click_subscribe(BUTTON_ID_SELECT, detail_dictate);
-  window_single_click_subscribe(BUTTON_ID_DOWN, detail_quick_replies);
+  window_long_click_subscribe(BUTTON_ID_SELECT, 600, detail_dictate, NULL);
+  window_long_click_subscribe(BUTTON_ID_DOWN, 600, detail_quick_replies, NULL);
 }
 
 static void detail_offset_changed(ScrollLayer *scroll_layer, void *context) {
@@ -543,7 +569,7 @@ static void layout_detail(void) {
   layer_set_frame(text_layer_get_layer(s_detail_text_layer), GRect(8, text_y, bounds.size.w - 16, text_height));
   scroll_layer_set_content_size(s_detail_scroll, GSize(bounds.size.w, text_y + 32 + text_height));
   scroll_layer_set_content_offset(s_detail_scroll, GPointZero, false);
-  text_layer_set_text(s_detail_hint_layer, "Up: more\nSelect: dictate • Down: quick");
+  text_layer_set_text(s_detail_hint_layer, "Up/Down: scroll\nHold Select=voice Down=quick");
 }
 
 static void view_attachment(MenuLayer *menu_layer, MenuIndex *index, void *context) {
@@ -558,8 +584,11 @@ static void view_attachment(MenuLayer *menu_layer, MenuIndex *index, void *conte
 }
 
 static void retry_reply(ClickRecognizerRef recognizer, void *context) {
-  new_reply_request_id();
-  send_reply_to_phone();
+  if (s_pending_quick_reply_index >= 0) {
+    send_quick_reply_to_phone(s_pending_quick_reply_index, false);
+  } else {
+    send_reply_to_phone();
+  }
 }
 
 static void delayed_request_messages(void *context) {
@@ -692,9 +721,7 @@ static void retry_messages(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void message_clicks(void *context) {
-  if ((s_message_state == VIEW_REPLY_RETRYABLE || s_message_state == VIEW_ERROR) && s_reply_text[0]) {
-    window_single_click_subscribe(BUTTON_ID_SELECT, retry_reply);
-  } else if (s_message_state != VIEW_READY) {
+  if (s_message_state != VIEW_READY) {
     window_single_click_subscribe(BUTTON_ID_SELECT, retry_messages);
   }
 }
@@ -708,19 +735,23 @@ static void apply_state(const char *state, const char *error) {
     }
     return;
   }
-  if (s_reply_window && window_stack_get_top_window() == s_reply_window && strncmp(state, "reply_", 6) == 0) {
+  if (strncmp(state, "reply_", 6) == 0) {
     ViewState reply_state = strcmp(state, "reply_sending") == 0 ? VIEW_REPLY_SENDING :
       (strcmp(state, "reply_pending") == 0 ? VIEW_REPLY_PENDING :
       (strcmp(state, "reply_sent") == 0 ? VIEW_REPLY_SENT : VIEW_REPLY_RETRYABLE));
-    reply_show_status(error && error[0] ? error : state_text(reply_state, true));
-    return;
-  }
-  if (s_detail_window && window_stack_get_top_window() == s_detail_window && strncmp(state, "reply_", 6) == 0) {
-    if (s_detail_hint_layer) {
-      ViewState reply_state = strcmp(state, "reply_sending") == 0 ? VIEW_REPLY_SENDING :
-        (strcmp(state, "reply_pending") == 0 ? VIEW_REPLY_PENDING :
-        (strcmp(state, "reply_sent") == 0 ? VIEW_REPLY_SENT : VIEW_REPLY_RETRYABLE));
-      text_layer_set_text(s_detail_hint_layer, error && error[0] ? error : state_text(reply_state, true));
+    cancel_reply_ack_timer();
+    s_reply_state = reply_state;
+    if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
+      reply_show_status(error && error[0] ? error : state_text(reply_state, true));
+      return;
+    }
+    if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
+      const char *feedback = error && error[0] ? error : state_text(reply_state, true);
+      if (reply_state == VIEW_REPLY_RETRYABLE && !(error && error[0])) {
+        feedback = "Reply failed\nHold Select to retry";
+      }
+      text_layer_set_text(s_detail_hint_layer, feedback);
+      return;
     }
     return;
   }
@@ -729,11 +760,6 @@ static void apply_state(const char *state, const char *error) {
   else if (strcmp(state, "loading") == 0) mapped = VIEW_LOADING;
   else if (strcmp(state, "empty") == 0) mapped = VIEW_EMPTY;
   else if (strcmp(state, "ready") == 0) mapped = VIEW_READY;
-  else if (strcmp(state, "reply_sending") == 0) mapped = VIEW_REPLY_SENDING;
-  else if (strcmp(state, "reply_pending") == 0) mapped = VIEW_REPLY_PENDING;
-  else if (strcmp(state, "reply_sent") == 0) mapped = VIEW_REPLY_SENT;
-  else if (strcmp(state, "reply_retryable") == 0) mapped = VIEW_REPLY_RETRYABLE;
-  else if (strcmp(state, "reply_failed") == 0) mapped = VIEW_REPLY_RETRYABLE;
 
   if (s_message_window && window_stack_get_top_window() == s_message_window) {
     if (mapped != VIEW_LOADING) cancel_load_watchdog();
@@ -937,7 +963,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     s_detail_length = 0;
     if (s_detail_sender_layer) text_layer_set_text(s_detail_sender_layer, s_detail_sender);
     if (s_detail_text_layer) text_layer_set_text(s_detail_text_layer, "Loading full message…");
-    if (s_detail_hint_layer) text_layer_set_text(s_detail_hint_layer, "Up: more\nSelect: dictate • Down: quick");
+    if (s_detail_hint_layer) text_layer_set_text(s_detail_hint_layer, "Up/Down: scroll\nHold Select=voice Down=quick");
     return;
   }
 
@@ -1042,7 +1068,7 @@ static void draw_reply(GContext *ctx, const Layer *cell, MenuIndex *index, void 
 }
 
 static void reply_selected(MenuLayer *menu_layer, MenuIndex *index, void *context) {
-  send_quick_reply_to_phone(index->row);
+  send_quick_reply_to_phone(index->row, true);
 }
 
 static void reply_load(Window *window) {
@@ -1154,11 +1180,12 @@ static void detail_load(Window *window) {
   s_detail_length = 0;
   if (s_detail_text) s_detail_text[0] = '\0';
 
-  GRect scroll_bounds = GRect(0, 0, bounds.size.w, bounds.size.h - 24);
+  GRect scroll_bounds = GRect(0, 0, bounds.size.w, bounds.size.h - 44);
   s_detail_scroll = scroll_layer_create(scroll_bounds);
   scroll_layer_set_content_size(s_detail_scroll, scroll_bounds.size);
   scroll_layer_set_shadow_hidden(s_detail_scroll, true);
   scroll_layer_set_callbacks(s_detail_scroll, (ScrollLayerCallbacks) {
+    .click_config_provider = detail_clicks,
     .content_offset_changed_handler = detail_offset_changed
   });
   layer_add_child(root, scroll_layer_get_layer(s_detail_scroll));
@@ -1190,9 +1217,9 @@ static void detail_load(Window *window) {
   text_layer_set_text_color(s_detail_hint_layer, s_theme.accent_text);
   text_layer_set_font(s_detail_hint_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD));
   text_layer_set_text_alignment(s_detail_hint_layer, GTextAlignmentCenter);
-  text_layer_set_text(s_detail_hint_layer, "Up: more\nSelect: dictate • Down: quick");
+  text_layer_set_text(s_detail_hint_layer, "Up/Down: scroll\nHold Select=voice Down=quick");
   layer_add_child(root, text_layer_get_layer(s_detail_hint_layer));
-  window_set_click_config_provider(window, detail_clicks);
+  scroll_layer_set_click_config_onto_window(s_detail_scroll, window);
 }
 
 static void detail_unload(Window *window) {
@@ -1309,6 +1336,7 @@ static void init(void) {
 
 static void deinit(void) {
   cancel_load_watchdog();
+  cancel_reply_ack_timer();
   if (s_message_request_timer) app_timer_cancel(s_message_request_timer);
   if (s_dictation_session) dictation_session_destroy(s_dictation_session);
   unload_custom_theme_font();

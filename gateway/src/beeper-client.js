@@ -169,7 +169,9 @@ export class BeeperClient {
     const message = await this.request(`/v1/chats/${encodeURIComponent(chatID)}/messages/${encodeURIComponent(messageID)}`);
     return {
       id: message.id || messageID,
-      status: message.sendStatus?.status || 'PENDING',
+      // sendStatus is optional. A successful lookup by pending ID means that
+      // Beeper resolved it to a real message even when the bridge omits status.
+      status: message.sendStatus?.status || 'SUCCESS',
       reason: message.sendStatus?.message || message.sendStatus?.reason || ''
     };
   }

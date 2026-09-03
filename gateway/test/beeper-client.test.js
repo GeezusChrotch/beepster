@@ -96,6 +96,18 @@ test('message pagination advances through older pages with the opaque cursor', a
   assert.equal(paths[0], '/v1/chats/chat-1/messages?limit=12&cursor=current%20opaque&direction=after');
 });
 
+test('a resolved sent message without optional sendStatus is successful', async () => {
+  const fetchImpl = async () => new Response(JSON.stringify({
+    id: 'message-final',
+    isSender: true,
+    text: 'Sent from the watch'
+  }), {status:200});
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl});
+  assert.deepEqual(await client.getMessageStatus('chat-1', 'pending-1'), {
+    id:'message-final', status:'SUCCESS', reason:''
+  });
+});
+
 test('attachments use opaque IDs and can produce watch-native previews', async () => {
   const paths = [];
   const fetchImpl = async (url) => {

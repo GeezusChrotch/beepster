@@ -54,7 +54,7 @@ sent until Beeper resolves the pending message with a successful send status.
 
 ## 0.5 — Reply chooser
 
-- [x] Select in the complete-message view opens voice dictation and saved replies
+- [x] Long-press controls in the complete-message view open voice dictation and saved replies
 - [x] Canned replies send their original phone-side text, preserving configured emoji
 - [x] Watch-friendly labels persist locally for fast access and offline display
 
@@ -66,8 +66,8 @@ sent until Beeper resolves the pending message with a successful send status.
 
 ## 0.5.2 — Reply controls and recovery
 
-- [x] Center button starts confirmed voice dictation directly
-- [x] Bottom button opens only the configured quick replies
+- [x] Holding the center button starts confirmed voice dictation directly
+- [x] Holding the bottom button opens only the configured quick replies
 - [x] Delivery-status transport failures leave Sending and become retryable errors
 
 ## 0.6 — Pome typography
@@ -75,3 +75,11 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Bundle Pome's five Time 2 font families under their SIL Open Font Licenses
 - [x] Offer the same 14, 18, 22, 26, and 30 point sizes in saved themes
 - [x] Fall back to Pebble Gothic for text containing native emoji glyphs
+
+## 0.6.1 — Reliable replies and message scrolling
+
+- [x] Treat a pending Beeper ID that resolves to a message as delivered when optional `sendStatus` is absent
+- [x] Deduplicate concurrent and retried reply requests while they are still in flight
+- [x] Reuse the same request ID when retrying so recovery cannot create a duplicate send
+- [x] Restore normal Up/Down full-message scrolling
+- [x] Move dictation to hold Select and quick replies to hold Down

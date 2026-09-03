@@ -127,14 +127,26 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '' }) {
         }
         const duplicate = replyRequests.get(requestID);
         if (duplicate) {
-          sendJSON(response, 202, { ...duplicate, duplicate: true });
+          if (duplicate.chatID !== chatID || duplicate.text !== text) {
+            sendJSON(response, 409, { error: 'Reply request ID was already used for different content' });
+            return;
+          }
+          const accepted = await duplicate.promise;
+          sendJSON(response, 202, { ...accepted, duplicate: true });
           return;
         }
-        const result = await beeperClient.sendReply(chatID, text);
-        const accepted = { state: 'pending', pendingMessageID: result.pendingMessageID };
-        replyRequests.set(requestID, accepted);
+        const promise = beeperClient.sendReply(chatID, text).then((result) => ({
+          state: 'pending',
+          pendingMessageID: result.pendingMessageID
+        }));
+        replyRequests.set(requestID, { chatID, text, promise });
         if (replyRequests.size > 100) replyRequests.delete(replyRequests.keys().next().value);
-        sendJSON(response, 202, accepted);
+        try {
+          sendJSON(response, 202, await promise);
+        } catch (error) {
+          replyRequests.delete(requestID);
+          throw error;
+        }
         return;
       }
 
