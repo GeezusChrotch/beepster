@@ -117,6 +117,32 @@ test('theme data is sent once instead of reloading fonts for every state', () =>
   assert.equal(appMessages[1][34], undefined);
 });
 
+test('service aliases normalize to stable filter IDs', () => {
+  const { context } = replyRuntime();
+  assert.equal(context.serviceID('iMessage'), 'apple_messages');
+  assert.equal(context.serviceID('Beeper (Matrix)'), 'beeper');
+  assert.equal(context.serviceID('X (Twitter)'), 'x');
+  assert.equal(context.serviceID('A future network'), 'other');
+});
+
+test('a saved service filter requests a wider page and sends only included chats', () => {
+  const { context, requests, appMessages, storage } = replyRuntime();
+  storage.set('beepster_services', JSON.stringify(['apple_messages']));
+  context.loadChats();
+  assert.equal(requests[0].url, 'https://gateway.example/v1/chats?limit=50');
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items:[
+    {id:'apple-1',name:'Apple person',preview:'Hello',network:'iMessage'},
+    {id:'discord-1',name:'Discord person',preview:'Hi',network:'Discord'}
+  ]});
+  requests[0].onload();
+  const chats = appMessages.filter((message) => message[0] === 'chat');
+  assert.equal(chats.length, 1);
+  assert.equal(chats[0][5], 'apple-1');
+  assert.equal(appMessages.at(-1)[0], 'chats_ready');
+  assert.equal(appMessages.at(-1)[4], 1);
+});
+
 test('a late response from an abandoned chat cannot replace the active thread', () => {
   const { context, requests, appMessages } = replyRuntime();
   context.loadMessages('chat-old');

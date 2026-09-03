@@ -8,6 +8,7 @@ failures=0
 
 pass() { printf 'PASS  %s\n' "$1"; }
 fail() { printf 'FAIL  %s\n' "$1"; failures=$((failures + 1)); }
+warn() { printf 'WARN  %s\n' "$1"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
 [ "$(uname -s)" = Darwin ] && pass 'macOS host' || fail 'macOS is required for the companion'
@@ -22,6 +23,12 @@ fi
 have swiftc && pass 'Swift compiler available' || fail 'Install Xcode Command Line Tools: xcode-select --install'
 have openssl && pass 'OpenSSL available' || fail 'OpenSSL is required to create the gateway credential'
 [ -x "$support_dir/bin/beepster-keychain" ] && pass 'Keychain helper installed' || fail 'Run scripts/install-companion.sh'
+contacts_helper="$support_dir/bin/Beepster Contacts.app/Contents/MacOS/beepster-contacts"
+[ -x "$contacts_helper" ] && pass 'Contacts helper installed' || warn 'Run scripts/install-contact-helper.sh to show Apple contact names'
+if [ -x "$contacts_helper" ]; then
+  contacts_status=$("$contacts_helper" --status 2>/dev/null || true)
+  [ "$contacts_status" = authorized ] && pass 'Read-only Contacts access granted' || warn 'Grant Beepster Contacts access to show Apple contact names'
+fi
 [ -f "$agent" ] && pass 'LaunchAgent installed' || fail 'Run scripts/install-companion.sh'
 
 if launchctl print "gui/$(id -u)/org.beepster.gateway" >/dev/null 2>&1; then

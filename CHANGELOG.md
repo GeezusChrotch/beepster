@@ -14,6 +14,8 @@ All notable changes to Beepster are documented here.
 - Cache and coalesce the eight most recent Mac-side media previews.
 - Add a credential-safe Mac health checker and reproducible release packaging script.
 - Add a synthetic-data demo build for privacy-safe Store screenshots.
+- Add a persistent included-services checklist with all networks enabled by default.
+- Add optional read-only macOS Contacts enrichment for Apple chats that expose only an identifier.
 
 ## 0.8.3
 

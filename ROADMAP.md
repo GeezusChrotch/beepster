@@ -183,6 +183,8 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Add a private Mac health checker and reproducible release packaging
 - [x] Cache repeated watch text layout and Mac preview conversion
 - [x] Prevent stale chat responses and obsolete detail/media queue backlog
+- [x] Let users choose which messaging services appear without re-pairing
+- [x] Add read-only macOS Contacts enrichment for raw Apple message identifiers
 - [ ] Enable and test the public GitHub Pages setup URL in the Pebble mobile webview
 - [x] Capture Store screenshots using synthetic data
 - [ ] Complete a physical-watch release-candidate smoke test

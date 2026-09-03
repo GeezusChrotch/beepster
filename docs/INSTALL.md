@@ -47,6 +47,14 @@ accepts it with hidden terminal input and stores it in your login Keychain.
 Paste the dedicated Beeper token when prompted. Nothing will appear while you paste or type; press
 Return once. A successful result says the token was stored and the companion restarted.
 
+macOS will also ask whether Beepster may access Contacts. Allowing read-only access lets Apple
+message threads show the same contact names you use on the Mac instead of email addresses or phone
+numbers. If you skip it, messaging still works and you can grant access later with:
+
+```sh
+./scripts/install-contact-helper.sh
+```
+
 The companion is a small background service, not another full messaging app. It starts whenever you
 sign into the Mac and listens only on `127.0.0.1:8794`.
 

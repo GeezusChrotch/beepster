@@ -47,6 +47,11 @@ test('configuration page supports editing an existing paired connection', async 
     }
     assert.match(html, /Add up to eight replies/);
     assert.match(html, /quickReply.*maxLength=240/);
+    assert.match(html, /Included services/);
+    assert.match(html, /Apple Messages/);
+    assert.match(html, /Beeper \/ Matrix/);
+    assert.match(html, /Other services/);
+    assert.match(html, /services:services/);
   });
 });
 

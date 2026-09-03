@@ -17,6 +17,11 @@ credential protection, and temporary attachment conversion. Attachment
 source URLs never cross the gateway boundary: the phone receives an opaque ID and a bounded stream
 of watch-native pixels.
 
+For an Apple message participant that Beeper exposes only as an email address or phone number, the
+gateway can invoke the local `beepster-contacts` helper. The helper asks macOS Contacts for an exact,
+read-only match and returns only the display name. Successful matches are cached for six hours and
+misses for fifteen minutes.
+
 The phone component is a transport adapter. It must not contain the Beeper Desktop token. The watch
 owns presentation and interaction state and must remain understandable when transport is unavailable.
 

@@ -67,6 +67,22 @@ test('missing participant names can be filled from the account contact list', as
   assert.equal((await client.listChats(12)).items[0].name, 'Contact Book Name');
 });
 
+test('raw Apple identifiers can be enriched from read-only macOS Contacts', async () => {
+  const fetchImpl = async (url) => {
+    if (url.includes('/contacts/list')) return new Response(JSON.stringify({items:[]}), {status:200});
+    return new Response(JSON.stringify({items:[{
+      id:'chat-apple',accountID:'imessage',network:'iMessage',type:'single',title:'person@example.com',
+      participants:{items:[{id:'person-apple',email:'person@example.com',isSelf:false}]}
+    }]}), {status:200});
+  };
+  const contactResolver = {lookup: async (identifiers) => {
+    assert.deepEqual(identifiers, ['person@example.com', 'person@example.com']);
+    return new Map([['person@example.com', 'Local Contact Name']]);
+  }};
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl,contactResolver});
+  assert.equal((await client.listChats(12)).items[0].name, 'Local Contact Name');
+});
+
 test('chat pagination forwards opaque cursors and returns the oldest cursor', async () => {
   const paths = [];
   const fetchImpl = async (url) => {

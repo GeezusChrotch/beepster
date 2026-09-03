@@ -41,6 +41,13 @@ Version 0.9.0 rejects late responses from a thread that is no longer active and 
 detail/media packets after selection changes. Update both the watch app and companion before
 reporting this symptom.
 
+## An Apple chat shows an email address or phone number
+
+Beeper sometimes supplies only the participant's network identifier. Run
+`./scripts/install-contact-helper.sh`, allow read-only Contacts access, restart the companion, and
+reopen Beepster. `./scripts/doctor.sh` reports whether both the helper and permission are ready.
+Beepster falls back to the original Beeper label when there is no exact local match.
+
 ## A long message appears blank while scrolling
 
 - Update to 0.9.0 or newer; full-message text measurements are cached instead of recalculated on

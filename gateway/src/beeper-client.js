@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createWatchPreview } from './image-preview.js';
 import { htmlToText } from './html-to-text.js';
+import { MacContactsResolver, normalizeContactIdentifier } from './contact-resolver.js';
 
 const MAX_MESSAGE_PAGE = 60;
 const MAX_PREVIEW_CACHE = 8;
@@ -18,14 +19,32 @@ function ensureOK(response, operation) {
   return response;
 }
 
-export function resolveChatName(chat, contacts = []) {
+function participantIdentifiers(chat) {
+  const participant = chat?.participants?.items?.find((item) => !item.isSelf);
+  return [participant?.email, participant?.phoneNumber, chat?.title]
+    .map(normalizeContactIdentifier).filter(Boolean);
+}
+
+function contactMatchesParticipant(contact, participant) {
+  if (contact.id && contact.id === participant?.id) return true;
+  const participantKeys = [participant?.email, participant?.phoneNumber]
+    .map(normalizeContactIdentifier).filter(Boolean);
+  const contactKeys = [contact.email, contact.phoneNumber]
+    .map(normalizeContactIdentifier).filter(Boolean);
+  return participantKeys.some((key) => contactKeys.includes(key));
+}
+
+export function resolveChatName(chat, contacts = [], localNames = new Map()) {
   if (chat?.type === 'single') {
     const participant = chat?.participants?.items?.find((item) => !item.isSelf);
     if (participant?.fullName?.trim()) return participant.fullName.trim();
-    const contact = contacts.find((item) => item.id === participant?.id ||
-      (participant?.phoneNumber && item.phoneNumber === participant.phoneNumber) ||
-      (participant?.email && item.email === participant.email));
+    const contact = contacts.find((item) => contactMatchesParticipant(item, participant));
     if (contact?.fullName?.trim()) return contact.fullName.trim();
+    for (const identifier of participantIdentifiers(chat)) {
+      const localName = localNames.get(identifier);
+      if (localName?.trim()) return localName.trim();
+    }
+    if (chat?.title?.trim()) return chat.title.trim();
     if (participant?.username?.trim()) return participant.username.trim();
     if (participant?.phoneNumber?.trim()) return participant.phoneNumber.trim();
     if (participant?.email?.trim()) return participant.email.trim();
@@ -51,11 +70,13 @@ function normalizeTime(timestamp) {
 }
 
 export class BeeperClient {
-  constructor({ baseURL, accessToken, fetchImpl = globalThis.fetch, previewCreator = createWatchPreview }) {
+  constructor({ baseURL, accessToken, fetchImpl = globalThis.fetch, previewCreator = createWatchPreview,
+    contactResolver = new MacContactsResolver() }) {
     this.baseURL = baseURL.replace(/\/$/, '');
     this.accessToken = accessToken;
     this.fetch = fetchImpl;
     this.previewCreator = previewCreator;
+    this.contactResolver = contactResolver;
     this.attachments = new Map();
     this.previewCache = new Map();
     this.previewPromises = new Map();
@@ -137,9 +158,15 @@ export class BeeperClient {
         contactsByAccount.set(accountID, []);
       }
     }));
+    const localIdentifiers = (result.items || []).flatMap((chat) => {
+      const contacts = contactsByAccount.get(chat.accountID) || [];
+      const current = resolveChatName(chat, contacts);
+      return normalizeContactIdentifier(current) ? participantIdentifiers(chat) : [];
+    });
+    const localNames = await this.contactResolver.lookup(localIdentifiers);
     const items = (result.items || []).map((chat) => ({
       id: chat.id,
-      name: normalizeEmojiForPebble(resolveChatName(chat, contactsByAccount.get(chat.accountID) || [])),
+      name: normalizeEmojiForPebble(resolveChatName(chat, contactsByAccount.get(chat.accountID) || [], localNames)),
       network: chat.network || '',
       unreadCount: chat.unreadCount || 0,
       preview: normalizeEmojiForPebble(normalizePreview(chat.preview)),

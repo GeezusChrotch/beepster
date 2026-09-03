@@ -31,6 +31,13 @@ as a readable fallback.
 
 Edit replies in **Pebble mobile app → Beepster → Settings**. Blank slots are omitted.
 
+## Included messaging services
+
+Open Beepster Settings and use **Included services** to choose which networks appear in the watch
+inbox. All services are enabled by default. You can select any combination—including only Apple
+Messages—and save without pairing again. Unknown or newly added Beeper networks are controlled by
+**Other services**.
+
 ## Themes and accessibility
 
 Settings includes six presets and saved custom themes. A custom theme controls background, body,

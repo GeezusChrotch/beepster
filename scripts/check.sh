@@ -5,6 +5,7 @@ project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
 node --check "$project_dir/src/pkjs/index.js"
 node --check "$project_dir/gateway/src/beeper-client.js"
+node --check "$project_dir/gateway/src/contact-resolver.js"
 node --check "$project_dir/gateway/src/emoji.js"
 node --check "$project_dir/gateway/src/image-preview.js"
 node --check "$project_dir/gateway/src/html-to-text.js"

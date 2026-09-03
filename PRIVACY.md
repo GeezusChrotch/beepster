@@ -12,5 +12,8 @@ Beepster is designed for personal, self-hosted use.
   transferred directly to the watch; Beeper file paths are not sent to the phone or watch.
 - No Beepster-operated cloud database or account is required.
 - The eight-entry Mac preview cache is memory-only and disappears when the companion restarts.
+- The optional Contacts helper performs read-only exact matches for phone numbers and email
+  addresses already supplied by Beeper. It returns only matching display names to the local
+  gateway; it does not modify contacts, enumerate them to the watch, or upload address-book data.
 
 The messaging networks connected to Beeper remain subject to their own privacy policies.

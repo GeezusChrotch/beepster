@@ -8,6 +8,7 @@ logs_dir="$support_dir/logs"
 agent="$HOME/Library/LaunchAgents/org.beepster.gateway.plist"
 mkdir -p "$bin_dir" "$logs_dir" "$(dirname "$agent")"
 swiftc -framework Security "$project_dir/mac/BeepsterKeychain.swift" -o "$bin_dir/beepster-keychain"
+"$project_dir/scripts/install-contact-helper.sh"
 gateway_token=$(openssl rand -hex 32)
 pairing_code=$(jot -r 1 100000 999999)
 printf %s "$gateway_token" | "$bin_dir/beepster-keychain" set gateway-token

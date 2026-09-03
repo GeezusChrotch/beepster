@@ -46,6 +46,7 @@ var BUILT_IN_THEMES = [
 ];
 var THEME_FONTS = {inter:5,roboto:6,'open-sans':7,montserrat:8,poppins:9};
 var THEME_SIZES = [14,18,22,26,30];
+var SERVICE_IDS = ['apple_messages','beeper','discord','google_chat','google_messages','google_voice','instagram','line','linkedin','messenger','signal','slack','telegram','x','whatsapp','other'];
 
 var queue = [];
 var sending = false;
@@ -154,6 +155,40 @@ function configuredQuickReplies() {
     if (saved && Array.isArray(saved)) return saved.map(function(value) { return String(value || '').trim(); }).filter(Boolean).slice(0, 8);
   } catch (error) {}
   return DEFAULT_QUICK_REPLIES.slice();
+}
+
+function configuredServices() {
+  try {
+    var saved = JSON.parse(localStorage.getItem('beepster_services') || 'null');
+    if (Array.isArray(saved)) return saved.filter(function(value, index) {
+      return SERVICE_IDS.indexOf(value) !== -1 && saved.indexOf(value) === index;
+    });
+  } catch (error) {}
+  return SERVICE_IDS.slice();
+}
+
+function serviceID(network) {
+  var value = String(network || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  if (/imessage|apple messages/.test(value)) return 'apple_messages';
+  if (/beeper|matrix/.test(value)) return 'beeper';
+  if (/discord/.test(value)) return 'discord';
+  if (/google chat|hangouts/.test(value)) return 'google_chat';
+  if (/google messages|android messages|\brcs\b/.test(value)) return 'google_messages';
+  if (/google voice/.test(value)) return 'google_voice';
+  if (/instagram/.test(value)) return 'instagram';
+  if (/linkedin/.test(value)) return 'linkedin';
+  if (/facebook|messenger/.test(value)) return 'messenger';
+  if (/signal/.test(value)) return 'signal';
+  if (/slack/.test(value)) return 'slack';
+  if (/telegram/.test(value)) return 'telegram';
+  if (/twitter|^x$|x twitter/.test(value)) return 'x';
+  if (/whatsapp/.test(value)) return 'whatsapp';
+  if (/^line$|line messenger/.test(value)) return 'line';
+  return 'other';
+}
+
+function serviceEnabled(network, enabled) {
+  return enabled.indexOf(serviceID(network)) !== -1;
 }
 
 function watchQuickReply(value) {
@@ -415,10 +450,14 @@ function sendQuickReply(chatID, index, requestID, watchText) {
 function loadChats() {
   if (DEMO_MODE) { loadDemoChats(); return; }
   var generation = ++chatLoadGeneration;
+  var enabledServices = configuredServices();
+  var requestLimit = enabledServices.length === SERVICE_IDS.length ? 12 : 50;
   if (!hasLoadedChats) sendState('loading');
-  request('/v1/chats?limit=12', function(data) {
+  request('/v1/chats?limit=' + requestLimit, function(data) {
     if (generation !== chatLoadGeneration) { scheduleRefresh(); return; }
-    var items = data.items || [];
+    var items = (data.items || []).filter(function(chat) {
+      return serviceEnabled(chat.network, enabledServices);
+    }).slice(0, 12);
     discardQueuedCommands(['chat', 'chats_ready']);
     if (items.length === 0) {
       var empty = {}; empty[KEY_COMMAND] = 'chats_ready'; empty[KEY_TOTAL] = 0; enqueue(empty);
@@ -660,6 +699,7 @@ Pebble.addEventListener('showConfiguration', function() {
     theme: configuredTheme(),
     themes: configuredThemes(),
     quickReplies: configuredQuickReplies(),
+    services: configuredServices(),
     textSize: configuredTheme().textSize,
     refresh: Number(localStorage.getItem('beepster_refresh') || '180')
   };
@@ -675,6 +715,7 @@ Pebble.addEventListener('webviewclosed', function(event) {
     if (settings.theme) { localStorage.setItem('beepster_theme_json', JSON.stringify(normalizeTheme(settings.theme))); localStorage.setItem('beepster_theme', normalizeTheme(settings.theme).id); }
     if (settings.themes) localStorage.setItem('beepster_themes', JSON.stringify(settings.themes.slice(0,20)));
     if (settings.quickReplies && Array.isArray(settings.quickReplies)) localStorage.setItem('beepster_quick_replies', JSON.stringify(settings.quickReplies.slice(0,8)));
+    if (Array.isArray(settings.services)) localStorage.setItem('beepster_services', JSON.stringify(settings.services.filter(function(value) { return SERVICE_IDS.indexOf(value) !== -1; })));
     if (settings.textSize) localStorage.setItem('beepster_text_size', settings.textSize);
     if (typeof settings.refresh === 'number') localStorage.setItem('beepster_refresh', String(settings.refresh));
     lastThemeSignature = '';
