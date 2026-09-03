@@ -8,6 +8,7 @@ import { createWatchPreview } from './image-preview.js';
 import { htmlToText } from './html-to-text.js';
 
 const MAX_MESSAGE_PAGE = 60;
+const LOCAL_API_PORTS = Array.from({length: 11}, (_, index) => 23373 + index);
 
 function ensureOK(response, operation) {
   if (!response.ok) {
@@ -55,17 +56,48 @@ export class BeeperClient {
     this.fetch = fetchImpl;
     this.previewCreator = previewCreator;
     this.attachments = new Map();
+    this.autoDiscoverLocalAPI = /^http:\/\/(127\.0\.0\.1|localhost):23373$/.test(this.baseURL);
+  }
+
+  async discoverLocalAPI() {
+    const candidates = await Promise.all(LOCAL_API_PORTS.map(async (port) => {
+      const baseURL = `http://127.0.0.1:${port}`;
+      try {
+        const response = await this.fetch(`${baseURL}/v1/info`, {
+          signal: AbortSignal.timeout(750)
+        });
+        if (!response.ok) return null;
+        const info = await response.json();
+        return info?.app?.name === 'Beeper' && info?.server?.status === 'running' ? baseURL : null;
+      } catch {
+        return null;
+      }
+    }));
+    const discovered = candidates.find(Boolean);
+    if (!discovered) throw new Error('Beeper Desktop API is not running');
+    this.baseURL = discovered;
+    return discovered;
   }
 
   async response(path, options = {}) {
-    const response = await this.fetch(`${this.baseURL}${path}`, {
+    const requestOptions = {
       ...options,
       headers: {
         Authorization: `Bearer ${this.accessToken}`,
         'Content-Type': 'application/json',
         ...(options.headers || {})
       }
-    });
+    };
+    let response;
+    try {
+      response = await this.fetch(`${this.baseURL}${path}`, requestOptions);
+    } catch (error) {
+      if (!this.autoDiscoverLocalAPI) throw error;
+      const previousBaseURL = this.baseURL;
+      const discoveredBaseURL = await this.discoverLocalAPI();
+      if (discoveredBaseURL === previousBaseURL) throw error;
+      response = await this.fetch(`${this.baseURL}${path}`, requestOptions);
+    }
     ensureOK(response, options.method || 'GET');
     return response;
   }

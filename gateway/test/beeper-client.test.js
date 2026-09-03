@@ -108,6 +108,35 @@ test('a resolved sent message without optional sendStatus is successful', async 
   });
 });
 
+test('the default local API address recovers when Beeper selects its next port', async () => {
+  const requests = [];
+  const fetchImpl = async (url, options = {}) => {
+    const parsed = new URL(url);
+    requests.push({port:parsed.port,path:parsed.pathname,authorization:options.headers?.Authorization || ''});
+    if (parsed.pathname === '/v1/info') {
+      if (parsed.port === '23374') {
+        return new Response(JSON.stringify({app:{name:'Beeper'},server:{status:'running'}}), {status:200});
+      }
+      return new Response('', {status:404});
+    }
+    if (parsed.port === '23373') throw new TypeError('connection refused');
+    return new Response(JSON.stringify({items:[]}), {status:200});
+  };
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl});
+  assert.deepEqual((await client.listChats(12)).items, []);
+  assert.equal(client.baseURL, 'http://127.0.0.1:23374');
+  assert.ok(requests.some((request) => request.port === '23374' && request.path === '/v1/info'));
+  assert.ok(requests.some((request) => request.port === '23374' &&
+    request.path === '/v1/chats/search' && request.authorization === 'Bearer secret'));
+});
+
+test('an explicit custom API address is never silently replaced', async () => {
+  const fetchImpl = async () => { throw new TypeError('connection refused'); };
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:24444',accessToken:'secret',fetchImpl});
+  await assert.rejects(() => client.listChats(12), /connection refused/);
+  assert.equal(client.baseURL, 'http://127.0.0.1:24444');
+});
+
 test('attachments use opaque IDs and can produce watch-native previews', async () => {
   const paths = [];
   const fetchImpl = async (url) => {

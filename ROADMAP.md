@@ -111,3 +111,9 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Retry temporary pending-message lookup failures
 - [x] Guarantee that the watch leaves the sending state and offers a safe retry
 - [x] Log reply transport and outcome without message text, chat IDs, tokens, or raw request IDs
+
+## 0.6.6 — Companion resilience
+
+- [x] Discover Beeper Desktop when it selects a fallback local API port after restart
+- [x] Validate a candidate through Beeper's local `/v1/info` identity endpoint
+- [x] Keep explicit custom API URLs fixed rather than silently replacing them
