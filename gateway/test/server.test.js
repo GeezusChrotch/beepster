@@ -33,7 +33,8 @@ test('configuration page supports editing an existing paired connection', async 
     const html = await (await fetch(`${baseURL}/configure`)).text();
     assert.match(html, /Adjust Beepster without pairing again/);
     assert.match(html, /location\.hash/);
-    assert.match(html, /Saved connection failed/);
+    assert.match(html, /The saved pairing expired/);
+    assert.match(html, /requirePairing/);
     assert.match(html, /New custom theme/);
     assert.match(html, /Built-in themes cannot be deleted/);
     assert.match(html, /type="color"/);

@@ -10,6 +10,8 @@
   public first-run fallback.
 - Personal builds now migrate an existing saved gateway origin to their embedded private Connector
   address while preserving the paired credential, recovering cleanly when the Tailscale port moves.
+- Settings now detects an expired gateway credential and reveals the pairing-code field instead of
+  leaving the watch on a generic connection error.
 
 All notable changes to Beepster are documented here.
 
