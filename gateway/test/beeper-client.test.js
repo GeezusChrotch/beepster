@@ -67,6 +67,73 @@ test('missing participant names can be filled from the account contact list', as
   assert.equal((await client.listChats(12)).items[0].name, 'Contact Book Name');
 });
 
+test('direct message sender falls back to the resolved chat contact name', async () => {
+  const fetchImpl = async (url) => {
+    if (url.includes('/messages')) return new Response(JSON.stringify({items:[{
+      id:'message-1',senderID:'person-1',senderName:'+15550101000',text:'Hello'
+    }]}), {status:200});
+    return new Response(JSON.stringify({items:[{
+      id:'chat-1',accountID:'imessage',network:'iMessage',type:'single',title:'+15550101000',
+      participants:{items:[{id:'person-1',fullName:'Resolved Person',phoneNumber:'+15550101000',isSelf:false}]}
+    }]}), {status:200});
+  };
+  const contactResolver = {lookupDetails: async () => ({names:new Map(),contactKeys:new Map()})};
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl,contactResolver});
+  await client.listChats(12);
+  assert.equal((await client.listMessages('chat-1', 12)).items[0].sender, 'Resolved Person');
+});
+
+test('group message sender resolves through the matching participant', async () => {
+  const fetchImpl = async (url) => {
+    if (url.includes('/contacts/list')) return new Response(JSON.stringify({items:[]}), {status:200});
+    if (url.includes('/messages')) return new Response(JSON.stringify({items:[{
+      id:'message-1',senderID:'group-person',senderName:'@raw:example',text:'Hello group'
+    }]}), {status:200});
+    return new Response(JSON.stringify({items:[{
+      id:'group-1',accountID:'matrix',network:'Beeper (Matrix)',type:'group',title:'Family',
+      participants:{items:[{id:'group-person',fullName:'Group Person',isSelf:false}]}
+    }]}), {status:200});
+  };
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl});
+  await client.listChats(12);
+  assert.equal((await client.listMessages('group-1', 12)).items[0].sender, 'Group Person');
+});
+
+test('Apple group message sender can fall back to read-only macOS Contacts', async () => {
+  const fetchImpl = async (url) => {
+    if (url.includes('/contacts/list')) return new Response(JSON.stringify({items:[]}), {status:200});
+    if (url.includes('/messages')) return new Response(JSON.stringify({items:[{
+      id:'message-1',senderID:'apple-person',senderName:'person@example.com',text:'Hello group'
+    }]}), {status:200});
+    return new Response(JSON.stringify({items:[{
+      id:'group-1',accountID:'imessage',network:'iMessage',type:'group',title:'Family',
+      participants:{items:[{id:'apple-person',email:'person@example.com',isSelf:false}]}
+    }]}), {status:200});
+  };
+  const contactResolver = {lookupDetails: async (identifiers) => {
+    assert.deepEqual(identifiers, ['person@example.com']);
+    return {names:new Map([['person@example.com','Local Group Person']]),contactKeys:new Map()};
+  }};
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl,contactResolver});
+  await client.listChats(12);
+  assert.equal((await client.listMessages('group-1', 12)).items[0].sender, 'Local Group Person');
+});
+
+test('a readable message sender supplied by Beeper remains authoritative', async () => {
+  const fetchImpl = async (url) => {
+    if (url.includes('/messages')) return new Response(JSON.stringify({items:[{
+      id:'message-1',senderID:'person-1',senderName:'Beeper Display Name',text:'Hello'
+    }]}), {status:200});
+    return new Response(JSON.stringify({items:[{
+      id:'chat-1',accountID:'signal',network:'Signal',type:'single',title:'Conversation Name',
+      participants:{items:[{id:'person-1',fullName:'Participant Name',isSelf:false}]}
+    }]}), {status:200});
+  };
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl});
+  await client.listChats(12);
+  assert.equal((await client.listMessages('chat-1', 12)).items[0].sender, 'Beeper Display Name');
+});
+
 test('raw Apple identifiers can be enriched from read-only macOS Contacts', async () => {
   const fetchImpl = async (url) => {
     if (url.includes('/contacts/list')) return new Response(JSON.stringify({items:[]}), {status:200});

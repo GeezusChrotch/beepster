@@ -25,6 +25,22 @@ function participantIdentifiers(chat) {
     .map(normalizeContactIdentifier).filter(Boolean);
 }
 
+function personIdentifiers(person) {
+  return [person?.email, person?.phoneNumber]
+    .map(normalizeContactIdentifier).filter(Boolean);
+}
+
+function allParticipantIdentifiers(chat) {
+  return (chat?.participants?.items || [])
+    .filter((item) => !item.isSelf)
+    .flatMap(personIdentifiers);
+}
+
+function readableDisplayName(value) {
+  const name = String(value || '').trim();
+  return name && !/^unknown(?: contact)?$/i.test(name) && !normalizeContactIdentifier(name) ? name : '';
+}
+
 function appleIdentifierKind(chat) {
   if (!/imessage|apple messages/i.test(String(chat?.network || chat?.accountID || ''))) return '';
   const participant = chat?.participants?.items?.find((item) => !item.isSelf);
@@ -97,6 +113,9 @@ export class BeeperClient {
     this.attachments = new Map();
     this.previewCache = new Map();
     this.previewPromises = new Map();
+    this.chatContexts = new Map();
+    this.accountContacts = new Map();
+    this.localContactNames = new Map();
     this.autoDiscoverLocalAPI = /^http:\/\/(127\.0\.0\.1|localhost):23373$/.test(this.baseURL);
   }
 
@@ -171,6 +190,7 @@ export class BeeperClient {
       try {
         const contacts = await this.request(`/v1/accounts/${encodeURIComponent(accountID)}/contacts/list?limit=200`);
         contactsByAccount.set(accountID, contacts.items || []);
+        this.accountContacts.set(accountID, contacts.items || []);
       } catch {
         contactsByAccount.set(accountID, []);
       }
@@ -179,7 +199,11 @@ export class BeeperClient {
       const contacts = contactsByAccount.get(chat.accountID) || [];
       const current = resolveChatName(chat, contacts);
       const appleDirect = chat?.type === 'single' && Boolean(appleIdentifierKind(chat));
-      return appleDirect || normalizeContactIdentifier(current) ? participantIdentifiers(chat) : [];
+      if (appleDirect || normalizeContactIdentifier(current)) return participantIdentifiers(chat);
+      if (/imessage|apple messages/i.test(String(chat?.network || chat?.accountID || ''))) {
+        return allParticipantIdentifiers(chat);
+      }
+      return [];
     });
     let localNames;
     let localContactKeys;
@@ -191,16 +215,29 @@ export class BeeperClient {
       localNames = await this.contactResolver.lookup(localIdentifiers);
       localContactKeys = new Map();
     }
-    const items = (result.items || []).map((chat) => ({
-      id: chat.id,
-      name: normalizeEmojiForPebble(resolveChatName(chat, contactsByAccount.get(chat.accountID) || [], localNames)),
-      network: chat.network || '',
-      unreadCount: chat.unreadCount || 0,
-      preview: normalizeEmojiForPebble(normalizePreview(chat.preview)),
-      timestamp: normalizeTime(chat.lastActivity || chat.lastActivityAt || chat.preview?.timestamp),
-      identifierKind: appleIdentifierKind(chat),
-      contactGroup: appleContactGroup(chat, localContactKeys)
-    }));
+    for (const [identifier, name] of localNames) this.localContactNames.set(identifier, name);
+    const items = (result.items || []).map((chat) => {
+      const contacts = contactsByAccount.get(chat.accountID) || this.accountContacts.get(chat.accountID) || [];
+      const name = normalizeEmojiForPebble(resolveChatName(chat, contacts, localNames));
+      this.chatContexts.delete(chat.id);
+      this.chatContexts.set(chat.id, {
+        accountID: chat.accountID || '',
+        type: chat.type || '',
+        name,
+        participants: chat?.participants?.items || []
+      });
+      while (this.chatContexts.size > 100) this.chatContexts.delete(this.chatContexts.keys().next().value);
+      return {
+        id: chat.id,
+        name,
+        network: chat.network || '',
+        unreadCount: chat.unreadCount || 0,
+        preview: normalizeEmojiForPebble(normalizePreview(chat.preview)),
+        timestamp: normalizeTime(chat.lastActivity || chat.lastActivityAt || chat.preview?.timestamp),
+        identifierKind: appleIdentifierKind(chat),
+        contactGroup: appleContactGroup(chat, localContactKeys)
+      };
+    });
     const appleNameCounts = new Map();
     for (const item of items) {
       if (!item.identifierKind) continue;
@@ -220,6 +257,36 @@ export class BeeperClient {
     };
   }
 
+  resolveMessageSender(chatID, message) {
+    if (message.isSender) return 'Me';
+    const supplied = readableDisplayName(message.senderName);
+    if (supplied) return supplied;
+    const context = this.chatContexts.get(chatID);
+    if (!context) return String(message.senderName || 'Unknown').trim() || 'Unknown';
+    if (context.type === 'single') {
+      const directName = readableDisplayName(context.name);
+      if (directName) return directName;
+    }
+    const participant = context.participants.find((item) =>
+      !item.isSelf && message.senderID && item.id === message.senderID);
+    const contacts = this.accountContacts.get(context.accountID) || [];
+    const contact = contacts.find((item) => item.id && item.id === message.senderID) ||
+      (participant ? contacts.find((item) => contactMatchesParticipant(item, participant)) : null);
+    for (const candidate of [participant?.fullName, contact?.fullName]) {
+      const name = readableDisplayName(candidate);
+      if (name) return name;
+    }
+    for (const identifier of personIdentifiers(participant)) {
+      const name = readableDisplayName(this.localContactNames.get(identifier));
+      if (name) return name;
+    }
+    for (const candidate of [participant?.username, contact?.username]) {
+      const name = readableDisplayName(candidate);
+      if (name) return name;
+    }
+    return String(message.senderName || 'Unknown').trim() || 'Unknown';
+  }
+
   async listMessages(chatID, limit, cursor = '') {
     // The current Desktop API returns newest-first pages and advances toward older history with
     // `after`; cursors remain opaque and are never inspected here.
@@ -230,7 +297,7 @@ export class BeeperClient {
         this.rememberAttachment(message.id, item, index)).find(Boolean) || null;
       return {
         id: message.id,
-        sender: message.isSender ? 'Me' : normalizeEmojiForPebble(message.senderName || 'Unknown'),
+        sender: normalizeEmojiForPebble(this.resolveMessageSender(chatID, message)),
         text: normalizeEmojiForPebble(htmlToText(message.text || '')),
         time: normalizeTime(message.timestamp),
         timestamp: message.timestamp || '',

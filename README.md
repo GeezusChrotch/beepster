@@ -30,8 +30,8 @@ its gateway runtime, so end users do not need Terminal, Git, Node.js, or develop
 
 ## Current capabilities
 
-- Up to 30 chats with persistent pinning, contact-name normalization, read-only macOS Contacts
-  enrichment, and service icons
+- Up to 30 chats with persistent pinning, contact and in-thread sender-name normalization,
+  read-only macOS Contacts enrichment, and service icons
 - Automatic linking of split Apple email/phone chats matched to one Mac Contacts record, with a
   user-controlled alias fallback
 - Persistent service filtering, with all networks enabled by default

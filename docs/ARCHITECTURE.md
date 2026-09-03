@@ -23,6 +23,12 @@ a normalized, exact match and returns the display name plus an opaque hash of th
 record identifier. The raw record identifier never leaves the helper. Successful matches are cached
 for six hours and misses for fifteen minutes.
 
+The gateway also keeps a bounded cache of recent chat participants and resolved display names.
+When Beeper omits a message's optional sender name or returns a raw identifier, direct messages use
+the resolved conversation contact. Group messages match the sender ID against Beeper participants
+and account contacts, then use an exact email or phone match from macOS Contacts when available.
+A readable sender name supplied by Beeper remains authoritative.
+
 When Beeper exposes one Apple contact as separate email and phone chat IDs, matching opaque contact
 hashes link them automatically. A user can assign the same local alias when an identifier is not in
 Contacts. PebbleKit JS constructs a virtual chat ID, combines and sorts bounded message pages from
