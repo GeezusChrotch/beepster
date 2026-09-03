@@ -4,6 +4,8 @@
 
 - Prevented recurring macOS Keychain prompts by allowing authorization requests
   to finish instead of killing the helper after five seconds and restarting it.
+- Fixed **Copy Phone Setup** to include the exact Tailscale Serve HTTPS port assigned to Beepster,
+  preventing Settings from opening another service on the same Mac.
 
 All notable changes to Beepster are documented here.
 

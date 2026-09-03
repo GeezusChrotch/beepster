@@ -20,6 +20,8 @@ It never prints either token, message data, contacts, or your private URL.
 - Confirm the phone has internet access for the public setup page.
 - Confirm Tailscale is connected before the setup page redirects to the private Mac.
 - The address must use `https://` and end in `/configure`.
+- Use the complete address copied by the Connector, including the HTTPS port when present. Omitting
+  it may open a different service running on the same Mac.
 
 ## Pairing code is rejected
 

@@ -83,7 +83,7 @@ Beepster → Settings**:
 
 The Mac and phone can share the copied address through Apple's Universal Clipboard. If that is not
 enabled, the Connector also displays the address so it can be entered manually; no Terminal lookup
-is needed.
+is needed. Use the complete address exactly as shown, including its HTTPS port when present.
 
 The phone receives a narrow Beepster gateway credential, never the Beeper token. The one-time code
 cannot be reused after successful pairing. Ordinary settings changes, Connector repairs, and app

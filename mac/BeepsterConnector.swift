@@ -185,8 +185,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let ownDevice = root["Self"] as? [String: Any],
               var dnsName = ownDevice["DNSName"] as? String else { return nil }
         dnsName = dnsName.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        guard !dnsName.isEmpty else { return nil }
-        return URL(string: "https://\(dnsName)/configure")
+        guard !dnsName.isEmpty, let servePort = tailscaleServePort(binary) else { return nil }
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = dnsName
+        if servePort != 443 { components.port = servePort }
+        components.path = "/configure"
+        return components.url
+    }
+
+    private func tailscaleServePort(_ binary: String) -> Int? {
+        let status = run(binary, ["serve", "status", "--json"])
+        guard status.0 == 0,
+              let data = status.1.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let web = root["Web"] as? [String: Any] else { return nil }
+        for (listener, value) in web {
+            guard let configuration = value as? [String: Any],
+                  let handlers = configuration["Handlers"] as? [String: Any] else { continue }
+            for value in handlers.values {
+                guard let handler = value as? [String: Any],
+                      let proxy = handler["Proxy"] as? String,
+                      let proxyURL = URL(string: proxy),
+                      ["127.0.0.1", "localhost"].contains(proxyURL.host ?? ""),
+                      proxyURL.port == 8794,
+                      let separator = listener.lastIndex(of: ":"),
+                      let port = Int(listener[listener.index(after: separator)...]) else { continue }
+                return port
+            }
+        }
+        return nil
     }
 
     private func keychainHelperPath() -> String {
@@ -356,9 +384,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let status = run(binary, ["status"])
         guard status.0 == 0 else { return (false, "not connected") }
-        let serve = run(binary, ["serve", "status"])
-        let routed = serve.1.contains("127.0.0.1:8794") || serve.1.contains("localhost:8794")
-        return routed ? (true, "connected and forwarding") : (false, "connected; Serve route missing")
+        return tailscaleServePort(binary) != nil
+            ? (true, "connected and forwarding")
+            : (false, "connected; Serve route missing")
     }
 
     @objc private func refresh() {
