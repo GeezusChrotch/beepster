@@ -20,13 +20,12 @@ function ensureOK(response, operation) {
 }
 
 function participantIdentifiers(chat) {
-  const participant = chat?.participants?.items?.find((item) => !item.isSelf);
-  return [participant?.email, participant?.phoneNumber, chat?.title]
-    .map(normalizeContactIdentifier).filter(Boolean);
+  return [...(chat?.participants?.items || []).filter((item) => !item.isSelf).flatMap(personIdentifiers), chat?.title]
+    .map(normalizeContactIdentifier).filter((value, index, values) => value && values.indexOf(value) === index);
 }
 
 function personIdentifiers(person) {
-  return [person?.email, person?.phoneNumber]
+  return [person?.email, person?.phoneNumber, person?.id]
     .map(normalizeContactIdentifier).filter(Boolean);
 }
 
@@ -36,9 +35,36 @@ function allParticipantIdentifiers(chat) {
     .flatMap(personIdentifiers);
 }
 
+function contactSearchQueries(chat) {
+  const participant = chat?.participants?.items?.find((item) => !item.isSelf);
+  return [participant?.email, participant?.phoneNumber, participant?.username, chat?.title]
+    .map((value) => String(value || '').trim()).filter(Boolean);
+}
+
+async function mapWithConcurrency(values, concurrency, mapper) {
+  const results = new Array(values.length);
+  let next = 0;
+  async function worker() {
+    while (next < values.length) {
+      const index = next++;
+      results[index] = await mapper(values[index], index);
+    }
+  }
+  await Promise.all(Array.from({length: Math.min(concurrency, values.length)}, worker));
+  return results;
+}
+
 function readableDisplayName(value) {
   const name = String(value || '').trim();
   return name && !/^unknown(?: contact)?$/i.test(name) && !normalizeContactIdentifier(name) ? name : '';
+}
+
+function needsContactEnrichment(chat, contacts = []) {
+  if (chat?.type !== 'single') return false;
+  const participant = chat?.participants?.items?.find((item) => !item.isSelf);
+  if (participant?.fullName?.trim()) return false;
+  const current = resolveChatName(chat, contacts);
+  return current === 'Unknown contact' || current === chat?.title || !readableDisplayName(current);
 }
 
 function appleIdentifierKind(chat) {
@@ -115,6 +141,8 @@ export class BeeperClient {
     this.previewPromises = new Map();
     this.chatContexts = new Map();
     this.accountContacts = new Map();
+    this.loadedAccountContacts = new Set();
+    this.accountContactQueries = new Map();
     this.localContactNames = new Map();
     this.autoDiscoverLocalAPI = /^http:\/\/(127\.0\.0\.1|localhost):23373$/.test(this.baseURL);
   }
@@ -179,21 +207,69 @@ export class BeeperClient {
     return { id, kind };
   }
 
+  mergeAccountContacts(accountID, additions) {
+    const contacts = this.accountContacts.get(accountID) || [];
+    const keys = new Map();
+    contacts.forEach((contact, index) => {
+      const key = contact.id || personIdentifiers(contact)[0] || String(contact.username || '').toLocaleLowerCase();
+      if (key) keys.set(key, index);
+    });
+    for (const contact of additions || []) {
+      const key = contact.id || personIdentifiers(contact)[0] || String(contact.username || '').toLocaleLowerCase();
+      if (key && keys.has(key)) Object.assign(contacts[keys.get(key)], contact);
+      else {
+        if (key) keys.set(key, contacts.length);
+        contacts.push(contact);
+      }
+    }
+    this.accountContacts.set(accountID, contacts);
+    return contacts;
+  }
+
+  async loadAccountContactPage(accountID) {
+    if (!accountID || this.loadedAccountContacts.has(accountID)) return this.accountContacts.get(accountID) || [];
+    try {
+      const result = await this.request(`/v1/accounts/${encodeURIComponent(accountID)}/contacts/list?limit=200`);
+      this.loadedAccountContacts.add(accountID);
+      return this.mergeAccountContacts(accountID, result.items || []);
+    } catch {
+      return this.accountContacts.get(accountID) || [];
+    }
+  }
+
+  async searchAccountContacts(accountID, values) {
+    if (!accountID) return [];
+    const searched = this.accountContactQueries.get(accountID) || new Set();
+    this.accountContactQueries.set(accountID, searched);
+    const queries = [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))]
+      .filter((value) => !searched.has(value.toLocaleLowerCase()));
+    await mapWithConcurrency(queries, 4, async (query) => {
+      try {
+        const result = await this.request(`/v1/accounts/${encodeURIComponent(accountID)}/contacts?query=${encodeURIComponent(query)}`);
+        searched.add(query.toLocaleLowerCase());
+        this.mergeAccountContacts(accountID, result.items || []);
+      } catch {
+        // Network-specific contact search is optional; retain other honest fallbacks.
+      }
+    });
+    return this.accountContacts.get(accountID) || [];
+  }
+
   async listChats(limit, cursor = '', inbox = 'primary') {
     const cursorQuery = cursor ? `&cursor=${encodeURIComponent(cursor)}&direction=before` : '';
     const result = await this.request(`/v1/chats/search?limit=${limit}&type=any&inbox=${encodeURIComponent(inbox)}${cursorQuery}`);
     const contactsByAccount = new Map();
-    const unresolvedAccounts = [...new Set((result.items || [])
-      .filter((chat) => resolveChatName(chat) === 'Unknown contact' || resolveChatName(chat) === chat.title)
-      .map((chat) => chat.accountID).filter(Boolean))].slice(0, 6);
+    const unresolvedChats = (result.items || []).filter((chat) => needsContactEnrichment(chat));
+    const unresolvedAccounts = [...new Set(unresolvedChats.map((chat) => chat.accountID).filter(Boolean))];
     await Promise.all(unresolvedAccounts.map(async (accountID) => {
-      try {
-        const contacts = await this.request(`/v1/accounts/${encodeURIComponent(accountID)}/contacts/list?limit=200`);
-        contactsByAccount.set(accountID, contacts.items || []);
-        this.accountContacts.set(accountID, contacts.items || []);
-      } catch {
-        contactsByAccount.set(accountID, []);
-      }
+      contactsByAccount.set(accountID, await this.loadAccountContactPage(accountID));
+    }));
+    await Promise.all(unresolvedAccounts.map(async (accountID) => {
+      const accountChats = unresolvedChats.filter((chat) => chat.accountID === accountID);
+      const contacts = contactsByAccount.get(accountID) || [];
+      const queries = accountChats.filter((chat) => needsContactEnrichment(chat, contacts))
+        .flatMap(contactSearchQueries);
+      contactsByAccount.set(accountID, await this.searchAccountContacts(accountID, queries));
     }));
     const localIdentifiers = (result.items || []).flatMap((chat) => {
       const contacts = contactsByAccount.get(chat.accountID) || [];
@@ -224,7 +300,9 @@ export class BeeperClient {
         accountID: chat.accountID || '',
         type: chat.type || '',
         name,
-        participants: chat?.participants?.items || []
+        participants: chat?.participants?.items || [],
+        participantsHasMore: Boolean(chat?.participants?.hasMore),
+        hydrated: false
       });
       while (this.chatContexts.size > 100) this.chatContexts.delete(this.chatContexts.keys().next().value);
       return {
@@ -287,11 +365,60 @@ export class BeeperClient {
     return String(message.senderName || 'Unknown').trim() || 'Unknown';
   }
 
+  async hydrateChatContext(chatID, messages) {
+    let context = this.chatContexts.get(chatID);
+    if (!context || context.type !== 'group') return;
+    if (!context.hydrated || context.participantsHasMore) {
+      try {
+        const detail = await this.request(`/v1/chats/${encodeURIComponent(chatID)}?maxParticipantCount=500`);
+        context = {
+          ...context,
+          accountID: detail.accountID || context.accountID,
+          name: normalizeEmojiForPebble(resolveChatName(detail) || context.name),
+          participants: detail?.participants?.items || context.participants,
+          participantsHasMore: Boolean(detail?.participants?.hasMore),
+          hydrated: true
+        };
+        this.chatContexts.set(chatID, context);
+      } catch {
+        context.hydrated = true;
+      }
+    }
+
+    const relevantParticipants = [];
+    const queries = [];
+    for (const message of messages || []) {
+      if (message.isSender || readableDisplayName(message.senderName)) continue;
+      const participant = context.participants.find((item) =>
+        !item.isSelf && message.senderID && item.id === message.senderID);
+      if (participant) {
+        relevantParticipants.push(participant);
+        queries.push(...[participant.id, participant.email, participant.phoneNumber, participant.username].filter(Boolean));
+      }
+      queries.push(...[message.senderID, message.senderName].filter(Boolean));
+    }
+    await this.loadAccountContactPage(context.accountID);
+    await this.searchAccountContacts(context.accountID, queries);
+
+    const identifiers = relevantParticipants.flatMap(personIdentifiers);
+    if (identifiers.length) {
+      try {
+        const details = typeof this.contactResolver.lookupDetails === 'function' ?
+          await this.contactResolver.lookupDetails(identifiers) :
+          {names: await this.contactResolver.lookup(identifiers)};
+        for (const [identifier, name] of details.names || []) this.localContactNames.set(identifier, name);
+      } catch {
+        // macOS Contacts enrichment remains optional.
+      }
+    }
+  }
+
   async listMessages(chatID, limit, cursor = '') {
     // The current Desktop API returns newest-first pages and advances toward older history with
     // `after`; cursors remain opaque and are never inspected here.
     const cursorQuery = cursor ? `&cursor=${encodeURIComponent(cursor)}&direction=after` : '';
     const result = await this.request(`/v1/chats/${encodeURIComponent(chatID)}/messages?limit=${limit}${cursorQuery}`);
+    await this.hydrateChatContext(chatID, result.items || []);
     const items = (result.items || []).slice(0, MAX_MESSAGE_PAGE).reverse().map((message) => {
       const attachment = (message.attachments || []).map((item, index) =>
         this.rememberAttachment(message.id, item, index)).find(Boolean) || null;

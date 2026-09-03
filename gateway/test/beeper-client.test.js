@@ -67,6 +67,24 @@ test('missing participant names can be filled from the account contact list', as
   assert.equal((await client.listChats(12)).items[0].name, 'Contact Book Name');
 });
 
+test('older direct chats use exact account contact search beyond the first contact page', async () => {
+  const paths = [];
+  const fetchImpl = async (url) => {
+    const path = new URL(url).pathname + new URL(url).search;
+    paths.push(path);
+    if (path.includes('/contacts/list')) return new Response(JSON.stringify({items:[{id:'recent-person',fullName:'Recent Person'}],hasMore:true,oldestCursor:'older'}), {status:200});
+    if (path.includes('/contacts?query=')) return new Response(JSON.stringify({items:[{id:'older-person',email:'older@example.com',fullName:'Older Contact Name'}]}), {status:200});
+    return new Response(JSON.stringify({items:[{
+      id:'older-chat',accountID:'signal',type:'single',title:'older@example.com',
+      participants:{items:[{id:'older-person',email:'older@example.com',isSelf:false}]}
+    }]}), {status:200});
+  };
+  const contactResolver = {lookupDetails: async () => ({names:new Map(),contactKeys:new Map()})};
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl,contactResolver});
+  assert.equal((await client.listChats(12)).items[0].name, 'Older Contact Name');
+  assert.ok(paths.includes('/v1/accounts/signal/contacts?query=older%40example.com'));
+});
+
 test('direct message sender falls back to the resolved chat contact name', async () => {
   const fetchImpl = async (url) => {
     if (url.includes('/messages')) return new Response(JSON.stringify({items:[{
@@ -97,6 +115,35 @@ test('group message sender resolves through the matching participant', async () 
   const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl});
   await client.listChats(12);
   assert.equal((await client.listMessages('group-1', 12)).items[0].sender, 'Group Person');
+});
+
+test('group message senders hydrate full membership and exact contact names when search results are partial', async () => {
+  const paths = [];
+  const fetchImpl = async (url) => {
+    const path = new URL(url).pathname + new URL(url).search;
+    paths.push(path);
+    if (path === '/v1/chats/group-older/messages?limit=12') return new Response(JSON.stringify({items:[{
+      id:'message-1',senderID:'older-person',senderName:'older@example.com',text:'Hello group'
+    }]}), {status:200});
+    if (path === '/v1/chats/group-older?maxParticipantCount=500') return new Response(JSON.stringify({
+      id:'group-older',accountID:'matrix',network:'Beeper (Matrix)',type:'group',title:'Old Group',
+      participants:{hasMore:false,items:[{id:'older-person',email:'older@example.com',isSelf:false}]}
+    }), {status:200});
+    if (path.includes('/contacts/list')) return new Response(JSON.stringify({items:[]}), {status:200});
+    if (path.includes('/contacts?query=')) return new Response(JSON.stringify({items:[{
+      id:'older-person',email:'older@example.com',fullName:'Hydrated Group Person'
+    }]}), {status:200});
+    return new Response(JSON.stringify({items:[{
+      id:'group-older',accountID:'matrix',network:'Beeper (Matrix)',type:'group',title:'Old Group',
+      participants:{hasMore:true,items:[]}
+    }]}), {status:200});
+  };
+  const contactResolver = {lookupDetails: async () => ({names:new Map(),contactKeys:new Map()})};
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl,contactResolver});
+  await client.listChats(12);
+  assert.equal((await client.listMessages('group-older', 12)).items[0].sender, 'Hydrated Group Person');
+  assert.ok(paths.includes('/v1/chats/group-older?maxParticipantCount=500'));
+  assert.ok(paths.includes('/v1/accounts/matrix/contacts?query=older%40example.com'));
 });
 
 test('Apple group message sender can fall back to read-only macOS Contacts', async () => {
@@ -143,7 +190,7 @@ test('raw Apple identifiers can be enriched from read-only macOS Contacts', asyn
     }]}), {status:200});
   };
   const contactResolver = {lookup: async (identifiers) => {
-    assert.deepEqual(identifiers, ['person@example.com', 'person@example.com']);
+    assert.deepEqual(identifiers, ['person@example.com']);
     return new Map([['person@example.com', 'Local Contact Name']]);
   }};
   const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl,contactResolver});
