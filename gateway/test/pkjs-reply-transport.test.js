@@ -9,6 +9,8 @@ function replyRuntime({ autoAck = true } = {}) {
   const requests = [];
   const timers = [];
   const appMessages = [];
+  const eventListeners = {};
+  const openedURLs = [];
   const storage = new Map([
     ['beepster_gateway_url', 'https://gateway.example'],
     ['beepster_gateway_token', 'gateway-secret']
@@ -27,9 +29,9 @@ function replyRuntime({ autoAck = true } = {}) {
   const context = {
     XMLHttpRequest: FakeXHR,
     Pebble: {
-      addEventListener() {},
+      addEventListener(name, callback) { eventListeners[name] = callback; },
       sendAppMessage(message, success) { appMessages.push(message); if (autoAck && success) success(); },
-      openURL() {}
+      openURL(url) { openedURLs.push(url); }
     },
     localStorage: {
       getItem(key) { return storage.get(key) || null; },
@@ -41,8 +43,16 @@ function replyRuntime({ autoAck = true } = {}) {
     Uint8Array
   };
   vm.runInNewContext(source, context);
-  return { context, requests, timers, appMessages, storage };
+  return { context, requests, timers, appMessages, storage, eventListeners, openedURLs };
 }
+
+test('paired users open settings directly on their saved private gateway', () => {
+  const { eventListeners, openedURLs } = replyRuntime();
+  eventListeners.showConfiguration();
+  assert.equal(openedURLs.length, 1);
+  assert.match(openedURLs[0], /^https:\/\/gateway\.example\/configure#/);
+  assert.doesNotMatch(openedURLs[0], /github\.io/);
+});
 
 test('watch replies use canonical authenticated JSON POST first', () => {
   const { context, requests } = replyRuntime();

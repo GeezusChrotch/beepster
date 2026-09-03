@@ -837,7 +837,9 @@ Pebble.addEventListener('ready', function() {
 });
 
 Pebble.addEventListener('showConfiguration', function() {
-  var settingsURL = localStorage.getItem('beepster_settings_url') || DEFAULT_SETTINGS_URL || gatewayURL() + '/configure';
+  var savedGatewayURL = gatewayURL();
+  var privateSettingsURL = savedGatewayURL ? savedGatewayURL.replace(/\/+$/, '') + '/configure' : '';
+  var settingsURL = localStorage.getItem('beepster_settings_url') || privateSettingsURL || DEFAULT_SETTINGS_URL;
   if (!settingsURL || settingsURL === '/configure') {
     sendState('setup', 'Install a personally configured Beepster build');
     return;
