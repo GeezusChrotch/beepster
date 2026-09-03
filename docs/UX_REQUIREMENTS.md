@@ -64,8 +64,9 @@ review, and information must remain understandable without color.
   newest message; keep up to 60 messages available on the watch.
 - The selected message expands to its complete text directly in the chronological thread; there is
   no separate message-reading screen.
-- Hold Select anywhere in the thread to start confirmed voice dictation.
-- Hold Down anywhere in the thread to open up to eight configured canned replies.
+- Press or hold Select anywhere in the thread to start confirmed voice dictation.
+- Hold Up anywhere in the thread to open up to eight configured canned replies.
+- Hold Down anywhere in the thread to jump directly to the newest message.
 - Each short Up or Down press moves exactly two text-line heights within an oversized selected
   message; at its beginning or end, the same button moves to the adjacent message.
 - Thread backgrounds and body text always use the saved theme colors; selection may accent the

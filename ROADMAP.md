@@ -167,3 +167,10 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Indicate selection with only the sender and service-icon accent
 - [x] Normalize smart punctuation without changing message meaning
 - [x] Match Pebble emoji fallback fonts to the nearest configured text size
+
+## 0.8.3 — Thread button controls
+
+- [x] Keep short Up and Down presses for two-line thread scrolling
+- [x] Open saved quick replies by holding Up
+- [x] Start dictation with either a short or long Select press
+- [x] Jump directly to the newest message by holding Down

@@ -686,7 +686,7 @@ static void reply_ack_timeout(void *context) {
   } else if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
     text_layer_set_text(s_detail_hint_layer, "No delivery confirmation\nHold Select to retry safely");
   } else if (s_message_window && window_stack_get_top_window() == s_message_window && s_message_status_layer) {
-    text_layer_set_text(s_message_status_layer, "No delivery confirmation\nHold Select to retry safely");
+    text_layer_set_text(s_message_status_layer, "No delivery confirmation\nPress Select to retry safely");
     layer_set_hidden(text_layer_get_layer(s_message_status_layer), false);
   }
 }
@@ -740,7 +740,7 @@ static void send_reply_to_phone(void) {
     } else if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
       text_layer_set_text(s_detail_hint_layer, "Reply failed\nHold Select to retry");
     } else if (s_message_window && window_stack_get_top_window() == s_message_window && s_message_status_layer) {
-      text_layer_set_text(s_message_status_layer, "Reply failed\nHold Select to retry");
+      text_layer_set_text(s_message_status_layer, "Reply failed\nPress Select to retry");
       layer_set_hidden(text_layer_get_layer(s_message_status_layer), false);
     }
     return;
@@ -800,7 +800,7 @@ static void dictation_callback(DictationSession *session, DictationSessionStatus
     } else if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
       text_layer_set_text(s_detail_hint_layer, "Voice reply failed\nHold Select to try again");
     } else if (s_message_window && window_stack_get_top_window() == s_message_window && s_message_status_layer) {
-      text_layer_set_text(s_message_status_layer, "Voice reply failed\nHold Select to try again");
+      text_layer_set_text(s_message_status_layer, "Voice reply failed\nPress Select to try again");
       layer_set_hidden(text_layer_get_layer(s_message_status_layer), false);
     }
   }
@@ -830,7 +830,7 @@ static void request_selected_content(void *context) {
 }
 
 static void thread_quick_replies(ClickRecognizerRef recognizer, void *context) {
-  APP_LOG(APP_LOG_LEVEL_INFO, "thread long-down: quick replies");
+  APP_LOG(APP_LOG_LEVEL_INFO, "thread long-up: quick replies");
   if (!s_reply_window) return;
   marquee_reset();
   reply_show_menu();
@@ -838,7 +838,7 @@ static void thread_quick_replies(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void thread_dictate(ClickRecognizerRef recognizer, void *context) {
-  APP_LOG(APP_LOG_LEVEL_INFO, "thread long-select: dictate");
+  APP_LOG(APP_LOG_LEVEL_INFO, "thread select: dictate");
   if (s_reply_state == VIEW_REPLY_RETRYABLE && s_reply_request_id[0]) {
     retry_reply(recognizer, context);
     return;
@@ -1035,7 +1035,7 @@ static int32_t message_content_height(MenuLayer *menu_layer, Message *message,
       height += 24;
     }
   }
-  if (expanded) height += 19;
+  if (expanded) height += 35;
   return height < 32000 ? height : 32000;
 }
 
@@ -1108,10 +1108,10 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
   }
   if (expanded) {
     graphics_context_set_text_color(ctx, s_theme.muted);
-    graphics_draw_text(ctx, "Hold Select: voice  •  Down: quick",
+    graphics_draw_text(ctx, "Select: voice\nHold: Up quick, Down newest",
       fonts_get_system_font(FONT_KEY_GOTHIC_14),
-      GRect(8, content_y, bounds.size.w - 16, 16),
-      GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+      GRect(8, content_y, bounds.size.w - 16, 32),
+      GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
   }
   graphics_context_set_fill_color(ctx, s_theme.background);
   graphics_fill_rect(ctx, GRect(0, time_y - 3, bounds.size.w, 22), 0, GCornerNone);
@@ -1130,8 +1130,17 @@ static void message_long_select(MenuLayer *menu_layer, MenuIndex *index, void *c
   thread_dictate(NULL, NULL);
 }
 
-static void message_long_down(ClickRecognizerRef recognizer, void *context) {
+static void message_long_up(ClickRecognizerRef recognizer, void *context) {
   thread_quick_replies(recognizer, context);
+}
+
+static void message_jump_newest(ClickRecognizerRef recognizer, void *context) {
+  if (!s_message_menu || s_message_count < 1) return;
+  APP_LOG(APP_LOG_LEVEL_INFO, "thread long-down: newest message");
+  s_expanded_scroll_offset = 0;
+  MenuIndex newest = {.section = 0, .row = s_message_count - 1};
+  menu_layer_set_selected_index(s_message_menu, newest, MenuRowAlignTop, false);
+  layer_mark_dirty(menu_layer_get_layer(s_message_menu));
 }
 
 static void message_move_selection(int delta) {
@@ -1186,9 +1195,11 @@ static void install_message_clicks(void) {
 static void message_clicks(void *context) {
   if (s_message_state == VIEW_READY) {
     window_single_click_subscribe(BUTTON_ID_UP, message_up);
+    window_single_click_subscribe(BUTTON_ID_SELECT, thread_dictate);
     window_single_click_subscribe(BUTTON_ID_DOWN, message_down);
+    window_long_click_subscribe(BUTTON_ID_UP, 600, message_long_up, NULL);
     window_long_click_subscribe(BUTTON_ID_SELECT, 600, thread_dictate, NULL);
-    window_long_click_subscribe(BUTTON_ID_DOWN, 600, message_long_down, NULL);
+    window_long_click_subscribe(BUTTON_ID_DOWN, 600, message_jump_newest, NULL);
   } else {
     window_single_click_subscribe(BUTTON_ID_SELECT, retry_messages);
   }
@@ -1224,7 +1235,7 @@ static void apply_state(const char *state, const char *error) {
     if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
       const char *feedback = error && error[0] ? error : state_text(reply_state, true);
       if (reply_state == VIEW_REPLY_RETRYABLE && !(error && error[0])) {
-        feedback = "Reply failed\nHold Select to retry";
+        feedback = "Reply failed\nPress Select to retry";
       }
       text_layer_set_text(s_detail_hint_layer, feedback);
       return;
@@ -1232,7 +1243,7 @@ static void apply_state(const char *state, const char *error) {
     if (s_message_window && window_stack_get_top_window() == s_message_window && s_message_status_layer) {
       const char *feedback = error && error[0] ? error : state_text(reply_state, true);
       if (reply_state == VIEW_REPLY_RETRYABLE && !(error && error[0])) {
-        feedback = "Reply failed\nHold Select to retry";
+        feedback = "Reply failed\nPress Select to retry";
       }
       text_layer_set_text(s_message_status_layer, feedback);
       layer_set_hidden(text_layer_get_layer(s_message_status_layer), false);

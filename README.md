@@ -17,7 +17,7 @@ the Beeper access token on the Mac gateway.
 
 ## Current status
 
-Version 0.8.2 is a working clean-room daily-driver preview:
+Version 0.8.3 is a working clean-room daily-driver preview:
 
 - Native Emery watch build
 - Explicit setup/loading/empty/error states
@@ -33,7 +33,8 @@ Version 0.8.2 is a working clean-room daily-driver preview:
 - Confirmed voice dictation replies with Beeper delivery tracking and retry protection
 - Up to eight configurable canned replies, including text and emoji, with one-tap sending
 - Every selected message expands to its complete text directly in the thread; short Up/Down scrolls
-  through long content, hold center dictates, and hold bottom opens saved replies
+  through long content, press or hold center dictates, hold top opens saved replies, and hold bottom
+  jumps to the newest message
 - Oversized selected chat names, senders, and quick replies marquee like Pome instead of remaining cut off
 - Chronological thread history that opens on the newest message and pages upward through as many as 60 messages
 - Readable Instagram rich-message conversion with HTML tags removed and entities decoded
