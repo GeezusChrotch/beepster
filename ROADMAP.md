@@ -119,3 +119,4 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Keep explicit custom API URLs fixed rather than silently replacing them
 - [x] Reconcile missing iMessage pending IDs against newly observed outgoing history
 - [x] Require an exact outgoing text and post-request timestamp match before reporting success
+- [x] Return automatically to the refreshed thread after confirmed reply delivery

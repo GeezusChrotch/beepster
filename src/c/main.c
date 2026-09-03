@@ -16,6 +16,7 @@
 #define MARQUEE_STEP_PIXELS 2
 #define MARQUEE_FRAME_MS 80
 #define MARQUEE_PAUSE_MS 900
+#define REPLY_SUCCESS_MS 900
 #define PERSIST_THEME 100
 #define PERSIST_TEXT_SIZE 101
 #define PERSIST_THEME_DATA 102
@@ -105,6 +106,7 @@ static char s_reply_text[512];
 static char s_reply_request_id[48];
 static ViewState s_reply_state = VIEW_READY;
 static AppTimer *s_reply_ack_timer;
+static AppTimer *s_reply_return_timer;
 static int s_pending_quick_reply_index = -1;
 static AppTimer *s_load_watchdog;
 static AppTimer *s_message_request_timer;
@@ -266,7 +268,7 @@ static const char *state_text(ViewState state, bool messages) {
     case VIEW_ERROR: return "Could not connect\nPress Select to retry";
     case VIEW_REPLY_SENDING: return "Sending reply…";
     case VIEW_REPLY_PENDING: return "Waiting for delivery…";
-    case VIEW_REPLY_SENT: return "Reply sent ✓\nPress Back";
+    case VIEW_REPLY_SENT: return "Reply sent ✓";
     case VIEW_REPLY_RETRYABLE: return "Reply failed\nPress Select to retry";
     case VIEW_READY: return "";
   }
@@ -473,6 +475,31 @@ static void cancel_reply_ack_timer(void) {
   }
 }
 
+static void cancel_reply_return_timer(void) {
+  if (s_reply_return_timer) {
+    app_timer_cancel(s_reply_return_timer);
+    s_reply_return_timer = NULL;
+  }
+}
+
+static void reply_return_to_thread(void *context) {
+  s_reply_return_timer = NULL;
+  if (s_reply_state != VIEW_REPLY_SENT) return;
+  if (s_reply_window && window_stack_contains_window(s_reply_window)) {
+    window_stack_remove(s_reply_window, false);
+  }
+  if (s_detail_window && window_stack_contains_window(s_detail_window)) {
+    window_stack_remove(s_detail_window, true);
+  }
+  s_reply_state = VIEW_READY;
+  s_reply_text[0] = '\0';
+  s_reply_request_id[0] = '\0';
+  s_pending_quick_reply_index = -1;
+  if (s_message_window && window_stack_get_top_window() == s_message_window) {
+    request_messages();
+  }
+}
+
 static void reply_ack_timeout(void *context) {
   s_reply_ack_timer = NULL;
   if (s_reply_state != VIEW_REPLY_SENDING && s_reply_state != VIEW_REPLY_PENDING) return;
@@ -523,6 +550,7 @@ static void reply_show_menu(void) {
 static void send_reply_to_phone(void) {
   if (!s_reply_text[0] || !s_active_chat_id[0]) return;
   cancel_reply_ack_timer();
+  cancel_reply_return_timer();
   DictionaryIterator *iterator;
   AppMessageResult result = app_message_outbox_begin(&iterator);
   if (result != APP_MSG_OK || !iterator) {
@@ -551,6 +579,7 @@ static void send_reply_to_phone(void) {
 static void send_quick_reply_to_phone(int index, bool create_request_id) {
   if (index < 0 || index >= s_quick_reply_count || !s_active_chat_id[0]) return;
   cancel_reply_ack_timer();
+  cancel_reply_return_timer();
   s_pending_quick_reply_index = index;
   if (create_request_id || !s_reply_request_id[0]) new_reply_request_id();
   DictionaryIterator *iterator;
@@ -831,7 +860,11 @@ static void apply_state(const char *state, const char *error) {
     } else {
       start_reply_ack_timer();
     }
+    cancel_reply_return_timer();
     s_reply_state = reply_state;
+    if (reply_state == VIEW_REPLY_SENT) {
+      s_reply_return_timer = app_timer_register(REPLY_SUCCESS_MS, reply_return_to_thread, NULL);
+    }
     if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
       reply_show_status(error && error[0] ? error : state_text(reply_state, true));
       return;
@@ -1429,6 +1462,7 @@ static void init(void) {
 static void deinit(void) {
   cancel_load_watchdog();
   cancel_reply_ack_timer();
+  cancel_reply_return_timer();
   if (s_marquee_timer) app_timer_cancel(s_marquee_timer);
   if (s_message_request_timer) app_timer_cancel(s_message_request_timer);
   if (s_dictation_session) dictation_session_destroy(s_dictation_session);
