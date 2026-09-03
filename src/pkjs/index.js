@@ -258,18 +258,24 @@ function request(path, callback, failure) {
 function post(path, body, callback) {
   var url = gatewayURL();
   var token = gatewayToken();
-  if (!url || !token) { sendState('setup'); return; }
+  if (!url || !token) {
+    console.log('Beepster reply POST blocked: gateway configuration missing');
+    sendState('reply_failed', 'Gateway not configured');
+    return;
+  }
+  console.log('Beepster reply POST started');
   var xhr = new XMLHttpRequest();
   xhr.open('POST', url + path, true);
   xhr.setRequestHeader('Authorization', 'Bearer ' + token);
   xhr.setRequestHeader('Content-Type', 'application/json');
   xhr.timeout = 12000;
   xhr.onload = function() {
+    console.log('Beepster reply POST completed HTTP ' + xhr.status);
     if (xhr.status < 200 || xhr.status >= 300) { sendState('reply_failed', 'Send failed with ' + xhr.status); return; }
     try { callback(JSON.parse(xhr.responseText)); } catch (error) { sendState('reply_failed', 'Invalid send response'); }
   };
-  xhr.onerror = function() { sendState('reply_failed', 'Gateway unavailable'); };
-  xhr.ontimeout = function() { sendState('reply_failed', 'Send timed out'); };
+  xhr.onerror = function() { console.log('Beepster reply POST network error'); sendState('reply_failed', 'Gateway unavailable'); };
+  xhr.ontimeout = function() { console.log('Beepster reply POST timed out'); sendState('reply_failed', 'Send timed out'); };
   xhr.send(JSON.stringify(body));
 }
 
@@ -287,7 +293,11 @@ function pollReply(chatID, pendingMessageID, attempt) {
 }
 
 function sendReply(chatID, text, requestID) {
-  if (!chatID || !text || !requestID) { sendState('reply_failed', 'Reply data missing'); return; }
+  if (!chatID || !text) { sendState('reply_failed', 'Reply data missing'); return; }
+  if (!requestID) {
+    quickReplyCounter++;
+    requestID = 'reply-' + Date.now() + '-' + quickReplyCounter;
+  }
   sendState('reply_sending');
   post('/v1/chats/' + encodeURIComponent(chatID) + '/messages', {text:text,requestID:requestID}, function(data) {
     if (!data.pendingMessageID) { sendState('reply_failed', 'Beeper did not return a message ID'); return; }
@@ -296,14 +306,16 @@ function sendReply(chatID, text, requestID) {
   });
 }
 
-function sendQuickReply(chatID, index, requestID) {
+function sendQuickReply(chatID, index, requestID, watchText) {
   var replies = configuredQuickReplies();
-  if (index < 0 || index >= replies.length) { sendState('reply_failed', 'Quick reply unavailable'); return; }
+  var text = index >= 0 && index < replies.length ? replies[index] : String(watchText || '').trim();
+  console.log('Beepster quick reply index=' + index + ' configured=' + replies.length + ' fallback=' + Boolean(watchText));
+  if (!text) { sendState('reply_failed', 'Quick reply unavailable'); return; }
   if (!requestID) {
     quickReplyCounter++;
     requestID = 'quick-' + Date.now() + '-' + quickReplyCounter;
   }
-  sendReply(chatID, replies[index], requestID);
+  sendReply(chatID, text, requestID);
 }
 
 function loadChats() {
@@ -498,5 +510,5 @@ Pebble.addEventListener('appmessage', function(event) {
   if (command === 'send_reply') sendReply(payload[KEY_CHAT_ID] || payload.CHAT_ID || '', payload[KEY_REPLY_TEXT] || payload.REPLY_TEXT || '', payload[KEY_REPLY_REQUEST_ID] || payload.REPLY_REQUEST_ID || '');
   if (command === 'load_attachment') loadAttachment(payload[KEY_ATTACHMENT_ID] || payload.ATTACHMENT_ID || payload[KEY_CHAT_ID] || payload.CHAT_ID || '');
   if (command === 'load_message_detail') sendMessageDetail(payload[KEY_MSG_ID] || payload.MSG_ID || '');
-  if (command === 'send_quick_reply') sendQuickReply(payload[KEY_CHAT_ID] || payload.CHAT_ID || '', Number(payload[KEY_INDEX] != null ? payload[KEY_INDEX] : payload.INDEX), payload[KEY_REPLY_REQUEST_ID] || payload.REPLY_REQUEST_ID || '');
+  if (command === 'send_quick_reply') sendQuickReply(payload[KEY_CHAT_ID] || payload.CHAT_ID || '', Number(payload[KEY_INDEX] != null ? payload[KEY_INDEX] : payload.INDEX), payload[KEY_REPLY_REQUEST_ID] || payload.REPLY_REQUEST_ID || '', payload[KEY_QUICK_REPLY_TEXT] || payload.QUICK_REPLY_TEXT || '');
 });

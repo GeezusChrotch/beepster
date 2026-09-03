@@ -13,6 +13,9 @@
 #define DETAIL_TEXT_CAPACITY 32768
 #define MAX_QUICK_REPLIES 8
 #define QUICK_REPLY_LEN 96
+#define MARQUEE_STEP_PIXELS 2
+#define MARQUEE_FRAME_MS 80
+#define MARQUEE_PAUSE_MS 900
 #define PERSIST_THEME 100
 #define PERSIST_TEXT_SIZE 101
 #define PERSIST_THEME_DATA 102
@@ -131,6 +134,10 @@ static TextLayer *s_reply_status_layer;
 static bool s_reply_showing_status;
 static char s_quick_replies[MAX_QUICK_REPLIES][QUICK_REPLY_LEN];
 static int s_quick_reply_count;
+static AppTimer *s_marquee_timer;
+static int16_t s_marquee_offset;
+static int16_t s_marquee_max;
+static bool s_marquee_at_end;
 
 static void main_clicks(void *context);
 static void message_clicks(void *context);
@@ -140,6 +147,80 @@ static void reply_show_status(const char *text);
 static void retry_reply(ClickRecognizerRef recognizer, void *context);
 static GFont theme_font(void);
 static GFont font_for_text(const char *text);
+
+static MenuLayer *active_menu(void) {
+  Window *top = window_stack_get_top_window();
+  if (top == s_main_window) return s_chat_menu;
+  if (top == s_message_window) return s_message_menu;
+  if (top == s_reply_window && !s_reply_showing_status) return s_reply_menu;
+  return NULL;
+}
+
+static void marquee_tick(void *context);
+
+static void marquee_schedule(uint32_t delay_ms) {
+  if (s_marquee_timer) app_timer_cancel(s_marquee_timer);
+  s_marquee_timer = app_timer_register(delay_ms, marquee_tick, NULL);
+}
+
+static void marquee_reset(void) {
+  s_marquee_offset = 0;
+  s_marquee_max = 0;
+  s_marquee_at_end = false;
+  MenuLayer *menu = active_menu();
+  if (menu) layer_mark_dirty(menu_layer_get_layer(menu));
+  marquee_schedule(MARQUEE_PAUSE_MS);
+}
+
+static void marquee_tick(void *context) {
+  s_marquee_timer = NULL;
+  MenuLayer *menu = active_menu();
+  if (!menu || s_marquee_max <= 0) return;
+  if (s_marquee_at_end) {
+    s_marquee_offset = 0;
+    s_marquee_at_end = false;
+    layer_mark_dirty(menu_layer_get_layer(menu));
+    marquee_schedule(MARQUEE_PAUSE_MS);
+    return;
+  }
+  s_marquee_offset += MARQUEE_STEP_PIXELS;
+  if (s_marquee_offset >= s_marquee_max) {
+    s_marquee_offset = s_marquee_max;
+    s_marquee_at_end = true;
+    marquee_schedule(MARQUEE_PAUSE_MS);
+  } else {
+    marquee_schedule(MARQUEE_FRAME_MS);
+  }
+  layer_mark_dirty(menu_layer_get_layer(menu));
+}
+
+static void marquee_selection_changed(MenuLayer *menu_layer, MenuIndex new_index,
+                                      MenuIndex old_index, void *context) {
+  marquee_reset();
+}
+
+static void draw_marquee_text(GContext *ctx, const char *text, GFont font, GRect frame,
+                              bool selected) {
+  if (!selected) {
+    graphics_draw_text(ctx, text, font, frame, GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentLeft, NULL);
+    return;
+  }
+  GSize content = graphics_text_layout_get_content_size(text, font,
+    GRect(0, 0, 1000, frame.size.h), GTextOverflowModeFill, GTextAlignmentLeft);
+  s_marquee_max = content.w > frame.size.w ? content.w - frame.size.w + 6 : 0;
+  if (s_marquee_max > 0) {
+    if (!s_marquee_timer) marquee_schedule(MARQUEE_PAUSE_MS);
+    graphics_draw_text(ctx, text, font,
+      GRect(frame.origin.x - s_marquee_offset, frame.origin.y, content.w + 4, frame.size.h),
+      GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+  } else {
+    s_marquee_offset = 0;
+    s_marquee_at_end = false;
+    graphics_draw_text(ctx, text, font, frame, GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentLeft, NULL);
+  }
+}
 
 static void clear_media(void) {
   if (s_media_bitmap) {
@@ -482,6 +563,7 @@ static void send_quick_reply_to_phone(int index, bool create_request_id) {
   dict_write_cstring(iterator, MESSAGE_KEY_COMMAND, "send_quick_reply");
   dict_write_cstring(iterator, MESSAGE_KEY_CHAT_ID, s_active_chat_id);
   dict_write_int32(iterator, MESSAGE_KEY_INDEX, index);
+  dict_write_cstring(iterator, MESSAGE_KEY_QUICK_REPLY_TEXT, s_quick_replies[index]);
   dict_write_cstring(iterator, MESSAGE_KEY_REPLY_REQUEST_ID, s_reply_request_id);
   result = app_message_outbox_send();
   s_reply_state = result == APP_MSG_OK ? VIEW_REPLY_SENDING : VIEW_REPLY_RETRYABLE;
@@ -619,10 +701,8 @@ static void draw_chat(GContext *ctx, const Layer *cell, MenuIndex *index, void *
   int unread_y = bounds.size.h - 18;
 
   graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
-  graphics_draw_text(ctx, chat->name,
-    font_for_text(chat->name),
-    GRect(8, 2, bounds.size.w - 16, name_height),
-    GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  draw_marquee_text(ctx, chat->name, font_for_text(chat->name),
+    GRect(8, 2, bounds.size.w - 16, name_height), selected);
 
   graphics_draw_text(ctx, chat->preview,
     font_for_text(chat->preview),
@@ -665,6 +745,7 @@ static uint16_t message_rows(MenuLayer *menu_layer, uint16_t section, void *cont
 
 static void message_selection_changed(MenuLayer *menu_layer, MenuIndex new_index,
                                       MenuIndex old_index, void *context) {
+  marquee_reset();
   if (new_index.section != 0 || new_index.row > 1 || !s_has_older_messages ||
       s_loading_older_messages || !s_active_chat_id[0]) return;
   s_loading_older_messages = true;
@@ -692,10 +773,8 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
   int text_height = time_y - text_y - 9;
   graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
 
-  graphics_draw_text(ctx, message->sender,
-    font_for_text(message->sender),
-    GRect(8, 1, bounds.size.w - 16, sender_height),
-    GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  draw_marquee_text(ctx, message->sender, font_for_text(message->sender),
+    GRect(8, 1, bounds.size.w - 16, sender_height), selected);
   graphics_draw_text(ctx, message->text,
     font_for_text(message->text),
     GRect(8, text_y, bounds.size.w - 16, text_height),
@@ -1061,9 +1140,8 @@ static void draw_reply(GContext *ctx, const Layer *cell, MenuIndex *index, void 
     bool selected = menu_layer_is_index_selected(s_reply_menu, index);
     graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
     GRect bounds = layer_get_bounds(cell);
-    graphics_draw_text(ctx, s_quick_replies[quick_index], font_for_text(s_quick_replies[quick_index]),
-      GRect(8, 3, bounds.size.w - 16, bounds.size.h - 6),
-      GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+    draw_marquee_text(ctx, s_quick_replies[quick_index], font_for_text(s_quick_replies[quick_index]),
+      GRect(8, 3, bounds.size.w - 16, bounds.size.h - 6), selected);
   }
 }
 
@@ -1083,7 +1161,8 @@ static void reply_load(Window *window) {
     .get_num_rows = reply_rows,
     .get_cell_height = reply_row_height,
     .draw_row = draw_reply,
-    .select_click = reply_selected
+    .select_click = reply_selected,
+    .selection_changed = marquee_selection_changed
   });
   menu_layer_set_click_config_onto_window(s_reply_menu, window);
   layer_add_child(root, menu_layer_get_layer(s_reply_menu));
@@ -1119,7 +1198,8 @@ static void main_load(Window *window) {
     .get_num_rows = chat_rows,
     .get_cell_height = chat_row_height,
     .draw_row = draw_chat,
-    .select_click = chat_selected
+    .select_click = chat_selected,
+    .selection_changed = marquee_selection_changed
   });
   menu_layer_set_click_config_onto_window(s_chat_menu, window);
   layer_add_child(root, menu_layer_get_layer(s_chat_menu));
@@ -1337,6 +1417,7 @@ static void init(void) {
 static void deinit(void) {
   cancel_load_watchdog();
   cancel_reply_ack_timer();
+  if (s_marquee_timer) app_timer_cancel(s_marquee_timer);
   if (s_message_request_timer) app_timer_cancel(s_message_request_timer);
   if (s_dictation_session) dictation_session_destroy(s_dictation_session);
   unload_custom_theme_font();

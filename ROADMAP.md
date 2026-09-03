@@ -83,3 +83,11 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Reuse the same request ID when retrying so recovery cannot create a duplicate send
 - [x] Restore normal Up/Down full-message scrolling
 - [x] Move dictation to hold Select and quick replies to hold Down
+
+## 0.6.2 — Verified sending and marquee labels
+
+- [x] Send watch text as a fallback when phone and watch quick-reply lists differ
+- [x] Return an explicit reply failure instead of leaving Sending when phone gateway settings are missing
+- [x] Add privacy-safe reply-path diagnostics to phone logs
+- [x] Verify the complete emulator-to-phone-to-gateway-to-Beeper path against Note to self
+- [x] Marquee oversized selected chat names, message senders, and quick replies using Pome's timing

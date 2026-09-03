@@ -69,6 +69,8 @@ review, and information must remain understandable without color.
 - Retry must be available without leaving the chat.
 - Message-list previews reserve a separate metadata strip so body text cannot collide with time or
   attachment labels.
+- Oversized selected chat names, sender names, and quick replies marquee after a short pause; moving
+  selection resets the label to its beginning.
 
 ## Replies
 
