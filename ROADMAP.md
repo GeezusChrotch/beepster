@@ -120,3 +120,12 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Reconcile missing iMessage pending IDs against newly observed outgoing history
 - [x] Require an exact outgoing text and post-request timestamp match before reporting success
 - [x] Return automatically to the refreshed thread after confirmed reply delivery
+
+## 0.7.0 — Inline threads
+
+- [x] Expand the selected message to its complete text inside the chronological thread
+- [x] Scroll oversized messages with short Up/Down presses before changing selection
+- [x] Keep hold Select for dictation and hold Down for saved replies directly in the thread
+- [x] Automatically load the selected photo, GIF poster, or video poster inline
+- [x] Tag chunked text and media packets so late responses cannot overwrite another selected message
+- [x] Stream one preview directly into its bitmap to stay within Time 2 memory limits

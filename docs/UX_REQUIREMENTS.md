@@ -59,16 +59,17 @@ review, and information must remain understandable without color.
 - Opening a chat selects its newest message at the bottom of a chronological timeline.
 - Moving upward near the oldest loaded message fetches an earlier page without jumping back to the
   newest message; keep up to 60 messages available on the watch.
-- Select on a message opens its complete text in a dedicated scrolling view.
-- Hold Select in the complete-message view to start confirmed voice dictation.
-- Hold Down in the complete-message view to open up to eight configured canned replies.
-- Up and Down retain normal Pebble scrolling through long message text; reopening the message returns to its beginning.
-- Long Select on a message labeled Photo, GIF, or Video opens its full-screen preview.
+- The selected message expands to its complete text directly in the chronological thread; there is
+  no separate message-reading screen.
+- Hold Select anywhere in the thread to start confirmed voice dictation.
+- Hold Down anywhere in the thread to open up to eight configured canned replies.
+- Short Up and Down scroll within oversized selected messages before moving to the adjacent message.
+- Automatically load a selected Photo, GIF poster, or Video poster inline. Keep one decoded preview
+  in watch memory at a time and show an explicit loading or failure label while it is unavailable.
 - A chat shows cached messages immediately when available.
 - Every fetch ends in content, empty, timed-out, offline, or error state—never a blank view.
 - Retry must be available without leaving the chat.
-- Message-list previews reserve a separate metadata strip so body text cannot collide with time or
-  attachment labels.
+- Thread rows reserve a separate metadata strip so body text and inline media cannot collide with time.
 - Oversized selected chat names, sender names, and quick replies marquee after a short pause; moving
   selection resets the label to its beginning.
 

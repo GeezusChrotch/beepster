@@ -35,6 +35,13 @@ typedef enum {
   VIEW_REPLY_RETRYABLE
 } ViewState;
 
+typedef enum {
+  INLINE_MEDIA_NONE,
+  INLINE_MEDIA_LOADING,
+  INLINE_MEDIA_READY,
+  INLINE_MEDIA_FAILED
+} InlineMediaState;
+
 typedef struct {
   char id[CHAT_ID_LEN];
   char name[CHAT_NAME_LEN];
@@ -111,16 +118,22 @@ static int s_pending_quick_reply_index = -1;
 static AppTimer *s_load_watchdog;
 static AppTimer *s_message_request_timer;
 static int s_message_command_attempts;
+static AppTimer *s_content_request_timer;
+static int s_expanded_message_index = -1;
+static char s_expanded_message_id[MESSAGE_ID_LEN];
+static bool s_expanded_message_loaded;
 static Window *s_media_window;
 static BitmapLayer *s_media_layer;
 static TextLayer *s_media_status_layer;
 static GBitmap *s_media_bitmap;
-static uint8_t *s_media_pixels;
 static size_t s_media_total;
 static size_t s_media_received;
 static int16_t s_media_width;
 static int16_t s_media_height;
 static uint8_t s_media_kind;
+static char s_inline_attachment_id[MESSAGE_ATTACHMENT_LEN];
+static InlineMediaState s_inline_media_state = INLINE_MEDIA_NONE;
+static char s_inline_media_error[48];
 static Window *s_detail_window;
 static ScrollLayer *s_detail_scroll;
 static TextLayer *s_detail_sender_layer;
@@ -129,6 +142,7 @@ static TextLayer *s_detail_hint_layer;
 static TextLayer *s_detail_top_mask;
 static char *s_detail_text;
 static size_t s_detail_length;
+static size_t s_detail_capacity;
 static char s_detail_sender[MESSAGE_SENDER_LEN];
 static Window *s_reply_window;
 static MenuLayer *s_reply_menu;
@@ -147,6 +161,7 @@ static void apply_theme_to_layers(void);
 static void set_status(TextLayer *layer, ViewState state, bool messages);
 static void reply_show_status(const char *text);
 static void retry_reply(ClickRecognizerRef recognizer, void *context);
+static void install_message_clicks(void);
 static GFont theme_font(void);
 static GFont font_for_text(const char *text);
 
@@ -230,12 +245,10 @@ static void clear_media(void) {
     gbitmap_destroy(s_media_bitmap);
     s_media_bitmap = NULL;
   }
-  if (s_media_pixels) {
-    free(s_media_pixels);
-    s_media_pixels = NULL;
-  }
   s_media_total = 0;
   s_media_received = 0;
+  s_media_width = 0;
+  s_media_height = 0;
 }
 
 static void cancel_load_watchdog(void) {
@@ -508,6 +521,9 @@ static void reply_ack_timeout(void *context) {
     reply_show_status("No delivery confirmation\nPress Select to retry safely");
   } else if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
     text_layer_set_text(s_detail_hint_layer, "No delivery confirmation\nHold Select to retry safely");
+  } else if (s_message_window && window_stack_get_top_window() == s_message_window && s_message_status_layer) {
+    text_layer_set_text(s_message_status_layer, "No delivery confirmation\nHold Select to retry safely");
+    layer_set_hidden(text_layer_get_layer(s_message_status_layer), false);
   }
 }
 
@@ -559,6 +575,9 @@ static void send_reply_to_phone(void) {
       reply_show_status(state_text(s_reply_state, true));
     } else if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
       text_layer_set_text(s_detail_hint_layer, "Reply failed\nHold Select to retry");
+    } else if (s_message_window && window_stack_get_top_window() == s_message_window && s_message_status_layer) {
+      text_layer_set_text(s_message_status_layer, "Reply failed\nHold Select to retry");
+      layer_set_hidden(text_layer_get_layer(s_message_status_layer), false);
     }
     return;
   }
@@ -573,6 +592,9 @@ static void send_reply_to_phone(void) {
     reply_show_status(state_text(s_reply_state, true));
   } else if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
     text_layer_set_text(s_detail_hint_layer, state_text(s_reply_state, true));
+  } else if (s_message_window && window_stack_get_top_window() == s_message_window && s_message_status_layer) {
+    text_layer_set_text(s_message_status_layer, state_text(s_reply_state, true));
+    layer_set_hidden(text_layer_get_layer(s_message_status_layer), false);
   }
 }
 
@@ -613,37 +635,46 @@ static void dictation_callback(DictationSession *session, DictationSessionStatus
       reply_show_status("Voice reply failed\nPress Select to retry");
     } else if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
       text_layer_set_text(s_detail_hint_layer, "Voice reply failed\nHold Select to try again");
+    } else if (s_message_window && window_stack_get_top_window() == s_message_window && s_message_status_layer) {
+      text_layer_set_text(s_message_status_layer, "Voice reply failed\nHold Select to try again");
+      layer_set_hidden(text_layer_get_layer(s_message_status_layer), false);
     }
   }
 }
 
-static bool request_message_detail(const char *message_id) {
+static bool request_message_content(const Message *message) {
+  if (!message || !message->id[0]) return false;
   DictionaryIterator *iterator;
   AppMessageResult result = app_message_outbox_begin(&iterator);
   if (result != APP_MSG_OK || !iterator) return false;
-  dict_write_cstring(iterator, MESSAGE_KEY_COMMAND, "load_message_detail");
-  dict_write_cstring(iterator, MESSAGE_KEY_MSG_ID, message_id);
+  dict_write_cstring(iterator, MESSAGE_KEY_COMMAND, "load_message_content");
+  dict_write_cstring(iterator, MESSAGE_KEY_MSG_ID, message->id);
+  if (message->attachment_id[0]) {
+    dict_write_cstring(iterator, MESSAGE_KEY_ATTACHMENT_ID, message->attachment_id);
+  }
   return app_message_outbox_send() == APP_MSG_OK;
 }
 
-static void message_selected(MenuLayer *menu_layer, MenuIndex *index, void *context) {
-  if (index->row >= s_message_count || !s_messages[index->row].id[0]) return;
-  copy_text(s_detail_sender, sizeof(s_detail_sender), s_messages[index->row].sender);
-  window_stack_push(s_detail_window, true);
-  if (!request_message_detail(s_messages[index->row].id) && s_detail_text_layer) {
-    text_layer_set_text(s_detail_text_layer, "Could not request the full message.\nPress Back and try again.");
+static void request_selected_content(void *context) {
+  s_content_request_timer = NULL;
+  if (s_expanded_message_index < 0 || s_expanded_message_index >= s_message_count) return;
+  if (!request_message_content(&s_messages[s_expanded_message_index])) {
+    s_inline_media_state = s_inline_attachment_id[0] ? INLINE_MEDIA_FAILED : INLINE_MEDIA_NONE;
+    copy_text(s_inline_media_error, sizeof(s_inline_media_error), "Preview unavailable");
+    if (s_message_menu) menu_layer_reload_data(s_message_menu);
   }
 }
 
-static void detail_quick_replies(ClickRecognizerRef recognizer, void *context) {
-  APP_LOG(APP_LOG_LEVEL_INFO, "detail long-down: quick replies");
+static void thread_quick_replies(ClickRecognizerRef recognizer, void *context) {
+  APP_LOG(APP_LOG_LEVEL_INFO, "thread long-down: quick replies");
   if (!s_reply_window) return;
+  marquee_reset();
   reply_show_menu();
   window_stack_push(s_reply_window, true);
 }
 
-static void detail_dictate(ClickRecognizerRef recognizer, void *context) {
-  APP_LOG(APP_LOG_LEVEL_INFO, "detail long-select: dictate");
+static void thread_dictate(ClickRecognizerRef recognizer, void *context) {
+  APP_LOG(APP_LOG_LEVEL_INFO, "thread long-select: dictate");
   if (s_reply_state == VIEW_REPLY_RETRYABLE && s_reply_request_id[0]) {
     retry_reply(recognizer, context);
     return;
@@ -651,9 +682,18 @@ static void detail_dictate(ClickRecognizerRef recognizer, void *context) {
   if (s_dictation_session) {
     s_pending_quick_reply_index = -1;
     dictation_session_start(s_dictation_session);
-  } else if (s_detail_hint_layer) {
-    text_layer_set_text(s_detail_hint_layer, "Voice dictation unavailable");
+  } else if (s_message_status_layer) {
+    text_layer_set_text(s_message_status_layer, "Voice dictation unavailable");
+    layer_set_hidden(text_layer_get_layer(s_message_status_layer), false);
   }
+}
+
+static void detail_quick_replies(ClickRecognizerRef recognizer, void *context) {
+  thread_quick_replies(recognizer, context);
+}
+
+static void detail_dictate(ClickRecognizerRef recognizer, void *context) {
+  thread_dictate(recognizer, context);
 }
 
 static void detail_clicks(void *context) {
@@ -689,17 +729,6 @@ static void layout_detail(void) {
   scroll_layer_set_content_size(s_detail_scroll, GSize(bounds.size.w, text_y + 32 + text_height));
   scroll_layer_set_content_offset(s_detail_scroll, GPointZero, false);
   text_layer_set_text(s_detail_hint_layer, "Up/Down: scroll\nHold Select=voice Down=quick");
-}
-
-static void view_attachment(MenuLayer *menu_layer, MenuIndex *index, void *context) {
-  if (index->row >= s_message_count || !s_messages[index->row].attachment_id[0]) return;
-  clear_media();
-  if (s_media_status_layer) {
-    text_layer_set_text(s_media_status_layer, "Loading attachment…");
-    layer_set_hidden(text_layer_get_layer(s_media_status_layer), false);
-  }
-  window_stack_push(s_media_window, true);
-  request_command("load_attachment", s_messages[index->row].attachment_id);
 }
 
 static void retry_reply(ClickRecognizerRef recognizer, void *context) {
@@ -783,6 +812,29 @@ static uint16_t message_rows(MenuLayer *menu_layer, uint16_t section, void *cont
 static void message_selection_changed(MenuLayer *menu_layer, MenuIndex new_index,
                                       MenuIndex old_index, void *context) {
   marquee_reset();
+  if (new_index.section == 0 && new_index.row < s_message_count) {
+    Message *message = &s_messages[new_index.row];
+    if (strcmp(s_expanded_message_id, message->id) != 0) {
+      if (s_content_request_timer) {
+        app_timer_cancel(s_content_request_timer);
+        s_content_request_timer = NULL;
+      }
+      if (s_detail_text) {
+        free(s_detail_text);
+        s_detail_text = NULL;
+      }
+      s_detail_length = 0;
+      s_expanded_message_index = new_index.row;
+      copy_text(s_expanded_message_id, sizeof(s_expanded_message_id), message->id);
+      s_expanded_message_loaded = false;
+      clear_media();
+      copy_text(s_inline_attachment_id, sizeof(s_inline_attachment_id), message->attachment_id);
+      s_inline_media_state = message->attachment_id[0] ? INLINE_MEDIA_LOADING : INLINE_MEDIA_NONE;
+      s_inline_media_error[0] = '\0';
+      menu_layer_reload_data(s_message_menu);
+      s_content_request_timer = app_timer_register(250, request_selected_content, NULL);
+    }
+  }
   if (new_index.section != 0 || new_index.row > 1 || !s_has_older_messages ||
       s_loading_older_messages || !s_active_chat_id[0]) return;
   s_loading_older_messages = true;
@@ -792,11 +844,25 @@ static void message_selection_changed(MenuLayer *menu_layer, MenuIndex new_index
 }
 
 static int16_t message_row_height(MenuLayer *menu_layer, MenuIndex *index, void *context) {
-  if (s_theme_size <= 14) return 96;
-  if (s_theme_size <= 18) return 116;
-  if (s_theme_size <= 22) return 132;
-  if (s_theme_size <= 26) return 150;
-  return 170;
+  if (index->row >= s_message_count) return 80;
+  Message *message = &s_messages[index->row];
+  bool expanded = index->row == s_expanded_message_index &&
+    strcmp(message->id, s_expanded_message_id) == 0;
+  const char *text = expanded && s_expanded_message_loaded && s_detail_text ?
+    s_detail_text : message->text;
+  int16_t width = layer_get_bounds(menu_layer_get_layer(menu_layer)).size.w - 16;
+  GSize text_size = graphics_text_layout_get_content_size(text && text[0] ? text : "[No text]",
+    font_for_text(text), GRect(0, 0, width, 30000), GTextOverflowModeWordWrap, GTextAlignmentLeft);
+  int32_t height = 6 + s_theme_size + 9 + (text_size.h > 24 ? text_size.h : 24) + 8 + 22;
+  if (message->attachment_kind) {
+    if (expanded && s_inline_media_state == INLINE_MEDIA_READY && s_media_bitmap) {
+      height += s_media_height + 8;
+    } else {
+      height += 24;
+    }
+  }
+  if (expanded) height += 19;
+  return (int16_t)(height < 32000 ? height : 32000);
 }
 
 static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, void *context) {
@@ -804,40 +870,134 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
   Message *message = &s_messages[index->row];
   GRect bounds = layer_get_bounds(cell);
   bool selected = menu_layer_is_index_selected(s_message_menu, index);
+  bool expanded = index->row == s_expanded_message_index &&
+    strcmp(message->id, s_expanded_message_id) == 0;
+  const char *body = expanded && s_expanded_message_loaded && s_detail_text ?
+    s_detail_text : message->text;
   int sender_height = s_theme_size + 9;
   int text_y = sender_height + 1;
   int time_y = bounds.size.h - 19;
-  int text_height = time_y - text_y - 9;
+  GSize body_size = graphics_text_layout_get_content_size(body && body[0] ? body : "[No text]",
+    font_for_text(body), GRect(0, 0, bounds.size.w - 16, 30000),
+    GTextOverflowModeWordWrap, GTextAlignmentLeft);
+  int text_height = body_size.h > 24 ? body_size.h : 24;
+  int content_y = text_y + text_height + 5;
   graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
 
   draw_marquee_text(ctx, message->sender, font_for_text(message->sender),
     GRect(8, 1, bounds.size.w - 16, sender_height), selected);
-  graphics_draw_text(ctx, message->text,
-    font_for_text(message->text),
+  graphics_draw_text(ctx, body && body[0] ? body : "[No text]",
+    font_for_text(body),
     GRect(8, text_y, bounds.size.w - 16, text_height),
     GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+  if (message->attachment_kind) {
+    if (expanded && s_inline_media_state == INLINE_MEDIA_READY && s_media_bitmap) {
+      int image_x = (bounds.size.w - s_media_width) / 2;
+      graphics_draw_bitmap_in_rect(ctx, s_media_bitmap,
+        GRect(image_x, content_y, s_media_width, s_media_height));
+      content_y += s_media_height + 8;
+    } else {
+      const char *label = expanded && s_inline_media_state == INLINE_MEDIA_LOADING ? "Loading photo…" :
+        (expanded && s_inline_media_state == INLINE_MEDIA_FAILED ?
+          (s_inline_media_error[0] ? s_inline_media_error : "Photo unavailable") :
+          (message->attachment_kind == 2 ? "GIF preview" :
+          (message->attachment_kind == 3 ? "Video preview" : "Photo")));
+      graphics_draw_text(ctx, label, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
+        GRect(8, content_y, bounds.size.w - 16, 18),
+        GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+      content_y += 24;
+    }
+  }
+  if (expanded) {
+    graphics_draw_text(ctx, "Hold Select: voice  •  Down: quick",
+      fonts_get_system_font(FONT_KEY_GOTHIC_14),
+      GRect(8, content_y, bounds.size.w - 16, 16),
+      GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  }
   graphics_context_set_fill_color(ctx, selected ? s_theme.accent : s_theme.background);
   graphics_fill_rect(ctx, GRect(0, time_y - 3, bounds.size.w, 22), 0, GCornerNone);
   graphics_draw_text(ctx, message->time,
     fonts_get_system_font(FONT_KEY_GOTHIC_14),
     GRect(8, time_y, bounds.size.w - 16, 16),
     GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
-  if (message->attachment_kind) {
-    const char *label = message->attachment_kind == 2 ? "GIF • hold Select" :
-      (message->attachment_kind == 3 ? "Video • hold Select" : "Photo • hold Select");
-    graphics_draw_text(ctx, label,
-      fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
-      GRect(8, time_y, bounds.size.w - 70, 16),
-      GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
-  }
 }
 
 static void retry_messages(ClickRecognizerRef recognizer, void *context) {
   request_messages();
 }
 
+static void message_long_select(MenuLayer *menu_layer, MenuIndex *index, void *context) {
+  thread_dictate(NULL, NULL);
+}
+
+static void message_long_down(ClickRecognizerRef recognizer, void *context) {
+  thread_quick_replies(recognizer, context);
+}
+
+static int32_t message_row_top(int row) {
+  int32_t top = 0;
+  for (int index = 0; index < row && index < s_message_count; index++) {
+    MenuIndex item = {.section = 0, .row = index};
+    top += message_row_height(s_message_menu, &item, NULL);
+  }
+  return top;
+}
+
+static void message_move_selection(int delta) {
+  if (!s_message_menu || s_message_count < 1) return;
+  MenuIndex selected = menu_layer_get_selected_index(s_message_menu);
+  int row = selected.row;
+  if (row < 0) row = 0;
+  if (row >= s_message_count) row = s_message_count - 1;
+  MenuIndex current = {.section = 0, .row = row};
+  int32_t top = message_row_top(row);
+  int32_t height = message_row_height(s_message_menu, &current, NULL);
+  ScrollLayer *scroll = menu_layer_get_scroll_layer(s_message_menu);
+  GPoint content_offset = scroll_layer_get_content_offset(scroll);
+  int32_t viewport_top = -content_offset.y;
+  int32_t viewport_height = layer_get_bounds(menu_layer_get_layer(s_message_menu)).size.h;
+  int32_t step = viewport_height > 54 ? viewport_height - 54 : viewport_height;
+
+  if (delta > 0 && viewport_top + viewport_height < top + height) {
+    int32_t next = viewport_top + step;
+    int32_t last = top + height - viewport_height;
+    if (next > last) next = last;
+    scroll_layer_set_content_offset(scroll, GPoint(0, -next), true);
+    return;
+  }
+  if (delta < 0 && viewport_top > top) {
+    int32_t next = viewport_top - step;
+    if (next < top) next = top;
+    scroll_layer_set_content_offset(scroll, GPoint(0, -next), true);
+    return;
+  }
+
+  int next_row = row + delta;
+  if (next_row < 0 || next_row >= s_message_count) return;
+  MenuIndex target = {.section = 0, .row = next_row};
+  menu_layer_set_selected_index(s_message_menu, target, MenuRowAlignTop, true);
+}
+
+static void message_up(ClickRecognizerRef recognizer, void *context) {
+  message_move_selection(-1);
+}
+
+static void message_down(ClickRecognizerRef recognizer, void *context) {
+  message_move_selection(1);
+}
+
+static void install_message_clicks(void) {
+  if (!s_message_menu || !s_message_window) return;
+  window_set_click_config_provider(s_message_window, message_clicks);
+}
+
 static void message_clicks(void *context) {
-  if (s_message_state != VIEW_READY) {
+  if (s_message_state == VIEW_READY) {
+    window_single_click_subscribe(BUTTON_ID_UP, message_up);
+    window_single_click_subscribe(BUTTON_ID_DOWN, message_down);
+    window_long_click_subscribe(BUTTON_ID_SELECT, 600, thread_dictate, NULL);
+    window_long_click_subscribe(BUTTON_ID_DOWN, 600, message_long_down, NULL);
+  } else {
     window_single_click_subscribe(BUTTON_ID_SELECT, retry_messages);
   }
 }
@@ -877,6 +1037,15 @@ static void apply_state(const char *state, const char *error) {
       text_layer_set_text(s_detail_hint_layer, feedback);
       return;
     }
+    if (s_message_window && window_stack_get_top_window() == s_message_window && s_message_status_layer) {
+      const char *feedback = error && error[0] ? error : state_text(reply_state, true);
+      if (reply_state == VIEW_REPLY_RETRYABLE && !(error && error[0])) {
+        feedback = "Reply failed\nHold Select to retry";
+      }
+      text_layer_set_text(s_message_status_layer, feedback);
+      layer_set_hidden(text_layer_get_layer(s_message_status_layer), false);
+      return;
+    }
     return;
   }
   ViewState mapped = VIEW_ERROR;
@@ -892,7 +1061,7 @@ static void apply_state(const char *state, const char *error) {
     set_status(s_message_status_layer, mapped, true);
     if (s_message_menu) menu_layer_reload_data(s_message_menu);
     if (mapped == VIEW_READY) {
-      menu_layer_set_click_config_onto_window(s_message_menu, s_message_window);
+      install_message_clicks();
     } else {
       window_set_click_config_provider(s_message_window, message_clicks);
     }
@@ -914,6 +1083,22 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
   if (!command) return;
 
   if (strcmp(command->value->cstring, "messages_start") == 0) {
+    if (s_content_request_timer) {
+      app_timer_cancel(s_content_request_timer);
+      s_content_request_timer = NULL;
+    }
+    if (s_detail_text) {
+      free(s_detail_text);
+      s_detail_text = NULL;
+    }
+    s_detail_length = 0;
+    s_detail_capacity = 0;
+    s_expanded_message_index = -1;
+    s_expanded_message_id[0] = '\0';
+    s_expanded_message_loaded = false;
+    s_inline_attachment_id[0] = '\0';
+    s_inline_media_state = INLINE_MEDIA_NONE;
+    clear_media();
     s_message_count = 0;
     memset(s_messages, 0, sizeof(s_messages));
     return;
@@ -928,6 +1113,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
       memmove(s_messages + added, s_messages, (size_t)s_message_count * sizeof(Message));
       memset(s_messages, 0, (size_t)added * sizeof(Message));
       s_message_count += added;
+      if (s_expanded_message_index >= 0) s_expanded_message_index += added;
     }
     return;
   }
@@ -955,7 +1141,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
         MenuRowAlign align = mode && strcmp(mode->value->cstring, "older") == 0 ?
           MenuRowAlignTop : MenuRowAlignBottom;
         menu_layer_set_selected_index(s_message_menu, target, align, false);
-        menu_layer_set_click_config_onto_window(s_message_menu, s_message_window);
+        install_message_clicks();
       }
     }
     cancel_load_watchdog();
@@ -1083,19 +1269,27 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
   }
 
   if (strcmp(command->value->cstring, "message_detail_start") == 0) {
-    if (s_detail_text && DETAIL_TEXT_CAPACITY > 0) s_detail_text[0] = '\0';
+    Tuple *message_id = dict_find(iterator, MESSAGE_KEY_MSG_ID);
+    Tuple *total = dict_find(iterator, MESSAGE_KEY_TOTAL);
+    if (!message_id || strcmp(message_id->value->cstring, s_expanded_message_id) != 0) return;
+    size_t requested = total && total->value->int32 > 0 ? (size_t)total->value->int32 : 1;
+    if (requested >= DETAIL_TEXT_CAPACITY) requested = DETAIL_TEXT_CAPACITY - 1;
+    if (s_detail_text) free(s_detail_text);
+    s_detail_text = malloc(requested + 1);
+    s_detail_capacity = s_detail_text ? requested + 1 : 0;
     s_detail_length = 0;
-    if (s_detail_sender_layer) text_layer_set_text(s_detail_sender_layer, s_detail_sender);
-    if (s_detail_text_layer) text_layer_set_text(s_detail_text_layer, "Loading full message…");
-    if (s_detail_hint_layer) text_layer_set_text(s_detail_hint_layer, "Up/Down: scroll\nHold Select=voice Down=quick");
+    s_expanded_message_loaded = false;
+    if (s_detail_text) s_detail_text[0] = '\0';
     return;
   }
 
   if (strcmp(command->value->cstring, "message_detail_chunk") == 0) {
+    Tuple *message_id = dict_find(iterator, MESSAGE_KEY_MSG_ID);
     Tuple *text = dict_find(iterator, MESSAGE_KEY_DETAIL_TEXT);
-    if (s_detail_text && text) {
+    if (message_id && strcmp(message_id->value->cstring, s_expanded_message_id) == 0 && s_detail_text && text) {
       size_t length = strlen(text->value->cstring);
-      size_t available = DETAIL_TEXT_CAPACITY - 1 - s_detail_length;
+      size_t available = s_detail_capacity > s_detail_length ?
+        s_detail_capacity - 1 - s_detail_length : 0;
       size_t copy_length = length < available ? length : available;
       memcpy(s_detail_text + s_detail_length, text->value->cstring, copy_length);
       s_detail_length += copy_length;
@@ -1105,65 +1299,104 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
   }
 
   if (strcmp(command->value->cstring, "message_detail_end") == 0) {
-    if (s_detail_text_layer && s_detail_text) text_layer_set_text(s_detail_text_layer, s_detail_text);
-    layout_detail();
+    Tuple *message_id = dict_find(iterator, MESSAGE_KEY_MSG_ID);
+    if (!message_id || strcmp(message_id->value->cstring, s_expanded_message_id) != 0) return;
+    s_expanded_message_loaded = s_detail_text != NULL;
+    if (s_message_menu) {
+      menu_layer_reload_data(s_message_menu);
+      if (s_expanded_message_index >= 0 && s_expanded_message_index < s_message_count) {
+        MenuIndex selected = {.section = 0, .row = s_expanded_message_index};
+        menu_layer_set_selected_index(s_message_menu, selected, MenuRowAlignTop, false);
+      }
+      install_message_clicks();
+    }
     return;
   }
 
   if (strcmp(command->value->cstring, "media_start") == 0) {
+    Tuple *attachment_id = dict_find(iterator, MESSAGE_KEY_ATTACHMENT_ID);
     Tuple *width = dict_find(iterator, MESSAGE_KEY_MEDIA_WIDTH);
     Tuple *height = dict_find(iterator, MESSAGE_KEY_MEDIA_HEIGHT);
     Tuple *total = dict_find(iterator, MESSAGE_KEY_MEDIA_TOTAL);
     Tuple *kind = dict_find(iterator, MESSAGE_KEY_ATTACHMENT_KIND);
+    if (!attachment_id || strcmp(attachment_id->value->cstring, s_inline_attachment_id) != 0) return;
     clear_media();
     s_media_width = width ? width->value->int32 : 0;
     s_media_height = height ? height->value->int32 : 0;
     s_media_total = total ? total->value->uint32 : 0;
     s_media_kind = kind ? kind->value->uint8 : 1;
     if (s_media_width < 1 || s_media_height < 1 || s_media_total != (size_t)s_media_width * s_media_height || s_media_total > 32400) {
-      if (s_media_status_layer) text_layer_set_text(s_media_status_layer, "Invalid attachment\nPress Back");
+      s_inline_media_state = INLINE_MEDIA_FAILED;
+      copy_text(s_inline_media_error, sizeof(s_inline_media_error), "Invalid photo");
       s_media_total = 0;
       return;
     }
-    s_media_pixels = malloc(s_media_total);
-    if (!s_media_pixels) {
-      if (s_media_status_layer) text_layer_set_text(s_media_status_layer, "Not enough memory\nPress Back");
+    s_media_bitmap = gbitmap_create_blank(GSize(s_media_width, s_media_height), GBitmapFormat8Bit);
+    if (!s_media_bitmap) {
+      s_inline_media_state = INLINE_MEDIA_FAILED;
+      copy_text(s_inline_media_error, sizeof(s_inline_media_error), "Not enough memory");
       s_media_total = 0;
     }
     return;
   }
 
   if (strcmp(command->value->cstring, "media_chunk") == 0) {
+    Tuple *attachment_id = dict_find(iterator, MESSAGE_KEY_ATTACHMENT_ID);
     Tuple *offset = dict_find(iterator, MESSAGE_KEY_MEDIA_OFFSET);
     Tuple *bytes = dict_find(iterator, MESSAGE_KEY_MEDIA_BYTES);
     size_t start = offset ? offset->value->uint32 : s_media_total;
-    if (s_media_pixels && bytes && start + bytes->length <= s_media_total) {
-      memcpy(s_media_pixels + start, bytes->value->data, bytes->length);
+    if (attachment_id && strcmp(attachment_id->value->cstring, s_inline_attachment_id) == 0 &&
+        s_media_bitmap && bytes && start + bytes->length <= s_media_total) {
+      uint8_t *bitmap_data = gbitmap_get_data(s_media_bitmap);
+      uint16_t stride = gbitmap_get_bytes_per_row(s_media_bitmap);
+      size_t copied = 0;
+      while (copied < bytes->length) {
+        size_t packed_offset = start + copied;
+        size_t row = packed_offset / s_media_width;
+        size_t column = packed_offset % s_media_width;
+        size_t row_remaining = (size_t)s_media_width - column;
+        size_t chunk_remaining = bytes->length - copied;
+        size_t count = row_remaining < chunk_remaining ? row_remaining : chunk_remaining;
+        memcpy(bitmap_data + row * stride + column, bytes->value->data + copied, count);
+        copied += count;
+      }
       s_media_received += bytes->length;
     }
     return;
   }
 
   if (strcmp(command->value->cstring, "media_end") == 0) {
-    if (!s_media_pixels || s_media_received != s_media_total) {
-      if (s_media_status_layer) text_layer_set_text(s_media_status_layer, "Transfer incomplete\nPress Back to retry");
+    Tuple *attachment_id = dict_find(iterator, MESSAGE_KEY_ATTACHMENT_ID);
+    if (!attachment_id || strcmp(attachment_id->value->cstring, s_inline_attachment_id) != 0) return;
+    if (!s_media_bitmap || s_media_received != s_media_total) {
+      s_inline_media_state = INLINE_MEDIA_FAILED;
+      copy_text(s_inline_media_error, sizeof(s_inline_media_error), "Photo incomplete");
+      if (s_message_menu) menu_layer_reload_data(s_message_menu);
       return;
     }
-    s_media_bitmap = gbitmap_create_blank(GSize(s_media_width, s_media_height), GBitmapFormat8Bit);
-    if (!s_media_bitmap) {
-      if (s_media_status_layer) text_layer_set_text(s_media_status_layer, "Could not open image\nPress Back");
-      return;
+    s_inline_media_state = INLINE_MEDIA_READY;
+    if (s_message_menu) {
+      menu_layer_reload_data(s_message_menu);
+      if (s_expanded_message_index >= 0 && s_expanded_message_index < s_message_count) {
+        MenuIndex selected = {.section = 0, .row = s_expanded_message_index};
+        menu_layer_set_selected_index(s_message_menu, selected, MenuRowAlignTop, false);
+      }
+      install_message_clicks();
     }
-    uint8_t *bitmap_data = gbitmap_get_data(s_media_bitmap);
-    uint16_t stride = gbitmap_get_bytes_per_row(s_media_bitmap);
-    for (int y = 0; y < s_media_height; y++) {
-      memcpy(bitmap_data + y * stride, s_media_pixels + y * s_media_width, s_media_width);
-    }
-    bitmap_layer_set_bitmap(s_media_layer, s_media_bitmap);
-    bitmap_layer_set_alignment(s_media_layer, GAlignCenter);
-    if (s_media_status_layer) layer_set_hidden(text_layer_get_layer(s_media_status_layer), true);
-    free(s_media_pixels);
-    s_media_pixels = NULL;
+    return;
+  }
+
+  if (strcmp(command->value->cstring, "media_failed") == 0) {
+    Tuple *attachment_id = dict_find(iterator, MESSAGE_KEY_ATTACHMENT_ID);
+    Tuple *error = dict_find(iterator, MESSAGE_KEY_ERROR);
+    if (!attachment_id || strcmp(attachment_id->value->cstring, s_inline_attachment_id) != 0) return;
+    clear_media();
+    s_inline_media_state = INLINE_MEDIA_FAILED;
+    copy_text(s_inline_media_error, sizeof(s_inline_media_error),
+      error ? error->value->cstring : "Photo unavailable");
+    if (s_message_menu) menu_layer_reload_data(s_message_menu);
+    install_message_clicks();
+    return;
   }
 }
 
@@ -1279,11 +1512,11 @@ static void message_load(Window *window) {
     .get_num_rows = message_rows,
     .get_cell_height = message_row_height,
     .draw_row = draw_message,
-    .select_click = message_selected,
-    .select_long_click = view_attachment,
+    .select_click = NULL,
+    .select_long_click = message_long_select,
     .selection_changed = message_selection_changed
   });
-  menu_layer_set_click_config_onto_window(s_message_menu, window);
+  install_message_clicks();
   layer_add_child(root, menu_layer_get_layer(s_message_menu));
 
   s_message_status_layer = text_layer_create(GRect(14, 58, bounds.size.w - 28, 110));
@@ -1390,6 +1623,18 @@ static void media_unload(Window *window) {
 }
 
 static void message_unload(Window *window) {
+  if (s_content_request_timer) {
+    app_timer_cancel(s_content_request_timer);
+    s_content_request_timer = NULL;
+  }
+  if (s_detail_text) {
+    free(s_detail_text);
+    s_detail_text = NULL;
+  }
+  s_detail_length = 0;
+  s_detail_capacity = 0;
+  s_expanded_message_loaded = false;
+  clear_media();
   menu_layer_destroy(s_message_menu);
   text_layer_destroy(s_message_status_layer);
   s_message_menu = NULL;
@@ -1465,6 +1710,7 @@ static void deinit(void) {
   cancel_reply_return_timer();
   if (s_marquee_timer) app_timer_cancel(s_marquee_timer);
   if (s_message_request_timer) app_timer_cancel(s_message_request_timer);
+  if (s_content_request_timer) app_timer_cancel(s_content_request_timer);
   if (s_dictation_session) dictation_session_destroy(s_dictation_session);
   unload_custom_theme_font();
   clear_media();

@@ -101,6 +101,18 @@ function utf8Chunks(value, maxChunkBytes, maxTotalBytes) {
   return chunks;
 }
 
+function utf8ByteLength(value) {
+  var source = String(value || ''), total = 0;
+  for (var i = 0; i < source.length; i++) {
+    var code = source.charCodeAt(i);
+    if (code >= 0xD800 && code <= 0xDBFF && i + 1 < source.length) { total += 4; i++; }
+    else if (code < 0x80) total++;
+    else if (code < 0x800) total += 2;
+    else total += 3;
+  }
+  return total;
+}
+
 function selectedTheme() {
   return configuredTheme().id;
 }
@@ -474,39 +486,64 @@ function loadOlderMessages(chatID) {
 
 function sendMessageDetail(messageID) {
   var text = Object.prototype.hasOwnProperty.call(messageTextByID, messageID) ? messageTextByID[messageID] : '';
-  var start = {}; start[KEY_COMMAND] = 'message_detail_start'; enqueue(start);
   var chunks = utf8Chunks(text || '[This message contains no text]', 500, 30000);
+  var completeText = chunks.join('');
+  var start = {}; start[KEY_COMMAND] = 'message_detail_start'; start[KEY_MSG_ID] = messageID; start[KEY_TOTAL] = utf8ByteLength(completeText); enqueue(start);
   for (var i = 0; i < chunks.length; i++) {
-    var chunk = {}; chunk[KEY_COMMAND] = 'message_detail_chunk'; chunk[KEY_DETAIL_TEXT] = chunks[i]; enqueue(chunk);
+    var chunk = {}; chunk[KEY_COMMAND] = 'message_detail_chunk'; chunk[KEY_MSG_ID] = messageID; chunk[KEY_DETAIL_TEXT] = chunks[i]; enqueue(chunk);
   }
-  var end = {}; end[KEY_COMMAND] = 'message_detail_end'; enqueue(end);
+  var end = {}; end[KEY_COMMAND] = 'message_detail_end'; end[KEY_MSG_ID] = messageID; enqueue(end);
+}
+
+function base64Bytes(value) {
+  var alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  var clean = String(value || '').replace(/[^A-Za-z0-9+/=]/g, '');
+  var output = [];
+  for (var offset = 0; offset < clean.length; offset += 4) {
+    var a = alphabet.indexOf(clean.charAt(offset));
+    var b = alphabet.indexOf(clean.charAt(offset + 1));
+    var c = alphabet.indexOf(clean.charAt(offset + 2));
+    var d = alphabet.indexOf(clean.charAt(offset + 3));
+    if (a < 0 || b < 0) break;
+    output.push((a << 2) | (b >> 4));
+    if (c >= 0) output.push(((b & 15) << 4) | (c >> 2));
+    if (d >= 0) output.push(((c & 3) << 6) | d);
+  }
+  return output;
 }
 
 function loadAttachment(attachmentID) {
   var url = gatewayURL(), token = gatewayToken();
-  if (!url || !token || !attachmentID) { sendState('media_failed', 'Attachment unavailable'); return; }
-  sendState('media_loading');
+  function fail(message) {
+    var failed = {}; failed[KEY_COMMAND] = 'media_failed'; failed[KEY_ATTACHMENT_ID] = attachmentID; failed[KEY_ERROR] = message; enqueue(failed);
+  }
+  if (!url || !token || !attachmentID) { fail('Attachment unavailable'); return; }
   var xhr = new XMLHttpRequest();
-  xhr.open('GET', url + '/v1/attachments/' + encodeURIComponent(attachmentID) + '/preview', true);
+  xhr.open('GET', url + '/v1/attachments/' + encodeURIComponent(attachmentID) + '/preview?format=json', true);
   xhr.setRequestHeader('Authorization', 'Bearer ' + token);
-  xhr.responseType = 'arraybuffer';
   xhr.timeout = 30000;
   xhr.onload = function() {
-    if (xhr.status < 200 || xhr.status >= 300 || !xhr.response) { sendState('media_failed', 'Preview failed with ' + xhr.status); return; }
-    var width = Number(xhr.getResponseHeader('X-Beepster-Width'));
-    var height = Number(xhr.getResponseHeader('X-Beepster-Height'));
-    var kindName = xhr.getResponseHeader('X-Beepster-Kind') || 'image';
-    var kind = kindName === 'gif' ? 2 : (kindName === 'video' ? 3 : 1);
-    var bytes = new Uint8Array(xhr.response);
-    if (!width || !height || bytes.length !== width * height || bytes.length > 32400) { sendState('media_failed', 'Invalid watch preview'); return; }
-    var start = {}; start[KEY_COMMAND] = 'media_start'; start[KEY_MEDIA_WIDTH] = width; start[KEY_MEDIA_HEIGHT] = height; start[KEY_MEDIA_TOTAL] = bytes.length; start[KEY_ATTACHMENT_KIND] = kind; enqueue(start);
+    if (xhr.status < 200 || xhr.status >= 300 || !xhr.responseText) { fail('Preview failed with ' + xhr.status); return; }
+    var preview;
+    try { preview = JSON.parse(xhr.responseText); }
+    catch (error) { fail('Invalid preview response'); return; }
+    var width = Number(preview.width);
+    var height = Number(preview.height);
+    var kind = preview.kind === 'gif' ? 2 : (preview.kind === 'video' ? 3 : 1);
+    var bytes = base64Bytes(preview.pixels);
+    console.log('Beepster preview dimensions=' + width + 'x' + height + ' bytes=' + bytes.length + ' kind=' + kind);
+    if (!width || !height || bytes.length !== width * height || bytes.length > 32400) { fail('Invalid watch preview'); return; }
+    var start = {}; start[KEY_COMMAND] = 'media_start'; start[KEY_ATTACHMENT_ID] = attachmentID; start[KEY_MEDIA_WIDTH] = width; start[KEY_MEDIA_HEIGHT] = height; start[KEY_MEDIA_TOTAL] = bytes.length; start[KEY_ATTACHMENT_KIND] = kind; enqueue(start);
     for (var offset = 0; offset < bytes.length; offset += 512) {
-      var chunk = {}; chunk[KEY_COMMAND] = 'media_chunk'; chunk[KEY_MEDIA_OFFSET] = offset; chunk[KEY_MEDIA_BYTES] = Array.prototype.slice.call(bytes.subarray(offset, Math.min(offset + 512, bytes.length))); enqueue(chunk);
+      var chunkBytes = [];
+      var chunkEnd = Math.min(offset + 512, bytes.length);
+      for (var byteIndex = offset; byteIndex < chunkEnd; byteIndex++) chunkBytes.push(bytes[byteIndex]);
+      var chunk = {}; chunk[KEY_COMMAND] = 'media_chunk'; chunk[KEY_ATTACHMENT_ID] = attachmentID; chunk[KEY_MEDIA_OFFSET] = offset; chunk[KEY_MEDIA_BYTES] = chunkBytes; enqueue(chunk);
     }
-    var end = {}; end[KEY_COMMAND] = 'media_end'; enqueue(end);
+    var end = {}; end[KEY_COMMAND] = 'media_end'; end[KEY_ATTACHMENT_ID] = attachmentID; enqueue(end);
   };
-  xhr.onerror = function() { sendState('media_failed', 'Preview unavailable'); };
-  xhr.ontimeout = function() { sendState('media_failed', 'Preview timed out'); };
+  xhr.onerror = function() { fail('Preview unavailable'); };
+  xhr.ontimeout = function() { fail('Preview timed out'); };
   xhr.send();
 }
 
@@ -561,5 +598,10 @@ Pebble.addEventListener('appmessage', function(event) {
   if (command === 'send_reply') sendReply(payload[KEY_CHAT_ID] || payload.CHAT_ID || '', payload[KEY_REPLY_TEXT] || payload.REPLY_TEXT || '', payload[KEY_REPLY_REQUEST_ID] || payload.REPLY_REQUEST_ID || '');
   if (command === 'load_attachment') loadAttachment(payload[KEY_ATTACHMENT_ID] || payload.ATTACHMENT_ID || payload[KEY_CHAT_ID] || payload.CHAT_ID || '');
   if (command === 'load_message_detail') sendMessageDetail(payload[KEY_MSG_ID] || payload.MSG_ID || '');
+  if (command === 'load_message_content') {
+    sendMessageDetail(payload[KEY_MSG_ID] || payload.MSG_ID || '');
+    var attachmentID = payload[KEY_ATTACHMENT_ID] || payload.ATTACHMENT_ID || '';
+    if (attachmentID) loadAttachment(attachmentID);
+  }
   if (command === 'send_quick_reply') sendQuickReply(payload[KEY_CHAT_ID] || payload.CHAT_ID || '', Number(payload[KEY_INDEX] != null ? payload[KEY_INDEX] : payload.INDEX), payload[KEY_REPLY_REQUEST_ID] || payload.REPLY_REQUEST_ID || '', payload[KEY_QUICK_REPLY_TEXT] || payload.QUICK_REPLY_TEXT || '');
 });

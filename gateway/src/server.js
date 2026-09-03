@@ -22,15 +22,27 @@ function sendHTML(response, status, body) {
 }
 
 function sendPreview(response, preview) {
+  const kind = preview.kind === 'gif' ? 2 : (preview.kind === 'video' ? 3 : 1);
+  const envelope = Buffer.from([0x42, 0x50, 1, preview.width, preview.height, kind]);
+  const payload = Buffer.concat([envelope, preview.pixels]);
   response.writeHead(200, {
     'Content-Type': 'application/octet-stream',
-    'Content-Length': preview.pixels.length,
+    'Content-Length': payload.length,
     'Cache-Control': 'private, max-age=300',
     'X-Beepster-Width': String(preview.width),
     'X-Beepster-Height': String(preview.height),
     'X-Beepster-Kind': preview.kind
   });
-  response.end(preview.pixels);
+  response.end(payload);
+}
+
+function sendPreviewJSON(response, preview) {
+  sendJSON(response, 200, {
+    width: preview.width,
+    height: preview.height,
+    kind: preview.kind,
+    pixels: preview.pixels.toString('base64')
+  });
 }
 
 async function readJSON(request) {
@@ -201,7 +213,8 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '', log
           sendJSON(response, 404, { error: 'Attachment is no longer available; reload the chat' });
           return;
         }
-        sendPreview(response, preview);
+        if (url.searchParams.get('format') === 'json') sendPreviewJSON(response, preview);
+        else sendPreview(response, preview);
         return;
       }
 

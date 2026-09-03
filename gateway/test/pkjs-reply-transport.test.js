@@ -8,6 +8,7 @@ const source = await readFile(new URL('../../src/pkjs/index.js', import.meta.url
 function replyRuntime() {
   const requests = [];
   const timers = [];
+  const appMessages = [];
   const storage = new Map([
     ['beepster_gateway_url', 'https://gateway.example'],
     ['beepster_gateway_token', 'gateway-secret']
@@ -25,7 +26,11 @@ function replyRuntime() {
 
   const context = {
     XMLHttpRequest: FakeXHR,
-    Pebble: { addEventListener() {}, sendAppMessage() {}, openURL() {} },
+    Pebble: {
+      addEventListener() {},
+      sendAppMessage(message, success) { appMessages.push(message); if (success) success(); },
+      openURL() {}
+    },
     localStorage: {
       getItem(key) { return storage.get(key) || null; },
       setItem(key, value) { storage.set(key, String(value)); }
@@ -36,7 +41,7 @@ function replyRuntime() {
     Uint8Array
   };
   vm.runInNewContext(source, context);
-  return { context, requests, timers };
+  return { context, requests, timers, appMessages };
 }
 
 test('watch replies use canonical authenticated JSON POST first', () => {
@@ -53,6 +58,31 @@ test('watch replies use canonical authenticated JSON POST first', () => {
   requests[0].responseText = JSON.stringify({pendingMessageID:'pending-1'});
   requests[0].onload();
   assert.equal(response.pendingMessageID, 'pending-1');
+});
+
+test('full message detail packets stay tagged to their originating message', () => {
+  const { context, appMessages } = replyRuntime();
+  context.messageTextByID['message-1'] = 'A'.repeat(900) + ' 👍';
+  context.sendMessageDetail('message-1');
+  assert.equal(appMessages[0][0], 'message_detail_start');
+  assert.equal(appMessages[0][30], 'message-1');
+  assert.ok(appMessages[0][4] > 900);
+  assert.ok(appMessages.slice(1, -1).every((message) =>
+    message[0] === 'message_detail_chunk' && message[30] === 'message-1'));
+  assert.equal(appMessages.at(-1)[0], 'message_detail_end');
+  assert.equal(appMessages.at(-1)[30], 'message-1');
+});
+
+test('inline photo packets stay tagged to their originating attachment', () => {
+  const { context, requests, appMessages } = replyRuntime();
+  context.loadAttachment('attachment-1');
+  const xhr = requests[0];
+  xhr.status = 200;
+  xhr.responseText = JSON.stringify({width:2,height:1,kind:'image',pixels:'wP8='});
+  xhr.onload();
+  assert.deepEqual(appMessages.map((message) => message[0]), ['media_start','media_chunk','media_end']);
+  assert.ok(appMessages.every((message) => message[23] === 'attachment-1'));
+  assert.deepEqual(Array.from(appMessages[1][28]), [0xc0,0xff]);
 });
 
 test('a stalled POST falls back to the same idempotent request over GET', () => {

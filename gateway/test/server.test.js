@@ -169,6 +169,12 @@ test('attachment previews require authentication and return dimensions without s
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('x-beepster-width'), '2');
     assert.equal(response.headers.get('x-beepster-kind'), 'image');
-    assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [0xc0,0xff]);
+    assert.deepEqual([...new Uint8Array(await response.arrayBuffer())],
+      [0x42,0x50,1,2,1,1,0xc0,0xff]);
+
+    const jsonResponse = await fetch(`${path}?format=json`,
+      {headers:{Authorization:'Bearer gateway-secret'}});
+    assert.deepEqual(await jsonResponse.json(),
+      {width:2,height:1,kind:'image',pixels:'wP8='});
   });
 });
