@@ -1,8 +1,9 @@
 # Troubleshooting Beepster
 
-Start by opening **Beepster Connector** on the Mac and selecting **Run All Checks Again**. It checks
-Contacts permission, the local gateway and Beeper token, and the private Tailscale route without
-showing credentials or message data. Select the action beside the part that needs attention.
+Start by opening **Beepster Connector** on the Mac and selecting **Test Everything**. It tests
+Contacts permission, a bounded live Beeper request, and the private Tailscale route without showing
+credentials or message data. Select **Set Up Beepster** to repair the normal path in one guided
+pass, or expand **Advanced options** for an individual repair control.
 
 Source developers can run the more detailed private diagnostic in Terminal:
 
@@ -25,7 +26,8 @@ It never prints either token, message data, contacts, or your private URL.
 
 ## Pairing code is rejected
 
-- Select **Show Pairing Code** in the Connector immediately before pairing.
+- Select **Connect Phone** in the Connector immediately before pairing; it shows the current code
+  and copies the private address together.
 - A code is single-use. Reopen Settings only after generating or reinstalling the companion as
   instructed.
 - Pairing again is not required for ordinary theme or quick-reply edits.
@@ -33,8 +35,8 @@ It never prints either token, message data, contacts, or your private URL.
 ## Chats never finish loading
 
 - Keep Beeper Desktop open and signed in.
-- Run all checks in the Connector and resolve the first warning.
-- Select **Start Private Route**, then run the checks again.
+- Select **Test Everything** in the Connector and resolve the first warning.
+- Run **Set Up Beepster** again. If needed, use **Start Private Route** under Advanced options.
 - Open `https://your-private-host/health` on the phone. It should show `ok: true` and
   `beeperConfigured: true` without asking for a token.
 - If Beeper changed its local API port, restart the companion. Beepster also probes the supported
@@ -48,8 +50,8 @@ reporting this symptom.
 
 ## An Apple chat shows an email address or phone number
 
-Beeper sometimes supplies only the participant's network identifier. Select **Enable Contacts** in
-the Connector, allow read-only Contacts access, run the checks again, and reopen Beepster.
+Beeper sometimes supplies only the participant's network identifier. Run **Set Up Beepster** in the
+Connector and allow read-only Contacts access, then test again and reopen Beepster.
 Beepster falls back to the original Beeper label when there is no exact local match.
 
 ## One Apple contact appears as separate email and phone threads

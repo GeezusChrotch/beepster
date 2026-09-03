@@ -45,8 +45,8 @@ its gateway runtime, so end users do not need Terminal, Git, Node.js, or develop
 - Six presets and saved custom themes using five font families and five sizes
 - Pebble-native emoji where possible, with readable text fallbacks elsewhere
 - Explicit setup, loading, empty, timeout, offline, and retry states
-- Self-contained, Keychain-backed Mac Connector with guided install, permissions, private setup,
-  readiness checks, and idempotent reply transport
+- Self-contained, Keychain-backed Mac Connector with one-pass setup, combined phone pairing,
+  end-to-end readiness checks, advanced repair controls, and idempotent reply transport
 
 Animated GIF playback and multiple attachments per message remain planned. See the
 [roadmap](ROADMAP.md) and [UX requirements](docs/UX_REQUIREMENTS.md).

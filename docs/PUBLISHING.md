@@ -53,8 +53,9 @@ notarize without a signing identity, waits for Apple's result, staples the ticke
 A run without those variables is an ad-hoc development package and must never be published.
 
 Before release, mount the exact DMG on a Mac that has never had the source installer. Drag the app
-to Applications and verify Install or Repair, Contacts permission, token storage, Tailscale Serve,
-phone-setup copying, pairing, login restart, repair/update preservation, and Gatekeeper acceptance.
+to Applications and verify guided setup, Contacts permission, token storage, Tailscale Serve,
+combined phone setup, Test Everything, pairing, login restart, repair/update preservation, the
+Advanced options fallback, and Gatekeeper acceptance.
 
 ## Store artwork
 

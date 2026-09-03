@@ -27,10 +27,10 @@ On first launch, macOS may ask you to confirm that you downloaded the app from t
 public release must be Developer ID signed and notarized; do not bypass a warning that says the app
 cannot be checked for malicious software.
 
-Select **Install or Repair**. The Connector installs its bundled gateway in your user account,
-creates private credentials in your login Keychain, and starts the gateway automatically whenever
-you sign in. Existing credentials, Contacts permission, and phone pairing are preserved when you
-update or repair the Connector.
+Select **Set Up Beepster**. This one guided action installs or repairs the bundled gateway, asks for
+the Beeper token only when it is missing, requests Contacts access when needed, starts the private
+Tailscale route, restarts the service, and checks the result. Existing credentials, Contacts
+permission, and phone pairing are preserved when you update or repair the Connector.
 
 ## 2. Connect Beeper
 
@@ -38,22 +38,24 @@ Keep Beeper Desktop open. In Beeper Desktop, open its developer or Desktop API s
 a separate access token for Beepster. The exact wording may change between Beeper releases; use the
 authentication link in Beeper's current [Desktop API documentation](https://developers.beeper.com/desktop-api/).
 
-In Beepster Connector, select **Set Beeper Token**, paste the dedicated token into the concealed
-field, and save. It goes directly into the macOS login Keychain and is never placed in the watch
-app, copied to the phone, or displayed again.
+The guided setup asks for this token only on the first setup or when it is missing. Paste it into the
+concealed field and continue. It goes directly into the macOS login Keychain and is never placed in
+the watch app, copied to the phone, or displayed again.
 
 ## 3. Enable names and the private connection
 
-Select **Enable Contacts** and allow read-only Contacts access. This optional permission lets Apple
+When prompted by guided setup, allow read-only Contacts access. This optional permission lets Apple
 conversations show contact names instead of raw phone numbers or email addresses. If permission was
-previously denied, select **Open Privacy Settings** and enable **Beepster Contacts**.
+previously denied, expand **Advanced options**, select **Open Privacy Settings**, and enable
+**Beepster Contacts**.
 
-Open Tailscale on the Mac and phone and make sure both say connected. In Beepster Connector, select
-**Start Private Route**. Beepster uses Tailscale Serve, which remains private to your tailnet; never
-use Tailscale Funnel or public port forwarding for the gateway.
+Open Tailscale on the Mac and phone and make sure both say connected. Guided setup starts the
+Beepster Tailscale Serve route automatically. It remains private to your tailnet; never use
+Tailscale Funnel or public port forwarding for the gateway.
 
-The three status rows should now be green. If one is not, its label identifies the part that needs
-attention; select **Run All Checks Again** after correcting it.
+The three status rows should now be green. Select **Test Everything** at any time to perform a real
+bounded Beeper conversation request and verify that the private phone address reaches Beepster. If
+a row needs attention, expand **Advanced options** for the individual repair controls.
 
 ## 4. Install the watch app
 
@@ -70,8 +72,8 @@ part of the final end-user installation.
 
 ## 5. Configure and pair once
 
-On the Mac, select **Copy Phone Setup**, then **Show Pairing Code**. On the phone, open **Pebble →
-Beepster → Settings**:
+On the Mac, select **Connect Phone**. The Connector copies the private address and shows the current
+pairing code and phone instructions together. On the phone, open **Pebble → Beepster → Settings**:
 
 1. Paste the copied private setup address when asked.
 2. Enter the six-digit pairing code shown by the Connector.

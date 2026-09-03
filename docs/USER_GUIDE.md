@@ -93,11 +93,11 @@ alias; it never guesses from display names and never changes the source conversa
 
 ## Mac Connector
 
-Open **Beepster Connector** from Applications to install or repair the bundled login service and
-check Contacts permission, the local gateway/Beeper token, and the private Tailscale Serve route.
-It can request Contacts access, open the correct macOS Privacy pane, securely store a dedicated
-Beeper token, start the private route, copy the phone setup address, and show the one-time pairing
-code. No Beeper or gateway token is shown or copied, and normal use requires no Terminal commands.
+Open **Beepster Connector** from Applications and select **Set Up Beepster** for the complete guided
+Mac setup. **Connect Phone** puts the private address and pairing code in one place, and **Test
+Everything** verifies Contacts, a live Beeper request, and the private phone route. Individual
+install, token, permission, route, and documentation controls remain under **Advanced options**.
+No Beeper or gateway token is shown or copied, and normal use requires no Terminal commands.
 
 ## Themes and accessibility
 

@@ -7,7 +7,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var contactStatus: NSTextField!
     private var gatewayStatus: NSTextField!
     private var tailscaleStatus: NSTextField!
+    private var setupSummary: NSTextField!
+    private var setupButton: NSButton!
+    private var connectPhoneButton: NSButton!
     private var refreshButton: NSButton!
+    private var advancedStack: NSStackView!
+    private var advancedToggle: NSButton!
     private let supportDirectory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Beepster")
     private var launchAgentURL: URL {
@@ -18,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         let content = NSView()
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: 700),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 610),
                           styleMask: [.titled, .closable, .miniaturizable],
                           backing: .buffered, defer: false)
         window.title = "Beepster Connector"
@@ -28,7 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 11
+        stack.spacing = 13
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -40,22 +45,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let title = NSTextField(labelWithString: "Beepster Connector")
         title.font = .systemFont(ofSize: 25, weight: .bold)
         stack.addArrangedSubview(title)
-        let intro = wrappingLabel("Keeps your Pebble connected to Beeper through this Mac. Message data stays on your Mac, phone, watch, and private Tailscale connection.")
+        let intro = wrappingLabel("One guided setup keeps your Pebble connected to Beeper through this Mac. No Terminal required.")
         intro.textColor = .secondaryLabelColor
         stack.addArrangedSubview(intro)
 
-        contactStatus = statusRow("Contacts")
-        gatewayStatus = statusRow("Gateway and Beeper")
-        tailscaleStatus = statusRow("Private Tailscale route")
+        setupSummary = wrappingLabel("Checking your setup…")
+        setupSummary.font = .systemFont(ofSize: 18, weight: .semibold)
+        stack.addArrangedSubview(setupSummary)
+
+        contactStatus = statusRow("Contact names")
+        gatewayStatus = statusRow("Beeper connection")
+        tailscaleStatus = statusRow("Private connection")
         [contactStatus, gatewayStatus, tailscaleStatus].forEach(stack.addArrangedSubview)
 
-        let actionsTitle = NSTextField(labelWithString: "Setup actions — use top to bottom")
-        actionsTitle.font = .systemFont(ofSize: 18, weight: .semibold)
+        let actionsTitle = NSTextField(labelWithString: "Get started")
+        actionsTitle.font = .systemFont(ofSize: 17, weight: .semibold)
         stack.addArrangedSubview(actionsTitle)
 
-        refreshButton = button("Run All Checks Again", #selector(refresh))
-        refreshButton.keyEquivalent = "\r"
-        let actions = [
+        setupButton = button("Set Up Beepster", #selector(setUpBeepster))
+        setupButton.keyEquivalent = "\r"
+        setupButton.bezelStyle = .rounded
+        setupButton.controlSize = .large
+        connectPhoneButton = button("Connect Phone", #selector(connectPhone))
+        refreshButton = button("Test Everything", #selector(refresh))
+        let mainActions = [
+            primaryActionRow(setupButton,
+                             description: "Installs or repairs the Mac service, connects Beeper, requests Contacts access, starts the private route, and checks the result."),
+            primaryActionRow(connectPhoneButton,
+                             description: "Copies the private address and shows the pairing code together with short phone instructions."),
+            primaryActionRow(refreshButton,
+                             description: "Checks Contacts, the live Beeper connection, and the private phone route in one pass.")
+        ]
+        for row in mainActions {
+            stack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
+
+        advancedToggle = NSButton(title: "Advanced options", target: self, action: #selector(toggleAdvanced))
+        advancedToggle.setButtonType(.pushOnPushOff)
+        advancedToggle.bezelStyle = .disclosure
+        stack.addArrangedSubview(advancedToggle)
+
+        advancedStack = NSStackView()
+        advancedStack.orientation = .vertical
+        advancedStack.alignment = .leading
+        advancedStack.spacing = 8
+        advancedStack.isHidden = true
+        let advancedActions = [
             actionRow(button("Install or Repair", #selector(installBackgroundService)),
                       what: "Installs the bundled gateway and keeps it running after login.",
                       why: "Completes the Mac installation without Node, npm, Git, or Terminal."),
@@ -71,25 +107,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             actionRow(button("Start Private Route", #selector(startPrivateRoute)),
                       what: "Starts Tailscale Serve for the local Beepster gateway.",
                       why: "Gives your phone private HTTPS access without exposing Beepster publicly."),
-            actionRow(button("Copy Phone Setup", #selector(copyPhoneSetup)),
-                      what: "Copies this Mac's private Beepster Settings address.",
-                      why: "Paste it once in Beepster Settings in the Pebble mobile app."),
-            actionRow(button("Show Pairing Code", #selector(showPairingCode)),
-                      what: "Displays the current one-time six-digit pairing code.",
-                      why: "Lets the phone receive its narrow gateway credential without revealing the Beeper token."),
-            actionRow(refreshButton,
-                      what: "Rechecks every status shown above.",
-                      why: "Confirms that the complete Mac-to-watch path is ready now."),
             actionRow(button("Install Guide", #selector(openInstallGuide)),
                       what: "Opens the complete step-by-step installation guide.",
                       why: "Provides exact repair instructions when a readiness check needs attention.")
         ]
-        for row in actions {
-            stack.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        for row in advancedActions {
+            advancedStack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: advancedStack.widthAnchor).isActive = true
         }
+        stack.addArrangedSubview(advancedStack)
+        advancedStack.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
 
-        let footer = wrappingLabel("If a check fails, the Install Guide includes exact repair steps. Beepster never displays or copies your Beeper or gateway tokens.")
+        let footer = wrappingLabel("Your Beeper token stays in Keychain and is never sent to the phone or watch.")
         footer.textColor = .secondaryLabelColor
         footer.font = .systemFont(ofSize: 12)
         stack.addArrangedSubview(footer)
@@ -118,8 +147,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return result
     }
 
+    private func primaryActionRow(_ button: NSButton, description: String) -> NSStackView {
+        button.widthAnchor.constraint(equalToConstant: 160).isActive = true
+        let explanation = wrappingLabel(description)
+        explanation.font = .systemFont(ofSize: 13)
+        explanation.textColor = .secondaryLabelColor
+        let row = NSStackView(views: [button, explanation])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 14
+        explanation.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        return row
+    }
+
     private func actionRow(_ button: NSButton, what: String, why: String) -> NSStackView {
-        button.widthAnchor.constraint(equalToConstant: 175).isActive = true
+        button.widthAnchor.constraint(equalToConstant: 160).isActive = true
         let explanation = wrappingLabel("What: \(what)\nWhy: \(why)")
         explanation.font = .systemFont(ofSize: 12.5)
         explanation.textColor = .secondaryLabelColor
@@ -134,6 +176,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setStatus(_ label: NSTextField, ok: Bool, name: String, detail: String) {
         label.stringValue = "\(ok ? "●" : "⚠")  \(name): \(detail)"
         label.textColor = ok ? .systemGreen : .systemOrange
+    }
+
+    private func setWorking(_ working: Bool, message: String) {
+        setupButton?.isEnabled = !working
+        connectPhoneButton?.isEnabled = !working
+        refreshButton?.isEnabled = !working
+        setupSummary?.stringValue = message
+        setupSummary?.textColor = working ? .secondaryLabelColor : .labelColor
+    }
+
+    @objc private func toggleAdvanced() {
+        let showing = advancedToggle.state == .on
+        advancedStack.isHidden = !showing
+        let oldFrame = window.frame
+        let newHeight: CGFloat = showing ? 780 : 610
+        window.setFrame(NSRect(x: oldFrame.origin.x,
+                               y: oldFrame.maxY - newHeight,
+                               width: oldFrame.width,
+                               height: newHeight), display: true, animate: true)
     }
 
     private func run(_ executable: String, _ arguments: [String], input: String? = nil, timeout: TimeInterval? = 8) -> (Int32, String) {
@@ -395,22 +456,172 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             : (false, "connected; Serve route missing")
     }
 
+    private func beeperConnectionHealth() -> (Bool, String) {
+        let gateway = gatewayHealth()
+        guard gateway.0 else { return gateway }
+        let secret = run(keychainHelperPath(), ["get", "gateway-token"], timeout: nil)
+        guard secret.0 == 0, !secret.1.isEmpty,
+              let url = URL(string: "http://127.0.0.1:8794/v1/chats?limit=1") else {
+            return (false, "private credential unavailable")
+        }
+        let semaphore = DispatchSemaphore(value: 0)
+        var result = (false, "could not load conversations")
+        var request = URLRequest(url: url, timeoutInterval: 8)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("Bearer \(secret.1)", forHTTPHeaderField: "Authorization")
+        URLSession.shared.dataTask(with: request) { _, response, _ in
+            defer { semaphore.signal() }
+            if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                result = (true, "connected; conversations available")
+            }
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 9)
+        return result
+    }
+
+    private func privateRouteHealth() -> (Bool, String) {
+        let tailscale = tailscaleHealth()
+        guard tailscale.0, var components = phoneSetupURL().flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) else {
+            return tailscale
+        }
+        components.path = "/health"
+        guard let url = components.url else { return (false, "private address unavailable") }
+        let semaphore = DispatchSemaphore(value: 0)
+        var result = (false, "route did not reach Beepster")
+        var request = URLRequest(url: url, timeoutInterval: 6)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            defer { semaphore.signal() }
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+                  let data,
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["ok"] as? Bool == true,
+                  object["service"] as? String == "beepster-gateway" else { return }
+            result = (true, "connected; phone route verified")
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 7)
+        return result
+    }
+
+    private func performChecks() -> (contacts: String, gateway: (Bool, String), route: (Bool, String)) {
+        (contactsAuthorization(), beeperConnectionHealth(), privateRouteHealth())
+    }
+
+    private func showCheckResults(_ checks: (contacts: String, gateway: (Bool, String), route: (Bool, String))) {
+        let contactsOK = checks.contacts == "authorized"
+        setStatus(contactStatus, ok: contactsOK, name: "Contact names",
+                  detail: contactsOK ? "enabled" : "permission needs attention")
+        setStatus(gatewayStatus, ok: checks.gateway.0, name: "Beeper connection", detail: checks.gateway.1)
+        setStatus(tailscaleStatus, ok: checks.route.0, name: "Private connection", detail: checks.route.1)
+        if contactsOK && checks.gateway.0 && checks.route.0 {
+            setWorking(false, message: "Everything on this Mac is ready")
+        } else {
+            setWorking(false, message: "Setup needs attention")
+        }
+    }
+
     @objc private func refresh() {
-        refreshButton?.isEnabled = false
+        setWorking(true, message: "Testing Contacts, Beeper, and the private connection…")
         [contactStatus, gatewayStatus, tailscaleStatus].forEach {
             $0?.stringValue = "○  Checking…"
             $0?.textColor = .secondaryLabelColor
         }
         DispatchQueue.global(qos: .userInitiated).async {
-            let contacts = self.contactsAuthorization()
-            let gateway = self.gatewayHealth()
-            let tailscale = self.tailscaleHealth()
+            let checks = self.performChecks()
             DispatchQueue.main.async {
-                self.setStatus(self.contactStatus, ok: contacts == "authorized", name: "Contacts",
-                               detail: contacts == "authorized" ? "read-only access enabled" : "permission needs attention")
-                self.setStatus(self.gatewayStatus, ok: gateway.0, name: "Gateway and Beeper", detail: gateway.1)
-                self.setStatus(self.tailscaleStatus, ok: tailscale.0, name: "Private Tailscale route", detail: tailscale.1)
-                self.refreshButton.isEnabled = true
+                self.showCheckResults(checks)
+            }
+        }
+    }
+
+    @objc private func setUpBeepster() {
+        setWorking(true, message: "Installing the Mac service…")
+        DispatchQueue.global(qos: .userInitiated).async {
+            let installed = self.installBundledService()
+            guard installed.0 else {
+                DispatchQueue.main.async {
+                    self.setWorking(false, message: "Setup needs attention")
+                    let alert = NSAlert()
+                    alert.messageText = "Beepster could not finish setup"
+                    alert.informativeText = installed.1
+                    alert.runModal()
+                }
+                return
+            }
+            let tokenExists = self.run(self.keychainHelperPath(), ["get", "beeper-access-token"], timeout: nil).0 == 0
+            DispatchQueue.main.async {
+                if tokenExists {
+                    self.continueGuidedSetup(token: nil, tokenWasAlreadyStored: true)
+                } else if let token = self.promptForBeeperToken() {
+                    self.continueGuidedSetup(token: token, tokenWasAlreadyStored: false)
+                } else {
+                    self.continueGuidedSetup(token: nil, tokenWasAlreadyStored: false)
+                }
+            }
+        }
+    }
+
+    private func promptForBeeperToken() -> String? {
+        let alert = NSAlert()
+        alert.messageText = "Connect Beeper Desktop"
+        alert.informativeText = "Create a dedicated token in Beeper Desktop’s API settings, then paste it here. Beepster stores it only in your Mac login Keychain."
+        alert.addButton(withTitle: "Save and Continue")
+        alert.addButton(withTitle: "Skip for Now")
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
+        field.placeholderString = "Beeper Desktop API token"
+        alert.accessoryView = field
+        window.makeFirstResponder(field)
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let token = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        field.stringValue = ""
+        return token.isEmpty ? nil : token
+    }
+
+    private func continueGuidedSetup(token: String?, tokenWasAlreadyStored: Bool) {
+        setWorking(true, message: "Finishing setup and checking the result…")
+        DispatchQueue.global(qos: .userInitiated).async {
+            var tokenReady = tokenWasAlreadyStored
+            if let token {
+                tokenReady = self.run(self.keychainHelperPath(), ["set", "beeper-access-token"], input: token, timeout: nil).0 == 0
+            }
+
+            var contacts = self.contactsAuthorization()
+            if contacts == "not_determined" {
+                _ = self.run("/usr/bin/open", ["-W", "-n", self.contactsHelperPath()], timeout: nil)
+                contacts = self.contactsAuthorization()
+            }
+
+            var tailscaleReady = false
+            if let binary = self.tailscaleBinary(), self.run(binary, ["status"]).0 == 0 {
+                _ = self.run(binary, ["serve", "--bg", "8794"])
+                tailscaleReady = self.tailscaleHealth().0
+            }
+
+            _ = self.run("/bin/launchctl", ["kickstart", "-k", "gui/\(getuid())/org.beepster.gateway"])
+            let deadline = Date().addingTimeInterval(8)
+            var gateway = self.beeperConnectionHealth()
+            while !gateway.0 && Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.35)
+                gateway = self.beeperConnectionHealth()
+            }
+            let route = self.privateRouteHealth()
+            let checks = (contacts: contacts, gateway: gateway, route: route)
+
+            DispatchQueue.main.async {
+                self.showCheckResults(checks)
+                if contacts == "authorized" && gateway.0 && route.0 {
+                    self.setupSummary.stringValue = "Mac setup complete — connect your phone next"
+                } else {
+                    var issues: [String] = []
+                    if !tokenReady { issues.append("Add the dedicated Beeper Desktop token.") }
+                    if contacts != "authorized" { issues.append("Allow Contacts access so names can be shown.") }
+                    if !tailscaleReady || !route.0 { issues.append("Open Tailscale on this Mac and sign in, then run setup again.") }
+                    if tokenReady && !gateway.0 { issues.append("Keep Beeper Desktop open and signed in.") }
+                    let alert = NSAlert()
+                    alert.messageText = "One more step is needed"
+                    alert.informativeText = issues.isEmpty ? "Open Advanced options for repair tools." : issues.joined(separator: "\n")
+                    alert.runModal()
+                }
             }
         }
     }
@@ -484,6 +695,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.global(qos: .userInitiated).async {
             _ = self.run(binary, ["serve", "--bg", "8794"])
             DispatchQueue.main.async { self.refresh() }
+        }
+    }
+
+    @objc private func connectPhone() {
+        setWorking(true, message: "Preparing phone setup…")
+        DispatchQueue.global(qos: .userInitiated).async {
+            let route = self.privateRouteHealth()
+            let url = route.0 ? self.phoneSetupURL() : nil
+            let pairing = self.run(self.keychainHelperPath(), ["get", "pairing-code"], timeout: nil)
+            DispatchQueue.main.async {
+                self.setWorking(false, message: route.0 ? "Phone setup is ready" : "Setup needs attention")
+                guard let url, pairing.0 == 0, !pairing.1.isEmpty else {
+                    let alert = NSAlert()
+                    alert.messageText = "Phone setup is not ready yet"
+                    alert.informativeText = "Select Set Up Beepster first. If Tailscale needs you to sign in, open it and then try again."
+                    alert.runModal()
+                    return
+                }
+
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(url.absoluteString, forType: .string)
+
+                let instructions = self.wrappingLabel("1. On your phone, open Pebble → Beepster → Settings.\n2. Paste the private address (already copied).\n3. Enter the pairing code, then test and save.")
+                instructions.font = .systemFont(ofSize: 13)
+                let addressLabel = NSTextField(labelWithString: "Private address")
+                addressLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+                let address = NSTextField(frame: NSRect(x: 0, y: 0, width: 440, height: 24))
+                address.stringValue = url.absoluteString
+                address.isEditable = false
+                address.isSelectable = true
+                address.lineBreakMode = .byTruncatingMiddle
+                let codeLabel = NSTextField(labelWithString: "Pairing code: \(pairing.1)")
+                codeLabel.font = .monospacedDigitSystemFont(ofSize: 20, weight: .semibold)
+                let details = NSStackView(views: [instructions, addressLabel, address, codeLabel])
+                details.orientation = .vertical
+                details.alignment = .leading
+                details.spacing = 8
+                details.widthAnchor.constraint(equalToConstant: 440).isActive = true
+
+                let alert = NSAlert()
+                alert.messageText = "Connect Beepster on your phone"
+                alert.informativeText = "Everything you need is together here. The address is on your clipboard."
+                alert.accessoryView = details
+                alert.addButton(withTitle: "Done")
+                alert.runModal()
+            }
         }
     }
 
