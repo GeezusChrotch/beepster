@@ -179,9 +179,9 @@ export class BeeperClient {
     return { id, kind };
   }
 
-  async listChats(limit, cursor = '') {
+  async listChats(limit, cursor = '', inbox = 'primary') {
     const cursorQuery = cursor ? `&cursor=${encodeURIComponent(cursor)}&direction=before` : '';
-    const result = await this.request(`/v1/chats/search?limit=${limit}&type=any&inbox=primary${cursorQuery}`);
+    const result = await this.request(`/v1/chats/search?limit=${limit}&type=any&inbox=${encodeURIComponent(inbox)}${cursorQuery}`);
     const contactsByAccount = new Map();
     const unresolvedAccounts = [...new Set((result.items || [])
       .filter((chat) => resolveChatName(chat) === 'Unknown contact' || resolveChatName(chat) === chat.title)

@@ -199,6 +199,17 @@ test('chat pagination forwards opaque cursors and returns the oldest cursor', as
   assert.equal(paths[0], '/v1/chats/search?limit=12&type=any&inbox=primary&cursor=opaque%20current&direction=before');
 });
 
+test('chat pagination can select another Beeper inbox', async () => {
+  const paths = [];
+  const fetchImpl = async (url) => {
+    paths.push(new URL(url).pathname + new URL(url).search);
+    return new Response(JSON.stringify({items:[]}), {status:200});
+  };
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl});
+  await client.listChats(12, '', 'low-priority');
+  assert.equal(paths[0], '/v1/chats/search?limit=12&type=any&inbox=low-priority');
+});
+
 test('message pages retain the full API page while enforcing a watch-safe ceiling', async () => {
   const fetchImpl = async () => new Response(JSON.stringify({items:Array.from({length:80}, (_, index) => ({id:`m${index}`,text:`message ${index}`}))}), {status:200});
   const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl});

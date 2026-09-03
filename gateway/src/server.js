@@ -126,7 +126,10 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '', rot
 
       if (url.pathname === '/v1/chats' && request.method === 'GET') {
         const cursor = url.searchParams.get('cursor') || '';
-        const result = await withCache(`chats:${cursor}`, () => beeperClient.listChats(boundedLimit(url.searchParams.get('limit')), cursor));
+        const requestedInbox = url.searchParams.get('inbox') || 'primary';
+        const inbox = ['primary', 'low-priority', 'archive'].includes(requestedInbox) ? requestedInbox : 'primary';
+        const result = await withCache(`chats:${inbox}:${cursor}`, () =>
+          beeperClient.listChats(boundedLimit(url.searchParams.get('limit')), cursor, inbox));
         const page = Array.isArray(result.value) ? { items: result.value } : result.value;
         sendJSON(response, 200, { ...page, ...(result.stale ? { stale: true } : {}) });
         return;

@@ -1,8 +1,9 @@
 # Beepster user guide
 
-The inbox keeps up to 30 conversations on the watch. Pinned chats appear first, followed by the
-remaining recent chats. This is a bounded local snapshot rather than the complete Beeper archive;
-service filters apply before the watch list is chosen.
+The inbox keeps a rolling window of up to 30 conversations on the watch while the phone pages
+through the complete selected Beeper inboxes. Pinned chats appear first, followed by recent chats.
+Service filters are applied while fetching, so excluded services do not leave the watch page half
+empty.
 
 ## Inbox controls
 
@@ -12,6 +13,10 @@ service filters apply before the watch list is chosen.
 | Center | Open the selected chat | Pin or unpin the selected chat |
 | Bottom | Move to the next chat | Continue moving down |
 | Back | Close Beepster | — |
+
+An **Older conversations >** row appears after the last loaded chat when more history is available.
+Select it to open the next page. Select **< Newer conversations** at the top of an older page to go
+back. The phone caches fetched pages while the watch retains only its current 30-chat window.
 
 A pinned conversation moves into the pinned group at the top and displays a clear **PIN** badge.
 The most recently pinned conversation appears first. Hold Center on it again to unpin it. Pins are
@@ -54,6 +59,9 @@ Open Beepster Settings and use **Included services** to choose which networks ap
 inbox. All services are enabled by default. You can select any combination—including only Apple
 Messages—and save without pairing again. Unknown or newly added Beeper networks are controlled by
 **Other services**.
+
+Use **Inbox sections** to include Primary, Low Priority, or Archived conversations. Primary is the
+default. When multiple sections are enabled, Beepster pages through them in that order.
 
 ## Linking split Apple conversations
 

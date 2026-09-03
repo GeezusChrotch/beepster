@@ -53,6 +53,10 @@ test('configuration page supports editing an existing paired connection', async 
     assert.match(html, /Beeper \/ Matrix/);
     assert.match(html, /Other services/);
     assert.match(html, /services:services/);
+    assert.match(html, /Inbox sections/);
+    assert.match(html, /Low Priority/);
+    assert.match(html, /Archived/);
+    assert.match(html, /inboxes:inboxes/);
     assert.match(html, /Link Apple conversations/);
     assert.match(html, /appleCandidates/);
     assert.match(html, /appleAliases:savedAppleAliases/);
@@ -73,6 +77,23 @@ test('message history pagination forwards the opaque cursor', async () => {
     });
     assert.equal(receivedCursor, 'current opaque');
     assert.deepEqual(await response.json(), {items:[{id:'older-1'}],hasMore:true,nextCursor:'next opaque'});
+  });
+});
+
+test('chat pagination forwards the selected inbox and opaque cursor', async () => {
+  let received = null;
+  const client = {
+    listChats: async (limit, cursor, inbox) => {
+      received = {limit,cursor,inbox};
+      return {items:[{id:'older-chat'}],hasMore:true,nextCursor:'next opaque'};
+    }
+  };
+  await withServer(client, async (baseURL) => {
+    const response = await fetch(`${baseURL}/v1/chats?limit=30&inbox=archive&cursor=current%20opaque`, {
+      headers:{Authorization:'Bearer gateway-secret'}
+    });
+    assert.deepEqual(received, {limit:30,cursor:'current opaque',inbox:'archive'});
+    assert.deepEqual(await response.json(), {items:[{id:'older-chat'}],hasMore:true,nextCursor:'next opaque'});
   });
 });
 

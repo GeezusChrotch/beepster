@@ -60,7 +60,7 @@ test('a personal build migrates a stale saved gateway without losing its credent
   eventListeners.ready();
   assert.equal(storage.get('beepster_gateway_url'), 'https://gateway.example:8794');
   assert.equal(storage.get('beepster_gateway_token'), 'gateway-secret');
-  assert.equal(requests[0].url, 'https://gateway.example:8794/v1/chats?limit=50');
+  assert.equal(requests[0].url, 'https://gateway.example:8794/v1/chats?limit=50&inbox=primary');
 });
 
 test('watch replies use canonical authenticated JSON POST first', () => {
@@ -148,7 +148,7 @@ test('a saved service filter requests a wider page and sends only included chats
   const { context, requests, appMessages, storage } = replyRuntime();
   storage.set('beepster_services', JSON.stringify(['apple_messages']));
   context.loadChats();
-  assert.equal(requests[0].url, 'https://gateway.example/v1/chats?limit=50');
+  assert.equal(requests[0].url, 'https://gateway.example/v1/chats?limit=50&inbox=primary');
   requests[0].status = 200;
   requests[0].responseText = JSON.stringify({items:[
     {id:'apple-1',name:'Apple person',preview:'Hello',network:'iMessage'},
@@ -178,6 +178,68 @@ test('the watch inbox is bounded at thirty conversations', () => {
   assert.equal(chats.length, 30);
   assert.equal(appMessages.at(-1)[0], 'chats_ready');
   assert.equal(appMessages.at(-1)[4], 30);
+});
+
+test('older and newer chat pages keep only a thirty-chat watch window', () => {
+  const { context, requests, appMessages } = replyRuntime();
+  context.loadChats();
+  const items = Array.from({length:35}, (_, index) => ({
+    id:'chat-' + index,name:'Person ' + index,preview:'Preview ' + index,network:'Signal'
+  }));
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items,hasMore:false});
+  requests[0].onload();
+  assert.equal(appMessages.at(-1)[33], 1);
+
+  appMessages.length = 0;
+  context.loadOlderChats();
+  let chats = appMessages.filter((message) => message[0] === 'chat');
+  assert.deepEqual(chats.map((message) => message[5]), ['chat-30','chat-31','chat-32','chat-33','chat-34']);
+  assert.equal(appMessages.at(-1)[33], 2);
+
+  appMessages.length = 0;
+  context.loadNewerChats();
+  chats = appMessages.filter((message) => message[0] === 'chat');
+  assert.equal(chats.length, 30);
+  assert.equal(chats[0][5], 'chat-0');
+  assert.equal(appMessages.at(-1)[33], 1);
+});
+
+test('service filtering fetches additional pages until the watch page is populated', () => {
+  const { context, requests, appMessages, storage } = replyRuntime();
+  storage.set('beepster_services', JSON.stringify(['instagram']));
+  context.loadChats();
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({
+    items:Array.from({length:50}, (_, index) => ({id:'signal-' + index,name:'Signal',network:'Signal'})),
+    hasMore:true,nextCursor:'older-page'
+  });
+  requests[0].onload();
+  assert.equal(requests[1].url, 'https://gateway.example/v1/chats?limit=50&inbox=primary&cursor=older-page');
+  requests[1].status = 200;
+  requests[1].responseText = JSON.stringify({items:[
+    {id:'instagram-1',name:'Instagram One',network:'Instagram'},
+    {id:'instagram-2',name:'Instagram Two',network:'Instagram'}
+  ],hasMore:false});
+  requests[1].onload();
+  assert.deepEqual(appMessages.filter((message) => message[0] === 'chat').map((message) => message[5]),
+    ['instagram-1','instagram-2']);
+});
+
+test('selected inbox sections are appended in configured order', () => {
+  const { context, requests, appMessages, storage } = replyRuntime();
+  storage.set('beepster_inboxes', JSON.stringify(['primary','archive']));
+  context.loadChats();
+  assert.equal(requests[0].url, 'https://gateway.example/v1/chats?limit=50&inbox=primary');
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items:[{id:'primary-1',name:'Primary',network:'Signal'}],hasMore:false});
+  requests[0].onload();
+  assert.equal(requests[1].url, 'https://gateway.example/v1/chats?limit=50&inbox=archive');
+  requests[1].status = 200;
+  requests[1].responseText = JSON.stringify({items:[{id:'archive-1',name:'Archived',network:'Signal'}],hasMore:false});
+  requests[1].onload();
+  assert.deepEqual(appMessages.filter((message) => message[0] === 'chat').map((message) => message[5]),
+    ['primary-1','archive-1']);
 });
 
 test('pinned chats are persisted, marked, and ordered before recent chats', () => {
@@ -210,6 +272,29 @@ test('pinned chats are persisted, marked, and ordered before recent chats', () =
   assert.deepEqual(unpinned.map((message) => message[35]), [1,0,0]);
 });
 
+test('an older pinned chat remains available after the newest page reloads', () => {
+  const { context, requests, appMessages, storage } = replyRuntime();
+  context.loadChats();
+  const items = Array.from({length:35}, (_, index) => ({
+    id:'chat-' + index,name:'Person ' + index,preview:'Preview ' + index,network:'Signal'
+  }));
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items,hasMore:false});
+  requests[0].onload();
+  context.loadOlderChats();
+  context.setChatPinned('chat-34', true);
+  assert.equal(JSON.parse(storage.get('beepster_pinned_chat_snapshots'))['chat-34'].name, 'Person 34');
+
+  appMessages.length = 0;
+  context.loadChats();
+  requests[1].status = 200;
+  requests[1].responseText = JSON.stringify({items:items.slice(0,30),hasMore:false});
+  requests[1].onload();
+  const chats = appMessages.filter((message) => message[0] === 'chat');
+  assert.equal(chats[0][5], 'chat-34');
+  assert.equal(chats[0][35], 1);
+});
+
 test('Apple email and phone destinations with the same alias become one watch thread', () => {
   const { context, requests, appMessages, storage } = replyRuntime();
   storage.set('beepster_apple_aliases', JSON.stringify({
@@ -217,7 +302,7 @@ test('Apple email and phone destinations with the same alias become one watch th
     'apple-phone':'Jane'
   }));
   context.loadChats();
-  assert.equal(requests[0].url, 'https://gateway.example/v1/chats?limit=50');
+  assert.equal(requests[0].url, 'https://gateway.example/v1/chats?limit=50&inbox=primary');
   requests[0].status = 200;
   requests[0].responseText = JSON.stringify({items:[
     {id:'apple-phone',name:'Jane (phone)',preview:'Newest',network:'iMessage',unreadCount:1},

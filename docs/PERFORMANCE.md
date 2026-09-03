@@ -18,6 +18,9 @@ Beepster 0.9.0 keeps the full 0.8.3 feature set and changes where repeated work 
   old selection are removed while preserving the packet already in flight.
 - **Bounded preview cache:** The Mac retains the eight most recently converted watch previews and
   coalesces simultaneous requests for the same attachment. Source URLs still never leave the Mac.
+- **Rolling chat window:** The phone follows Beeper's opaque chat cursors and caches fetched pages,
+  while the watch holds at most 30 conversations. This exposes older, Low Priority, and optional
+  Archived chats without consuming unbounded Pebble memory or flooding AppMessage.
 
 ## Current resource envelope
 
