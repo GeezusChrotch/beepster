@@ -66,6 +66,7 @@ var oldestMessageCursor = '';
 var hasOlderMessages = false;
 var loadingOlderMessages = false;
 var mergedChats = {};
+var MAX_WATCH_CHATS = 30;
 var MAX_WATCH_MESSAGES = 60;
 var DEFAULT_QUICK_REPLIES = ['Yes', 'No', 'On my way', 'Thanks! 👍'];
 
@@ -542,7 +543,7 @@ function loadChats() {
     var items = (data.items || []).filter(function(chat) {
       return serviceEnabled(chat.network, enabledServices);
     });
-    items = applyAppleAliases(items).slice(0, 12);
+    items = applyAppleAliases(items).slice(0, MAX_WATCH_CHATS);
     discardQueuedCommands(['chat', 'chats_ready']);
     if (items.length === 0) {
       var empty = {}; empty[KEY_COMMAND] = 'chats_ready'; empty[KEY_TOTAL] = 0; enqueue(empty);
@@ -550,12 +551,12 @@ function loadChats() {
       scheduleRefresh();
       return;
     }
-    for (var i = 0; i < items.length && i < 12; i++) {
+    for (var i = 0; i < items.length && i < MAX_WATCH_CHATS; i++) {
       var chat = items[i];
       var message = {};
       message[KEY_COMMAND] = 'chat';
       message[KEY_INDEX] = i;
-      message[KEY_TOTAL] = Math.min(items.length, 12);
+      message[KEY_TOTAL] = Math.min(items.length, MAX_WATCH_CHATS);
       message[KEY_CHAT_ID] = safeSlice(chat.id, 120);
       message[KEY_CHAT_NAME] = safeSlice(chat.name || 'Unknown contact', 56);
       message[KEY_CHAT_PREVIEW] = safeSlice(chat.preview, 110);
@@ -563,7 +564,7 @@ function loadChats() {
       message[KEY_NETWORK] = safeSlice(chat.network, 20);
       enqueue(message);
     }
-    var ready = {}; ready[KEY_COMMAND] = 'chats_ready'; ready[KEY_TOTAL] = Math.min(items.length, 12); enqueue(ready);
+    var ready = {}; ready[KEY_COMMAND] = 'chats_ready'; ready[KEY_TOTAL] = Math.min(items.length, MAX_WATCH_CHATS); enqueue(ready);
     hasLoadedChats = true;
     scheduleRefresh();
   }, function(error) {

@@ -1,6 +1,6 @@
 #include <pebble.h>
 
-#define MAX_CHATS 12
+#define MAX_CHATS 30
 #define MAX_MESSAGES 60
 #define CHAT_ID_LEN 128
 #define CHAT_NAME_LEN 64
@@ -96,7 +96,8 @@ static Window *s_main_window;
 static MenuLayer *s_chat_menu;
 static TextLayer *s_status_layer;
 static ViewState s_chat_state = VIEW_LOADING;
-static Chat s_chats[MAX_CHATS];
+static Chat *s_chats;
+static int s_chat_capacity;
 static int s_chat_count;
 
 static Window *s_message_window;
@@ -1456,7 +1457,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     Tuple *total = dict_find(iterator, MESSAGE_KEY_TOTAL);
     int count = total ? total->value->int32 : s_chat_count;
     if (count < 0) count = 0;
-    if (count > MAX_CHATS) count = MAX_CHATS;
+    if (count > s_chat_capacity) count = s_chat_capacity;
     s_chat_count = count;
     s_chat_state = count > 0 ? VIEW_READY : VIEW_EMPTY;
     set_status(s_status_layer, s_chat_state, false);
@@ -1470,7 +1471,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
 
   if (strcmp(command->value->cstring, "chat") == 0) {
     Tuple *index = dict_find(iterator, MESSAGE_KEY_INDEX);
-    if (!index || index->value->int32 < 0 || index->value->int32 >= MAX_CHATS) return;
+    if (!index || index->value->int32 < 0 || index->value->int32 >= s_chat_capacity) return;
     int slot = index->value->int32;
     Tuple *id = dict_find(iterator, MESSAGE_KEY_CHAT_ID);
     Tuple *name = dict_find(iterator, MESSAGE_KEY_CHAT_NAME);
@@ -1885,6 +1886,14 @@ static void message_unload(Window *window) {
 }
 
 static void init(void) {
+  s_chats = calloc(MAX_CHATS, sizeof(Chat));
+  s_chat_capacity = s_chats ? MAX_CHATS : 0;
+  if (!s_chats) {
+    const int fallback_chats = 12;
+    s_chats = calloc(fallback_chats, sizeof(Chat));
+    s_chat_capacity = s_chats ? fallback_chats : 0;
+    APP_LOG(APP_LOG_LEVEL_ERROR, "30-chat allocation failed; fallback capacity=%d", s_chat_capacity);
+  }
   char saved_theme[20] = "classic";
   if (persist_exists(PERSIST_THEME)) persist_read_string(PERSIST_THEME, saved_theme, sizeof(saved_theme));
   s_large_text = persist_exists(PERSIST_TEXT_SIZE) && persist_read_bool(PERSIST_TEXT_SIZE);
@@ -1955,6 +1964,9 @@ static void deinit(void) {
   if (s_message_request_timer) app_timer_cancel(s_message_request_timer);
   if (s_content_request_timer) app_timer_cancel(s_content_request_timer);
   if (s_dictation_session) dictation_session_destroy(s_dictation_session);
+  if (s_chats) free(s_chats);
+  s_chats = NULL;
+  s_chat_capacity = 0;
   unload_custom_theme_font();
   clear_media();
   window_destroy(s_media_window);

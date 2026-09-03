@@ -30,7 +30,7 @@ networks; iMessage itself requires Beeper Desktop to run on macOS.
 
 ## Current capabilities
 
-- Recent chats with contact-name normalization, read-only macOS Contacts enrichment, and service icons
+- Up to 30 recent chats with contact-name normalization, read-only macOS Contacts enrichment, and service icons
 - User-controlled linking of split Apple email/phone chats into one combined Beepster thread
 - Persistent service filtering, with all networks enabled by default
 - Chronological history that opens on the newest message and pages up to 60 messages

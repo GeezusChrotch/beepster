@@ -143,6 +143,24 @@ test('a saved service filter requests a wider page and sends only included chats
   assert.equal(appMessages.at(-1)[4], 1);
 });
 
+test('the watch inbox is bounded at thirty conversations', () => {
+  const { context, requests, appMessages } = replyRuntime();
+  context.loadChats();
+  const items = Array.from({length:35}, (_, index) => ({
+    id:'chat-' + index,
+    name:'Person ' + index,
+    preview:'Preview ' + index,
+    network:'Signal'
+  }));
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items});
+  requests[0].onload();
+  const chats = appMessages.filter((message) => message[0] === 'chat');
+  assert.equal(chats.length, 30);
+  assert.equal(appMessages.at(-1)[0], 'chats_ready');
+  assert.equal(appMessages.at(-1)[4], 30);
+});
+
 test('Apple email and phone destinations with the same alias become one watch thread', () => {
   const { context, requests, appMessages, storage } = replyRuntime();
   storage.set('beepster_apple_aliases', JSON.stringify({

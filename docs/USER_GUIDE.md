@@ -1,5 +1,8 @@
 # Beepster user guide
 
+The inbox keeps up to 30 recent conversations on the watch. This is a bounded local snapshot rather
+than the complete Beeper archive; service filters apply before the 30 most recent results are chosen.
+
 ## Thread controls
 
 | Button | Short press | Long press |
