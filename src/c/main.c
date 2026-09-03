@@ -749,11 +749,13 @@ static uint16_t chat_rows(MenuLayer *menu_layer, uint16_t section, void *context
 }
 
 static int16_t chat_row_height(MenuLayer *menu_layer, MenuIndex *index, void *context) {
-  if (s_theme_size <= 14) return 58;
-  if (s_theme_size <= 18) return 66;
-  if (s_theme_size <= 22) return 76;
-  if (s_theme_size <= 26) return 88;
-  return 98;
+  if (index->row >= s_chat_count) return s_theme_size + 14;
+  Chat *chat = &s_chats[index->row];
+  int16_t line_height = s_theme_size + 6;
+  int16_t height = line_height + 8;
+  if (chat->preview[0]) height += line_height;
+  if (chat->unread > 0) height += 16;
+  return height;
 }
 
 static void draw_chat(GContext *ctx, const Layer *cell, MenuIndex *index, void *context) {
@@ -761,19 +763,22 @@ static void draw_chat(GContext *ctx, const Layer *cell, MenuIndex *index, void *
   Chat *chat = &s_chats[index->row];
   GRect bounds = layer_get_bounds(cell);
   bool selected = menu_layer_is_index_selected(s_chat_menu, index);
-  int name_height = s_theme_size + 8;
-  int preview_y = name_height;
-  int preview_height = s_theme_size + 7;
+  int line_height = s_theme_size + 6;
+  int name_height = line_height;
+  int preview_y = 2 + line_height;
+  int preview_height = line_height;
   int unread_y = bounds.size.h - 18;
 
   graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
   draw_marquee_text(ctx, chat->name, font_for_text(chat->name),
     GRect(8, 2, bounds.size.w - 16, name_height), selected);
 
-  graphics_draw_text(ctx, chat->preview,
-    font_for_text(chat->preview),
-    GRect(8, preview_y, bounds.size.w - 16, preview_height),
-    GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  if (chat->preview[0]) {
+    graphics_draw_text(ctx, chat->preview,
+      font_for_text(chat->preview),
+      GRect(8, preview_y, bounds.size.w - 16, preview_height),
+      GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  }
 
   if (chat->unread > 0) {
     char unread[20];

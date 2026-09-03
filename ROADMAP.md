@@ -135,3 +135,9 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Stop stale scroll animations before expanding or collapsing dynamic message rows
 - [x] Clamp manual thread offsets to the MenuLayer's current content bounds
 - [x] Re-anchor newly selected rows after their heights change
+
+## 0.7.2 — Compact chat list
+
+- [x] Size each chat row from the content it actually contains
+- [x] Collapse empty preview and unread regions instead of leaving dead vertical space
+- [x] Keep preview and unread metadata aligned beneath the chat title when present
