@@ -108,6 +108,7 @@ static bool s_has_older_messages;
 static bool s_loading_older_messages;
 static char s_active_chat_id[CHAT_ID_LEN];
 static char s_active_chat_name[CHAT_NAME_LEN];
+static char s_active_chat_network[24];
 static DictationSession *s_dictation_session;
 static char s_reply_text[512];
 static char s_reply_request_id[48];
@@ -237,6 +238,168 @@ static void draw_marquee_text(GContext *ctx, const char *text, GFont font, GRect
     s_marquee_at_end = false;
     graphics_draw_text(ctx, text, font, frame, GTextOverflowModeTrailingEllipsis,
                        GTextAlignmentLeft, NULL);
+  }
+}
+
+typedef enum {
+  SERVICE_UNKNOWN,
+  SERVICE_BEEPER,
+  SERVICE_DISCORD,
+  SERVICE_GOOGLE_MESSAGES,
+  SERVICE_GOOGLE_CHAT,
+  SERVICE_GOOGLE_VOICE,
+  SERVICE_IMESSAGE,
+  SERVICE_INSTAGRAM,
+  SERVICE_LINE,
+  SERVICE_LINKEDIN,
+  SERVICE_MESSENGER,
+  SERVICE_SIGNAL,
+  SERVICE_SLACK,
+  SERVICE_TELEGRAM,
+  SERVICE_WHATSAPP,
+  SERVICE_X
+} ServiceIcon;
+
+static char ascii_lower(char value) {
+  return value >= 'A' && value <= 'Z' ? value + ('a' - 'A') : value;
+}
+
+static bool contains_case_insensitive(const char *text, const char *needle) {
+  if (!text || !needle || !needle[0]) return false;
+  for (const char *start = text; *start; start++) {
+    const char *left = start;
+    const char *right = needle;
+    while (*left && *right && ascii_lower(*left) == ascii_lower(*right)) {
+      left++;
+      right++;
+    }
+    if (!*right) return true;
+  }
+  return false;
+}
+
+static ServiceIcon service_icon_for_network(const char *network) {
+  if (contains_case_insensitive(network, "instagram")) return SERVICE_INSTAGRAM;
+  if (contains_case_insensitive(network, "whatsapp")) return SERVICE_WHATSAPP;
+  if (contains_case_insensitive(network, "telegram")) return SERVICE_TELEGRAM;
+  if (contains_case_insensitive(network, "signal")) return SERVICE_SIGNAL;
+  if (contains_case_insensitive(network, "discord")) return SERVICE_DISCORD;
+  if (contains_case_insensitive(network, "slack")) return SERVICE_SLACK;
+  if (contains_case_insensitive(network, "linkedin")) return SERVICE_LINKEDIN;
+  if (contains_case_insensitive(network, "messenger") ||
+      contains_case_insensitive(network, "facebook")) return SERVICE_MESSENGER;
+  if (contains_case_insensitive(network, "google messages")) return SERVICE_GOOGLE_MESSAGES;
+  if (contains_case_insensitive(network, "google chat")) return SERVICE_GOOGLE_CHAT;
+  if (contains_case_insensitive(network, "google voice")) return SERVICE_GOOGLE_VOICE;
+  if (contains_case_insensitive(network, "imessage")) return SERVICE_IMESSAGE;
+  if (contains_case_insensitive(network, "twitter") ||
+      (network && network[0] && !network[1] && ascii_lower(network[0]) == 'x')) return SERVICE_X;
+  if (contains_case_insensitive(network, "line")) return SERVICE_LINE;
+  if (contains_case_insensitive(network, "beeper") ||
+      contains_case_insensitive(network, "matrix")) return SERVICE_BEEPER;
+  return SERVICE_UNKNOWN;
+}
+
+static void icon_dot(GContext *ctx, int16_t x, int16_t y, int16_t size) {
+  graphics_fill_rect(ctx, GRect(x, y, size, size), 0, GCornerNone);
+}
+
+static void draw_service_icon(GContext *ctx, GRect frame, const char *network, GColor color) {
+  ServiceIcon icon = service_icon_for_network(network);
+  int16_t x = frame.origin.x;
+  int16_t y = frame.origin.y;
+  graphics_context_set_fill_color(ctx, color);
+  graphics_context_set_stroke_color(ctx, color);
+  graphics_context_set_stroke_width(ctx, 1);
+
+  if (icon == SERVICE_INSTAGRAM) {
+    graphics_draw_round_rect(ctx, GRect(x + 1, y + 1, 12, 12), 3);
+    graphics_draw_circle(ctx, GPoint(x + 7, y + 7), 3);
+    icon_dot(ctx, x + 10, y + 3, 2);
+  } else if (icon == SERVICE_TELEGRAM) {
+    graphics_draw_line(ctx, GPoint(x + 1, y + 6), GPoint(x + 13, y + 1));
+    graphics_draw_line(ctx, GPoint(x + 13, y + 1), GPoint(x + 9, y + 13));
+    graphics_draw_line(ctx, GPoint(x + 9, y + 13), GPoint(x + 1, y + 6));
+    graphics_draw_line(ctx, GPoint(x + 3, y + 6), GPoint(x + 10, y + 4));
+    graphics_draw_line(ctx, GPoint(x + 3, y + 6), GPoint(x + 8, y + 9));
+  } else if (icon == SERVICE_X) {
+    graphics_context_set_stroke_width(ctx, 2);
+    graphics_draw_line(ctx, GPoint(x + 2, y + 1), GPoint(x + 12, y + 13));
+    graphics_draw_line(ctx, GPoint(x + 11, y + 1), GPoint(x + 2, y + 13));
+  } else if (icon == SERVICE_SLACK) {
+    graphics_context_set_stroke_width(ctx, 2);
+    graphics_draw_line(ctx, GPoint(x + 5, y + 1), GPoint(x + 4, y + 13));
+    graphics_draw_line(ctx, GPoint(x + 10, y + 1), GPoint(x + 9, y + 13));
+    graphics_draw_line(ctx, GPoint(x + 1, y + 5), GPoint(x + 13, y + 4));
+    graphics_draw_line(ctx, GPoint(x + 1, y + 10), GPoint(x + 13, y + 9));
+  } else if (icon == SERVICE_LINKEDIN) {
+    graphics_draw_rect(ctx, GRect(x + 1, y + 1, 12, 12));
+    icon_dot(ctx, x + 3, y + 3, 2);
+    graphics_fill_rect(ctx, GRect(x + 3, y + 6, 2, 5), 0, GCornerNone);
+    graphics_fill_rect(ctx, GRect(x + 7, y + 6, 2, 5), 0, GCornerNone);
+    graphics_draw_line(ctx, GPoint(x + 8, y + 6), GPoint(x + 11, y + 8));
+    graphics_draw_line(ctx, GPoint(x + 11, y + 8), GPoint(x + 11, y + 11));
+  } else if (icon == SERVICE_DISCORD) {
+    graphics_draw_round_rect(ctx, GRect(x + 1, y + 3, 12, 8), 3);
+    graphics_draw_line(ctx, GPoint(x + 3, y + 3), GPoint(x + 4, y + 1));
+    graphics_draw_line(ctx, GPoint(x + 11, y + 3), GPoint(x + 10, y + 1));
+    icon_dot(ctx, x + 4, y + 6, 2);
+    icon_dot(ctx, x + 9, y + 6, 2);
+    graphics_draw_line(ctx, GPoint(x + 4, y + 11), GPoint(x + 2, y + 13));
+    graphics_draw_line(ctx, GPoint(x + 10, y + 11), GPoint(x + 12, y + 13));
+  } else if (icon == SERVICE_BEEPER) {
+    graphics_draw_circle(ctx, GPoint(x + 7, y + 7), 5);
+    graphics_draw_line(ctx, GPoint(x + 3, y + 5), GPoint(x + 11, y + 5));
+    graphics_draw_line(ctx, GPoint(x + 2, y + 8), GPoint(x + 12, y + 8));
+    graphics_draw_line(ctx, GPoint(x + 5, y + 2), GPoint(x + 3, y));
+    graphics_draw_line(ctx, GPoint(x + 9, y + 2), GPoint(x + 11, y));
+  } else if (icon == SERVICE_SIGNAL) {
+    graphics_draw_round_rect(ctx, GRect(x + 2, y + 2, 10, 9), 4);
+    icon_dot(ctx, x + 1, y + 4, 1); icon_dot(ctx, x + 3, y + 1, 1);
+    icon_dot(ctx, x + 11, y + 2, 1); icon_dot(ctx, x + 12, y + 8, 1);
+    graphics_draw_line(ctx, GPoint(x + 5, y + 11), GPoint(x + 3, y + 13));
+  } else if (icon == SERVICE_WHATSAPP) {
+    graphics_draw_circle(ctx, GPoint(x + 7, y + 7), 6);
+    graphics_draw_line(ctx, GPoint(x + 4, y + 4), GPoint(x + 10, y + 10));
+    graphics_context_set_stroke_width(ctx, 2);
+    graphics_draw_line(ctx, GPoint(x + 4, y + 5), GPoint(x + 5, y + 8));
+    graphics_draw_line(ctx, GPoint(x + 5, y + 8), GPoint(x + 9, y + 10));
+  } else if (icon == SERVICE_GOOGLE_VOICE) {
+    graphics_draw_round_rect(ctx, GRect(x + 1, y + 2, 12, 9), 4);
+    graphics_draw_line(ctx, GPoint(x + 5, y + 11), GPoint(x + 3, y + 13));
+    graphics_context_set_stroke_width(ctx, 2);
+    graphics_draw_line(ctx, GPoint(x + 4, y + 5), GPoint(x + 5, y + 8));
+    graphics_draw_line(ctx, GPoint(x + 5, y + 8), GPoint(x + 9, y + 9));
+  } else if (icon == SERVICE_MESSENGER) {
+    graphics_draw_round_rect(ctx, GRect(x + 1, y + 2, 12, 9), 4);
+    graphics_draw_line(ctx, GPoint(x + 5, y + 11), GPoint(x + 3, y + 13));
+    graphics_draw_line(ctx, GPoint(x + 3, y + 8), GPoint(x + 7, y + 5));
+    graphics_draw_line(ctx, GPoint(x + 7, y + 5), GPoint(x + 6, y + 9));
+    graphics_draw_line(ctx, GPoint(x + 6, y + 9), GPoint(x + 11, y + 5));
+  } else if (icon == SERVICE_GOOGLE_MESSAGES) {
+    graphics_draw_round_rect(ctx, GRect(x + 1, y + 2, 12, 9), 4);
+    graphics_draw_line(ctx, GPoint(x + 5, y + 11), GPoint(x + 3, y + 13));
+    icon_dot(ctx, x + 4, y + 6, 1); icon_dot(ctx, x + 7, y + 6, 1); icon_dot(ctx, x + 10, y + 6, 1);
+  } else if (icon == SERVICE_GOOGLE_CHAT) {
+    graphics_draw_rect(ctx, GRect(x + 1, y + 2, 11, 9));
+    graphics_draw_line(ctx, GPoint(x + 4, y + 11), GPoint(x + 2, y + 13));
+    graphics_draw_line(ctx, GPoint(x + 5, y + 5), GPoint(x + 10, y + 5));
+    graphics_draw_line(ctx, GPoint(x + 5, y + 8), GPoint(x + 9, y + 8));
+  } else if (icon == SERVICE_LINE) {
+    graphics_draw_round_rect(ctx, GRect(x + 1, y + 2, 12, 9), 4);
+    graphics_draw_line(ctx, GPoint(x + 9, y + 11), GPoint(x + 11, y + 13));
+    graphics_draw_line(ctx, GPoint(x + 4, y + 5), GPoint(x + 4, y + 8));
+    graphics_draw_line(ctx, GPoint(x + 4, y + 8), GPoint(x + 8, y + 8));
+  } else if (icon == SERVICE_IMESSAGE) {
+    graphics_draw_circle(ctx, GPoint(x + 7, y + 6), 5);
+    graphics_draw_line(ctx, GPoint(x + 4, y + 10), GPoint(x + 2, y + 13));
+    graphics_draw_line(ctx, GPoint(x + 2, y + 13), GPoint(x + 7, y + 11));
+  } else {
+    graphics_draw_round_rect(ctx, GRect(x + 1, y + 2, 12, 9), 4);
+    graphics_draw_line(ctx, GPoint(x + 5, y + 11), GPoint(x + 3, y + 13));
+    if (icon == SERVICE_UNKNOWN) {
+      icon_dot(ctx, x + 4, y + 6, 1); icon_dot(ctx, x + 7, y + 6, 1); icon_dot(ctx, x + 10, y + 6, 1);
+    }
   }
 }
 
@@ -769,10 +932,14 @@ static void draw_chat(GContext *ctx, const Layer *cell, MenuIndex *index, void *
   int preview_y = 2 + line_height;
   int preview_height = line_height;
   int unread_y = bounds.size.h - 18;
+  GColor foreground = selected ? s_theme.accent_text : s_theme.text;
 
-  graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
+  graphics_context_set_text_color(ctx, foreground);
   draw_marquee_text(ctx, chat->name, font_for_text(chat->name),
-    GRect(8, 2, bounds.size.w - 16, name_height), selected);
+    GRect(25, 2, bounds.size.w - 33, name_height), selected);
+  graphics_context_set_fill_color(ctx, selected ? s_theme.accent : s_theme.background);
+  graphics_fill_rect(ctx, GRect(0, 0, 24, name_height + 3), 0, GCornerNone);
+  draw_service_icon(ctx, GRect(7, 2 + (name_height - 14) / 2, 14, 14), chat->network, foreground);
 
   if (chat->preview[0]) {
     graphics_draw_text(ctx, chat->preview,
@@ -795,6 +962,7 @@ static void chat_selected(MenuLayer *menu_layer, MenuIndex *index, void *context
   if (index->row >= s_chat_count) return;
   copy_text(s_active_chat_id, sizeof(s_active_chat_id), s_chats[index->row].id);
   copy_text(s_active_chat_name, sizeof(s_active_chat_name), s_chats[index->row].name);
+  copy_text(s_active_chat_network, sizeof(s_active_chat_network), s_chats[index->row].network);
   if (!s_message_window) return;
   window_stack_push(s_message_window, true);
   if (s_message_request_timer) app_timer_cancel(s_message_request_timer);
@@ -905,10 +1073,16 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
   int content_y = text_y + text_height + 5;
   int32_t natural_height = message_content_height(s_message_menu, message, expanded, body);
   int time_y = natural_height - 19 - content_scroll;
-  graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
+  GColor foreground = selected ? s_theme.accent_text : s_theme.text;
+  graphics_context_set_text_color(ctx, foreground);
 
   draw_marquee_text(ctx, message->sender, font_for_text(message->sender),
-    GRect(8, 1 - content_scroll, bounds.size.w - 16, sender_height), selected);
+    GRect(25, 1 - content_scroll, bounds.size.w - 33, sender_height), selected);
+  graphics_context_set_fill_color(ctx, selected ? s_theme.accent : s_theme.background);
+  graphics_fill_rect(ctx, GRect(0, 1 - content_scroll, 24, sender_height), 0, GCornerNone);
+  draw_service_icon(ctx,
+    GRect(7, 1 - content_scroll + (sender_height - 14) / 2, 14, 14),
+    s_active_chat_network, foreground);
   graphics_draw_text(ctx, body && body[0] ? body : "[No text]",
     font_for_text(body),
     GRect(8, text_y, bounds.size.w - 16, text_height),

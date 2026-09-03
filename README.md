@@ -17,13 +17,14 @@ the Beeper access token on the Mac gateway.
 
 ## Current status
 
-Version 0.7.3 is a working clean-room daily-driver preview:
+Version 0.8.0 is a working clean-room daily-driver preview:
 
 - Native Emery watch build
 - Explicit setup/loading/empty/error states
 - Recent-chat and message-history protocol
 - Private Mac gateway using the official Beeper Desktop API
 - Contact-name normalization from participant data and Beeper's per-account contact list
+- Theme-colored service icons in the inbox and message headers for every currently supported Beeper network
 - Six presets plus saved custom themes with Pome's Inter, Roboto, Open Sans, Montserrat, and
   Poppins families at 14, 18, 22, 26, or 30 points
 - Pebble-native emoji preservation with safe fallbacks for unsupported emoji

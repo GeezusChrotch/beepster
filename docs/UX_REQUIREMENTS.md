@@ -55,6 +55,9 @@ review, and information must remain understandable without color.
 
 ## Navigation and loading
 
+- Prefix chat titles and message senders with a compact, theme-colored service icon. Cover Discord,
+  Google Messages, Google Chat, Google Voice, Instagram, LinkedIn, Signal, Slack, Telegram, X,
+  WhatsApp, Messenger, iMessage, LINE, Beeper/Matrix, and an unknown-network fallback.
 - Select on a chat always opens that chat.
 - Opening a chat selects its newest message at the bottom of a chronological timeline.
 - Moving upward near the oldest loaded message fetches an earlier page without jumping back to the

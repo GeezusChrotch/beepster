@@ -148,3 +148,10 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Scroll complete message content inside a stable screen-height thread row
 - [x] Limit unselected previews to three lines while retaining complete selected text
 - [x] Keep overlap between viewport steps so readers do not lose their place
+
+## 0.8.0 — Messaging service icons
+
+- [x] Draw compact theme-colored icons before inbox titles and message senders
+- [x] Cover every currently supported Beeper network plus Beeper/Matrix and unknown fallbacks
+- [x] Preserve marquee behavior and readable text width beside the icon
+- [x] Avoid bitmap-resource overhead with native integer-coordinate Pebble drawing
