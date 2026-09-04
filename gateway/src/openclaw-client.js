@@ -16,7 +16,9 @@ function plainText(value, limit = MAX_SUMMARY) {
 
 function approvalSummary(approval) {
   const request = approval && approval.request;
-  const kind = plainText(approval?.approvalKind || approval?.kind || request?.kind || 'protected action', 50).replace(/\n/g, ' ');
+  const rawKind = plainText(approval?.approvalKind || approval?.kind || request?.kind || 'protected action', 50).replace(/\n/g, ' ');
+  const kind = rawKind === 'system-agent' ? 'OpenClaw approval' :
+    (rawKind === 'exec' ? 'Command approval' : (rawKind === 'plugin' ? 'Plugin approval' : rawKind));
   const detail = approval?.summary || approval?.command || approval?.rawCommand || approval?.description ||
     request?.summary || request?.command || request?.commandPreview || request?.rawCommand || request?.description || request?.title ||
     'Your OpenClaw agent wants to perform a protected action.';
@@ -26,6 +28,10 @@ function approvalSummary(approval) {
 function extractApprovals(result) {
   if (Array.isArray(result)) return result;
   return result && Array.isArray(result.approvals) ? result.approvals : [];
+}
+
+function approvalsOfKind(result, kind) {
+  return extractApprovals(result).map(item => ({...item, approvalKind:kind}));
 }
 
 function readGatewayToken(configPath) {
@@ -100,7 +106,8 @@ export function createOpenClawApprovalClient(options = {}) {
         bridge.request('plugin.approval.list', {}, {timeoutMs:5000}),
         bridge.request('openclaw.approval.list', {}, {timeoutMs:5000})
       ]);
-      return extractApprovals(execResult).concat(extractApprovals(pluginResult), extractApprovals(systemAgentResult))
+      return approvalsOfKind(execResult, 'exec').concat(
+        approvalsOfKind(pluginResult, 'plugin'), approvalsOfKind(systemAgentResult, 'system-agent'))
         .filter(item => item && item.id).slice(0, 20).map(item => ({
           id:String(item.id),
           kind:item.approvalKind === 'plugin' || item.kind === 'plugin' ? 'plugin' :

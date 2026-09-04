@@ -81,6 +81,7 @@ typedef struct {
   char attachment_id[MESSAGE_ATTACHMENT_LEN];
   uint8_t attachment_kind;
   bool is_self;
+  bool is_approval;
   int16_t cached_text_height;
 } Message;
 
@@ -1050,8 +1051,18 @@ static void send_reply_to_phone(void) {
   }
 }
 
+static bool selected_message_is_approval(void) {
+  if (strcmp(s_active_chat_id, "beepster-openclaw-approvals") == 0) return true;
+  if (!s_message_menu || s_message_count < 1) return false;
+  MenuIndex selected = menu_layer_get_selected_index(s_message_menu);
+  return selected.section == 0 && selected.row < s_message_count &&
+    s_messages[selected.row].is_approval;
+}
+
 static void send_quick_reply_to_phone(int index, bool create_request_id) {
-  if (index < 0 || index >= s_quick_reply_count || !s_active_chat_id[0]) return;
+  bool approval = selected_message_is_approval();
+  int available = approval ? 2 : s_quick_reply_count;
+  if (index < 0 || index >= available || !s_active_chat_id[0]) return;
   cancel_reply_ack_timer();
   cancel_reply_return_timer();
   s_pending_quick_reply_index = index;
@@ -1066,9 +1077,10 @@ static void send_quick_reply_to_phone(int index, bool create_request_id) {
   dict_write_cstring(iterator, MESSAGE_KEY_COMMAND, "send_quick_reply");
   dict_write_cstring(iterator, MESSAGE_KEY_CHAT_ID, s_active_chat_id);
   dict_write_int32(iterator, MESSAGE_KEY_INDEX, index);
-  dict_write_cstring(iterator, MESSAGE_KEY_QUICK_REPLY_TEXT, s_quick_replies[index]);
+  dict_write_cstring(iterator, MESSAGE_KEY_QUICK_REPLY_TEXT,
+    approval ? (index == 0 ? "Approve" : "Deny") : s_quick_replies[index]);
   dict_write_cstring(iterator, MESSAGE_KEY_REPLY_REQUEST_ID, s_reply_request_id);
-  if (strcmp(s_active_chat_id, "beepster-openclaw-approvals") == 0 && s_message_menu) {
+  if (approval && s_message_menu) {
     MenuIndex selected = menu_layer_get_selected_index(s_message_menu);
     if (selected.section == 0 && selected.row < s_message_count && s_messages[selected.row].id[0]) {
       dict_write_cstring(iterator, MESSAGE_KEY_MSG_ID, s_messages[selected.row].id);
@@ -1669,7 +1681,7 @@ static void perform_button_action(ButtonAction action, bool message_view) {
     set_status(message_view ? s_message_status_layer : s_status_layer, VIEW_READY, message_view);
   }
   if (message_view) {
-    bool approval_chat = strcmp(s_active_chat_id, "beepster-openclaw-approvals") == 0;
+    bool approval_chat = selected_message_is_approval();
     switch (action) {
       case BUTTON_ACTION_SCROLL_UP: message_move_selection(-1); break;
       case BUTTON_ACTION_SCROLL_DOWN: message_move_selection(1); break;
@@ -2229,11 +2241,13 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     Tuple *time = dict_find(iterator, MESSAGE_KEY_MSG_TIME);
     Tuple *message_id = dict_find(iterator, MESSAGE_KEY_MSG_ID);
     Tuple *is_self = dict_find(iterator, MESSAGE_KEY_MSG_IS_SELF);
+    Tuple *is_approval = dict_find(iterator, MESSAGE_KEY_MSG_APPROVAL);
     copy_text(s_messages[slot].sender, sizeof(s_messages[slot].sender), sender ? sender->value->cstring : "Unknown");
     copy_text(s_messages[slot].text, sizeof(s_messages[slot].text), text ? text->value->cstring : "");
     copy_text(s_messages[slot].time, sizeof(s_messages[slot].time), time ? time->value->cstring : "");
     copy_text(s_messages[slot].id, sizeof(s_messages[slot].id), message_id ? message_id->value->cstring : "");
     s_messages[slot].is_self = is_self && is_self->value->int32 != 0;
+    s_messages[slot].is_approval = is_approval && is_approval->value->int32 != 0;
     Tuple *attachment_id = dict_find(iterator, MESSAGE_KEY_ATTACHMENT_ID);
     Tuple *attachment_kind = dict_find(iterator, MESSAGE_KEY_ATTACHMENT_KIND);
     copy_text(s_messages[slot].attachment_id, sizeof(s_messages[slot].attachment_id), attachment_id ? attachment_id->value->cstring : "");
@@ -2380,17 +2394,18 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
 }
 
 static bool reply_is_emoji_section(uint16_t section) {
-  if (strcmp(s_active_chat_id, "beepster-openclaw-approvals") == 0) return false;
+  if (selected_message_is_approval()) return false;
   return s_quick_reply_count > 0 ? section == 1 : section == 0;
 }
 
 static uint16_t reply_sections(MenuLayer *menu_layer, void *context) {
-  if (s_reply_showing_status || strcmp(s_active_chat_id, "beepster-openclaw-approvals") == 0) return 1;
+  if (s_reply_showing_status || selected_message_is_approval()) return 1;
   return s_quick_reply_count > 0 ? 2 : 1;
 }
 
 static uint16_t reply_rows(MenuLayer *menu_layer, uint16_t section, void *context) {
   if (s_reply_showing_status) return 0;
+  if (selected_message_is_approval()) return 2;
   return reply_is_emoji_section(section) ? (uint16_t)s_emoji_reply_count : (uint16_t)s_quick_reply_count;
 }
 
@@ -2411,8 +2426,8 @@ static void draw_reply_header(GContext *ctx, const Layer *cell, uint16_t section
   graphics_context_set_fill_color(ctx, s_theme.background);
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
   graphics_context_set_text_color(ctx, s_theme.muted);
-  const char *title = strcmp(s_active_chat_id, "beepster-openclaw-approvals") == 0 ?
-    "Approval action" : (reply_is_emoji_section(section) ? "Emoji replies" : "Quick replies");
+  const char *title = selected_message_is_approval() ?
+    "OpenClaw approval" : (reply_is_emoji_section(section) ? "Emoji replies" : "Quick replies");
   graphics_draw_text(ctx, title,
     fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD), GRect(8, 1, bounds.size.w - 16, 20),
     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
@@ -2422,6 +2437,12 @@ static void draw_reply(GContext *ctx, const Layer *cell, MenuIndex *index, void 
   bool selected = menu_layer_is_index_selected(s_reply_menu, index);
   graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
   GRect bounds = layer_get_bounds(cell);
+  if (selected_message_is_approval()) {
+    const char *label = index->row == 0 ? "Approve" : "Deny";
+    draw_marquee_text(ctx, label, theme_font(),
+      GRect(8, 3, bounds.size.w - 16, bounds.size.h - 6), selected);
+    return;
+  }
   if (reply_is_emoji_section(index->section)) {
     int emoji_index = index->row;
     if (emoji_index < 0 || emoji_index >= s_emoji_reply_count) return;

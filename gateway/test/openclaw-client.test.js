@@ -27,7 +27,7 @@ test('approval client never permits standing grants', async () => {
 
 test('approval summaries remove markdown and do not expose unmodeled fields', () => {
   const summary = openClawHelpers.approvalSummary({id:'1',kind:'exec',command:'**Run** `tool`',secret:'do-not-copy'});
-  assert.equal(summary, 'exec\n\nRun tool');
+  assert.equal(summary, 'Command approval\n\nRun tool');
   assert.doesNotMatch(summary, /do-not-copy/);
 });
 
@@ -55,7 +55,7 @@ test('OpenClaw system approvals are listed and use the unified exact resolver', 
   }};
   const client = createOpenClawApprovalClient({bridge});
   assert.deepEqual(await client.listApprovals(), [{
-    id:'system-1', kind:'system-agent', summary:'system-agent\n\nChange a protected setting', createdAt:123, expiresAt:456
+    id:'system-1', kind:'system-agent', summary:'OpenClaw approval\n\nChange a protected setting', createdAt:123, expiresAt:456
   }]);
   await client.resolveApproval('system-1', 'allow-once');
   assert.deepEqual(calls.at(-1), {

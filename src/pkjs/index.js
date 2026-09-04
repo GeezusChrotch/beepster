@@ -37,6 +37,7 @@ var KEY_HAS_MORE = 33;
 var KEY_THEME_SIZE = 34;
 var KEY_CHAT_PINNED = 35;
 var KEY_MSG_IS_SELF = 36;
+var KEY_MSG_APPROVAL = 37;
 var OPENCLAW_CHAT_ID = 'beepster-openclaw-approvals';
 
 var BUILT_IN_THEMES = [
@@ -499,26 +500,6 @@ function sendQuickReplies() {
   enqueue(complete);
 }
 
-function sendOpenClawReplyOptions() {
-  var options = ['Allow once', 'Deny'];
-  for (var i = 0; i < options.length; i++) {
-    var message = {};
-    message[KEY_COMMAND] = 'quick_reply';
-    message[KEY_INDEX] = i;
-    message[KEY_TOTAL] = options.length;
-    message[KEY_QUICK_REPLY_TEXT] = options[i];
-    enqueue(message);
-  }
-  var ready = {};
-  ready[KEY_COMMAND] = 'quick_replies_ready';
-  ready[KEY_TOTAL] = options.length;
-  enqueue(ready);
-  var emojiReady = {};
-  emojiReady[KEY_COMMAND] = 'emoji_replies_ready';
-  emojiReady[KEY_TOTAL] = 0;
-  enqueue(emojiReady);
-}
-
 function sendEmojiReplies() {
   var replies = DEMO_MODE ? DEFAULT_EMOJI_REPLIES : configuredEmojiReplies();
   for (var i = 0; i < replies.length; i++) {
@@ -699,6 +680,49 @@ function applyActiveMessageRefresh(chatID, generation, items, paging) {
   scheduleActiveMessageRefresh();
 }
 
+function chatNetwork(chatID) {
+  var chat = currentInboxChats.concat(inboxRawChats).find(function(item) {
+    return item && item.id === chatID;
+  });
+  return String(chat && chat.network || '');
+}
+
+function decorateOpenClawMessages(chatID, items, callback) {
+  if (!openClawApprovalsEnabled() || !/telegram/i.test(chatNetwork(chatID))) {
+    callback(items || []);
+    return;
+  }
+  request('/v1/openclaw/approvals', function(data) {
+    var approvals = Array.isArray(data.items) ? data.items.slice(0, 20) : [];
+    pendingOpenClawApprovals = approvals;
+    var decorated = (items || []).map(function(item) { return Object.assign({}, item); });
+    approvals.forEach(function(approval) {
+      var createdAt = Number(approval.createdAt || 0);
+      var bestIndex = -1;
+      var bestDistance = Infinity;
+      for (var i = 0; i < decorated.length; i++) {
+        var item = decorated[i];
+        if (item.isSelf || item.approvalID || !/approv|allow|deny|permission|protected|confirm/i.test(String(item.text || ''))) continue;
+        var timestamp = Date.parse(item.timestamp || '');
+        var distance = createdAt && Number.isFinite(timestamp) ? Math.abs(timestamp - createdAt) : Infinity;
+        if (distance <= 120000 && distance < bestDistance) {
+          bestDistance = distance;
+          bestIndex = i;
+        }
+      }
+      if (bestIndex >= 0) {
+        var summary = String(approval.summary || 'OpenClaw approval');
+        decorated[bestIndex].approvalID = String(approval.id || '');
+        decorated[bestIndex].sender = 'OpenClaw approval';
+        decorated[bestIndex].text = summary;
+        decorated[bestIndex].watchText = summary;
+        decorated[bestIndex].emojiKeys = [];
+      }
+    });
+    callback(decorated);
+  }, function() { callback(items || []); });
+}
+
 function refreshActiveMessages() {
   if (!activeMessageChatID || messageRefreshInFlight) { scheduleActiveMessageRefresh(); return; }
   var chatID = activeMessageChatID;
@@ -752,7 +776,9 @@ function refreshActiveMessages() {
     return;
   }
   request('/v1/chats/' + encodeURIComponent(chatID) + '/messages?limit=12', function(data) {
-    applyActiveMessageRefresh(chatID, generation, data.items || [], data);
+    decorateOpenClawMessages(chatID, data.items || [], function(items) {
+      applyActiveMessageRefresh(chatID, generation, items, data);
+    });
   }, function() {
     messageRefreshInFlight = false;
     if (chatID === activeMessageChatID && generation === messageLoadGeneration) scheduleActiveMessageRefresh();
@@ -964,14 +990,20 @@ function sendReply(chatID, text, requestID) {
 }
 
 function sendQuickReply(chatID, index, requestID, watchText, messageID) {
-  if (chatID === OPENCLAW_CHAT_ID) {
+  var selectedRoute = messageRouteByID[messageID];
+  var approvalID = selectedRoute && selectedRoute.approvalID ? selectedRoute.approvalID :
+    (chatID === OPENCLAW_CHAT_ID ? messageID : '');
+  if (approvalID) {
     var decision = index === 0 ? 'allow-once' : (index === 1 ? 'deny' : '');
-    if (!decision || !messageID) { sendState('reply_failed', 'Select an exact pending approval'); return; }
+    if (!decision) { sendState('reply_failed', 'Select an exact pending approval'); return; }
     sendState('reply_sending');
-    postJSON('/v1/openclaw/approvals/' + encodeURIComponent(messageID) + '/decision', {decision:decision}, function() {
-      pendingOpenClawApprovals = pendingOpenClawApprovals.filter(function(item) { return item.id !== messageID; });
+    postJSON('/v1/openclaw/approvals/' + encodeURIComponent(approvalID) + '/decision', {decision:decision}, function() {
+      pendingOpenClawApprovals = pendingOpenClawApprovals.filter(function(item) { return item.id !== approvalID; });
       sendState('reply_sent');
-      setTimeout(function() { if (activeMessageChatID === OPENCLAW_CHAT_ID) loadOpenClawApprovals(); }, 700);
+      setTimeout(function() {
+        if (activeMessageChatID === OPENCLAW_CHAT_ID) loadOpenClawApprovals();
+        else if (activeMessageChatID === chatID) refreshActiveMessages();
+      }, 700);
     }, function(error) { sendState('reply_failed', error || 'Approval is no longer pending'); });
     return;
   }
@@ -993,12 +1025,6 @@ function rebuildInboxChats() {
   });
   rememberAppleCandidates(inboxRawChats);
   currentInboxChats = applyAppleAliases(items);
-  if (openClawApprovalsEnabled() && pendingOpenClawApprovals.length) {
-    currentInboxChats.unshift({id:OPENCLAW_CHAT_ID,name:'OpenClaw Approvals',network:'OpenClaw',
-      unreadCount:pendingOpenClawApprovals.length,
-      preview:pendingOpenClawApprovals.length === 1 ? '1 protected action needs review' : pendingOpenClawApprovals.length + ' protected actions need review',
-      timestamp:new Date().toISOString()});
-  }
   var present = {};
   currentInboxChats.forEach(function(chat) { if (chat && chat.id) present[chat.id] = true; });
   var snapshots = configuredPinnedSnapshots();
@@ -1199,7 +1225,8 @@ function queueMessage(item, index, total) {
   messageTextByID[messageID] = watchText;
   messageRouteByID[messageID] = {
     chatID:String(item.sourceChatID || activeMessageChatID),
-    messageID:String(item.sourceMessageID || item.id || '')
+    messageID:String(item.sourceMessageID || item.id || ''),
+    approvalID:String(item.approvalID || '')
   };
   var message = {};
   message[KEY_COMMAND] = 'message';
@@ -1210,6 +1237,7 @@ function queueMessage(item, index, total) {
   message[KEY_MSG_TIME] = safeSlice(item.time, 18);
   message[KEY_MSG_ID] = safeSlice(messageID, 120);
   message[KEY_MSG_IS_SELF] = item.isSelf === true || item.sender === 'Me' ? 1 : 0;
+  message[KEY_MSG_APPROVAL] = item.approvalID ? 1 : 0;
   if (item.attachment) {
     message[KEY_ATTACHMENT_ID] = safeSlice(item.attachment.id, 30);
     message[KEY_ATTACHMENT_KIND] = item.attachment.kind === 'gif' ? 2 : (item.attachment.kind === 'video' ? 3 : 1);
@@ -1254,19 +1282,21 @@ function loadMessages(chatID) {
   }
   request('/v1/chats/' + encodeURIComponent(chatID) + '/messages?limit=12', function(data) {
     if (generation !== messageLoadGeneration || chatID !== activeMessageChatID) return;
-    var items = (data.items || []).slice(0, MAX_WATCH_MESSAGES);
-    if (items.length === 0) { newestMessageSignature = ''; sendState('empty'); scheduleActiveMessageRefresh(); return; }
-    messageHistory = items;
-    newestMessageSignature = messageSignature(items);
-    addChatEmojiKeys(items, true);
-    sendChatEmojiAtlas();
-    oldestMessageCursor = data.nextCursor || '';
-    hasOlderMessages = Boolean(data.hasMore && oldestMessageCursor && messageHistory.length < MAX_WATCH_MESSAGES);
-    var start = {}; start[KEY_COMMAND] = 'messages_start'; start[KEY_TOTAL] = items.length; enqueue(start);
-    for (var i = 0; i < items.length; i++) queueMessage(items[i], i, items.length);
-    finishMessageBatch('initial', items.length - 1);
-    console.log('Beepster queued newest messages count=' + items.length);
-    scheduleActiveMessageRefresh();
+    decorateOpenClawMessages(chatID, (data.items || []).slice(0, MAX_WATCH_MESSAGES), function(items) {
+      if (generation !== messageLoadGeneration || chatID !== activeMessageChatID) return;
+      if (items.length === 0) { newestMessageSignature = ''; sendState('empty'); scheduleActiveMessageRefresh(); return; }
+      messageHistory = items;
+      newestMessageSignature = messageSignature(items);
+      addChatEmojiKeys(items, true);
+      sendChatEmojiAtlas();
+      oldestMessageCursor = data.nextCursor || '';
+      hasOlderMessages = Boolean(data.hasMore && oldestMessageCursor && messageHistory.length < MAX_WATCH_MESSAGES);
+      var start = {}; start[KEY_COMMAND] = 'messages_start'; start[KEY_TOTAL] = items.length; enqueue(start);
+      for (var i = 0; i < items.length; i++) queueMessage(items[i], i, items.length);
+      finishMessageBatch('initial', items.length - 1);
+      console.log('Beepster queued newest messages count=' + items.length);
+      scheduleActiveMessageRefresh();
+    });
   }, function(error) {
     if (generation === messageLoadGeneration && chatID === activeMessageChatID) {
       sendState('error', error);
@@ -1277,7 +1307,6 @@ function loadMessages(chatID) {
 
 function loadOpenClawApprovals() {
   var generation = messageLoadGeneration;
-  sendOpenClawReplyOptions();
   request('/v1/openclaw/approvals', function(data) {
     if (generation !== messageLoadGeneration || activeMessageChatID !== OPENCLAW_CHAT_ID) return;
     pendingOpenClawApprovals = Array.isArray(data.items) ? data.items.slice(0, MAX_WATCH_MESSAGES) : [];

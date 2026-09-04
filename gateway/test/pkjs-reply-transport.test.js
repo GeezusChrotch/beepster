@@ -306,7 +306,25 @@ test('pending OpenClaw approvals load as exact synthetic watch messages', () => 
   assert.equal(message[30], 'approval-exact-1');
   assert.equal(message[10], 'OpenClaw');
   assert.equal(message[11], 'exec\n\nUpdate package');
-  assert.deepEqual(appMessages.filter(packet => packet[0] === 'quick_reply').map(packet => packet[32]), ['Allow once','Deny']);
+  assert.equal(appMessages.filter(packet => packet[0] === 'quick_reply').length, 0);
+});
+
+test('pending approvals attach to their matching Telegram agent message', () => {
+  const { context, requests, storage } = replyRuntime();
+  storage.set('beepster_openclaw_approvals', '1');
+  context.currentInboxChats = [{id:'telegram-agent',network:'Telegram'}];
+  const messages = [{id:'telegram-message',sender:'Agent',isSelf:false,
+    text:'This action requires approval. Approve or deny?',timestamp:'2026-09-04T19:16:10.000Z'}];
+  let result;
+  context.decorateOpenClawMessages('telegram-agent', messages, (items) => { result = items; });
+  assert.equal(requests[0].url, 'https://gateway.example/v1/openclaw/approvals');
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items:[{id:'approval-exact-1',
+    summary:'OpenClaw approval\n\nSet config plugins.example.enabled to true',createdAt:Date.parse('2026-09-04T19:16:05.000Z')} ]});
+  requests[0].onload();
+  assert.equal(result[0].approvalID, 'approval-exact-1');
+  assert.equal(result[0].sender, 'OpenClaw approval');
+  assert.match(result[0].text, /plugins\.example\.enabled/);
 });
 
 test('watch approval actions resolve only the selected opaque approval id', () => {
@@ -316,6 +334,15 @@ test('watch approval actions resolve only the selected opaque approval id', () =
   assert.equal(requests[0].method, 'POST');
   assert.equal(requests[0].url, 'https://gateway.example/v1/openclaw/approvals/approval-exact-1/decision');
   assert.equal(requests[0].body, JSON.stringify({decision:'allow-once'}));
+});
+
+test('approval actions in a Telegram thread resolve the correlated approval instead of sending chat text', () => {
+  const { context, requests } = replyRuntime();
+  context.messageRouteByID = {'telegram-message':{chatID:'telegram-agent',messageID:'telegram-message',approvalID:'approval-exact-2'}};
+  context.sendQuickReply('telegram-agent', 1, 'ignored', 'Deny', 'telegram-message');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, 'https://gateway.example/v1/openclaw/approvals/approval-exact-2/decision');
+  assert.equal(requests[0].body, JSON.stringify({decision:'deny'}));
 });
 
 test('service aliases normalize to stable filter IDs', () => {
