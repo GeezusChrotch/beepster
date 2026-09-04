@@ -46,7 +46,8 @@ review, and information must remain understandable without color.
 - Remove presentation selectors and skin-tone modifiers that Pebble cannot render independently.
 - Convert common unsupported emoji to meaningful aliases such as `[thinking]` or `[rocket]`.
 - Use `[emoji]` only when no useful alias exists; never silently delete message content.
-- Evaluate a compact optional bitmap atlas later for high-frequency unsupported emoji.
+- Show 15 high-frequency emoji beneath saved quick replies using a single compact bitmap atlas; send
+  the corresponding Unicode emoji rather than the display bitmap.
 
 ## Rich message text
 

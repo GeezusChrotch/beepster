@@ -40,7 +40,7 @@ The Connector window can be closed after setup; its login background service con
 - Complete in-thread message text with configurable one-to-eight-line scrolling
 - Fully configurable press and hold actions for all three buttons in both inbox and chat views
 - Voice dictation with confirmation and delivery tracking
-- Up to eight text-or-emoji quick replies
+- Up to eight text-or-emoji quick replies, followed by 15 bitmap-rendered popular emoji
 - Static photo, GIF-poster, and video-poster previews, including Instagram media
 - HTML cleanup for rich Instagram messages
 - Six presets and saved custom themes using five font families and five sizes

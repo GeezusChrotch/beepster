@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added a **Popular emoji** section beneath saved quick replies with 15 bitmap-rendered choices that
+  send their corresponding Unicode emoji.
 - Prevented recurring macOS Keychain prompts by allowing authorization requests
   to finish instead of killing the helper after five seconds and restarting it.
 - Fixed **Copy Phone Setup** to include the exact Tailscale Serve HTTPS port assigned to Beepster,

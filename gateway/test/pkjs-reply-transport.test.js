@@ -79,6 +79,14 @@ test('watch replies use canonical authenticated JSON POST first', () => {
   assert.equal(response.pendingMessageID, 'pending-1');
 });
 
+test('bitmap picker emoji remain Unicode through the reply transport', () => {
+  const { context, requests } = replyRuntime();
+  context.sendReply('chat-1', '😂', 'emoji-1');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].method, 'POST');
+  assert.equal(requests[0].body, JSON.stringify({text:'😂',requestID:'emoji-1'}));
+});
+
 test('full message detail packets stay tagged to their originating message', () => {
   const { context, appMessages } = replyRuntime();
   context.messageTextByID['message-1'] = 'A'.repeat(900) + ' 👍';

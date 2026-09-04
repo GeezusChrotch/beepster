@@ -59,6 +59,10 @@ Hold Top in a thread, then select one of up to eight saved replies. Quick replie
 emoji. Beepster sends the original saved reply even when the watch must display an unsupported emoji
 as a readable fallback.
 
+Below the saved replies, the **Popular emoji** section offers 15 common emoji as crisp bitmap icons.
+Selecting one sends the real emoji character; the image is only used for the watch menu display. This
+section remains available even when no saved replies are configured.
+
 Edit replies in **Pebble mobile app → Beepster → Settings**. Blank slots are omitted.
 
 ## Custom button controls

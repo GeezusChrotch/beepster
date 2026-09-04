@@ -13,6 +13,8 @@
 #define DETAIL_TEXT_CAPACITY 32768
 #define MAX_QUICK_REPLIES 8
 #define QUICK_REPLY_LEN 96
+#define EMOJI_REPLY_COUNT 15
+#define EMOJI_ICON_SIZE 24
 #define MARQUEE_STEP_PIXELS 2
 #define MARQUEE_FRAME_MS 80
 #define MARQUEE_PAUSE_MS 900
@@ -92,6 +94,29 @@ typedef struct {
   uint8_t font;
   uint8_t size;
 } PersistedTheme;
+
+typedef struct {
+  const char *text;
+  const char *label;
+} EmojiReply;
+
+static const EmojiReply EMOJI_REPLIES[EMOJI_REPLY_COUNT] = {
+  {"\U0001F602", "Tears of joy"},
+  {"\u2764\uFE0F", "Red heart"},
+  {"\U0001F60D", "Heart eyes"},
+  {"\U0001F923", "Rolling laughing"},
+  {"\U0001F60A", "Smiling"},
+  {"\U0001F64F", "Thank you / please"},
+  {"\U0001F495", "Two hearts"},
+  {"\U0001F62D", "Crying"},
+  {"\U0001F618", "Kiss"},
+  {"\U0001F44D", "Thumbs up"},
+  {"\U0001F605", "Nervous laugh"},
+  {"\U0001F44F", "Clapping"},
+  {"\U0001F601", "Big grin"},
+  {"\U0001F525", "Fire"},
+  {"\U0001F494", "Broken heart"}
+};
 
 static Theme s_theme = {
   .background = GColorWhite,
@@ -174,6 +199,8 @@ static TextLayer *s_reply_status_layer;
 static bool s_reply_showing_status;
 static char s_quick_replies[MAX_QUICK_REPLIES][QUICK_REPLY_LEN];
 static int s_quick_reply_count;
+static GBitmap *s_emoji_atlas;
+static GBitmap *s_emoji_icons[EMOJI_REPLY_COUNT];
 static AppTimer *s_marquee_timer;
 static int16_t s_marquee_offset;
 static int16_t s_marquee_max;
@@ -771,10 +798,6 @@ static void reply_show_status(const char *text) {
 }
 
 static void reply_show_menu(void) {
-  if (s_quick_reply_count == 0) {
-    reply_show_status("No quick replies\nAdd them in Settings");
-    return;
-  }
   s_reply_state = VIEW_READY;
   s_reply_showing_status = false;
   if (s_reply_status_layer) layer_set_hidden(text_layer_get_layer(s_reply_status_layer), true);
@@ -1979,8 +2002,17 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
   }
 }
 
+static bool reply_is_emoji_section(uint16_t section) {
+  return s_quick_reply_count > 0 ? section == 1 : section == 0;
+}
+
+static uint16_t reply_sections(MenuLayer *menu_layer, void *context) {
+  return s_reply_showing_status ? 1 : (s_quick_reply_count > 0 ? 2 : 1);
+}
+
 static uint16_t reply_rows(MenuLayer *menu_layer, uint16_t section, void *context) {
-  return s_reply_showing_status ? 0 : (uint16_t)s_quick_reply_count;
+  if (s_reply_showing_status) return 0;
+  return reply_is_emoji_section(section) ? EMOJI_REPLY_COUNT : (uint16_t)s_quick_reply_count;
 }
 
 static int16_t reply_row_height(MenuLayer *menu_layer, MenuIndex *index, void *context) {
@@ -1991,18 +2023,53 @@ static int16_t reply_row_height(MenuLayer *menu_layer, MenuIndex *index, void *c
   return 82;
 }
 
+static int16_t reply_header_height(MenuLayer *menu_layer, uint16_t section, void *context) {
+  return 24;
+}
+
+static void draw_reply_header(GContext *ctx, const Layer *cell, uint16_t section, void *context) {
+  GRect bounds = layer_get_bounds(cell);
+  graphics_context_set_fill_color(ctx, s_theme.background);
+  graphics_fill_rect(ctx, bounds, 0, GCornerNone);
+  graphics_context_set_text_color(ctx, s_theme.muted);
+  graphics_draw_text(ctx, reply_is_emoji_section(section) ? "Popular emoji" : "Quick replies",
+    fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD), GRect(8, 1, bounds.size.w - 16, 20),
+    GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+}
+
 static void draw_reply(GContext *ctx, const Layer *cell, MenuIndex *index, void *context) {
+  bool selected = menu_layer_is_index_selected(s_reply_menu, index);
+  graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
+  GRect bounds = layer_get_bounds(cell);
+  if (reply_is_emoji_section(index->section)) {
+    int emoji_index = index->row;
+    if (emoji_index < 0 || emoji_index >= EMOJI_REPLY_COUNT) return;
+    if (s_emoji_icons[emoji_index]) {
+      graphics_context_set_compositing_mode(ctx, GCompOpSet);
+      graphics_draw_bitmap_in_rect(ctx, s_emoji_icons[emoji_index],
+        GRect(8, (bounds.size.h - EMOJI_ICON_SIZE) / 2, EMOJI_ICON_SIZE, EMOJI_ICON_SIZE));
+    }
+    draw_marquee_text(ctx, EMOJI_REPLIES[emoji_index].label, theme_font(),
+      GRect(42, 3, bounds.size.w - 50, bounds.size.h - 6), selected);
+    return;
+  }
   int quick_index = index->row;
   if (quick_index >= 0 && quick_index < s_quick_reply_count) {
-    bool selected = menu_layer_is_index_selected(s_reply_menu, index);
-    graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
-    GRect bounds = layer_get_bounds(cell);
     draw_marquee_text(ctx, s_quick_replies[quick_index], font_for_text(s_quick_replies[quick_index]),
       GRect(8, 3, bounds.size.w - 16, bounds.size.h - 6), selected);
   }
 }
 
 static void reply_selected(MenuLayer *menu_layer, MenuIndex *index, void *context) {
+  if (reply_is_emoji_section(index->section)) {
+    int emoji_index = index->row;
+    if (emoji_index < 0 || emoji_index >= EMOJI_REPLY_COUNT) return;
+    s_pending_quick_reply_index = -1;
+    copy_text(s_reply_text, sizeof(s_reply_text), EMOJI_REPLIES[emoji_index].text);
+    new_reply_request_id();
+    send_reply_to_phone();
+    return;
+  }
   send_quick_reply_to_phone(index->row, true);
 }
 
@@ -2015,14 +2082,26 @@ static void reply_load(Window *window) {
   menu_layer_set_normal_colors(s_reply_menu, s_theme.background, s_theme.text);
   menu_layer_set_highlight_colors(s_reply_menu, s_theme.accent, s_theme.accent_text);
   menu_layer_set_callbacks(s_reply_menu, NULL, (MenuLayerCallbacks) {
+    .get_num_sections = reply_sections,
     .get_num_rows = reply_rows,
     .get_cell_height = reply_row_height,
+    .get_header_height = reply_header_height,
     .draw_row = draw_reply,
+    .draw_header = draw_reply_header,
     .select_click = reply_selected,
     .selection_changed = marquee_selection_changed
   });
   menu_layer_set_click_config_onto_window(s_reply_menu, window);
   layer_add_child(root, menu_layer_get_layer(s_reply_menu));
+
+  s_emoji_atlas = gbitmap_create_with_resource(RESOURCE_ID_EMOJI_ATLAS);
+  if (s_emoji_atlas) {
+    for (int i = 0; i < EMOJI_REPLY_COUNT; i++) {
+      s_emoji_icons[i] = gbitmap_create_as_sub_bitmap(s_emoji_atlas,
+        GRect((i % 5) * EMOJI_ICON_SIZE, (i / 5) * EMOJI_ICON_SIZE,
+          EMOJI_ICON_SIZE, EMOJI_ICON_SIZE));
+    }
+  }
 
   s_reply_status_layer = text_layer_create(GRect(14, 58, bounds.size.w - 28, 110));
   text_layer_set_background_color(s_reply_status_layer, s_theme.background);
@@ -2036,6 +2115,12 @@ static void reply_load(Window *window) {
 }
 
 static void reply_unload(Window *window) {
+  for (int i = 0; i < EMOJI_REPLY_COUNT; i++) {
+    if (s_emoji_icons[i]) gbitmap_destroy(s_emoji_icons[i]);
+    s_emoji_icons[i] = NULL;
+  }
+  if (s_emoji_atlas) gbitmap_destroy(s_emoji_atlas);
+  s_emoji_atlas = NULL;
   menu_layer_destroy(s_reply_menu);
   text_layer_destroy(s_reply_status_layer);
   s_reply_menu = NULL;
