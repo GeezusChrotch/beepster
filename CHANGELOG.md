@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.11.0 — Privacy-clean invitation beta
+
+- Removed development source maps and absolute local build paths from distributed watch and Mac
+  artifacts, and added release-time checks that prevent them from returning.
+- Changed release checksum files to contain portable artifact names rather than local filesystem
+  paths.
+
 ## 0.10.0 — Invitation beta
 
 - Added a complete 3,944-entry Unicode Emoji 17.0/Twemoji library to the Mac Connector, a visual
