@@ -43,3 +43,22 @@ test('plugin approvals use their matching resolver rather than the exec resolver
   await client.resolveApproval('plugin-1', 'deny');
   assert.deepEqual(calls.at(-1), {method:'plugin.approval.resolve',params:{id:'plugin-1',decision:'deny'}});
 });
+
+test('OpenClaw system approvals are listed and use the unified exact resolver', async () => {
+  const calls = [];
+  const bridge = {status:()=>({state:'paired'}),stop:()=>{},request:async (method, params) => {
+    calls.push({method,params});
+    if (method === 'openclaw.approval.list') return [{
+      id:'system-1', kind:'system-agent', summary:'Change a protected setting', createdAtMs:123, expiresAtMs:456
+    }];
+    return [];
+  }};
+  const client = createOpenClawApprovalClient({bridge});
+  assert.deepEqual(await client.listApprovals(), [{
+    id:'system-1', kind:'system-agent', summary:'system-agent\n\nChange a protected setting', createdAt:123, expiresAt:456
+  }]);
+  await client.resolveApproval('system-1', 'allow-once');
+  assert.deepEqual(calls.at(-1), {
+    method:'approval.resolve', params:{id:'system-1',kind:'system-agent',decision:'allow-once'}
+  });
+});

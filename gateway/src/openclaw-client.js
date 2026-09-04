@@ -95,13 +95,17 @@ export function createOpenClawApprovalClient(options = {}) {
   return {
     status() { return bridge.status(); },
     async listApprovals() {
-      const [execResult, pluginResult] = await Promise.all([
+      const [execResult, pluginResult, systemAgentResult] = await Promise.all([
         bridge.request('exec.approval.list', {}, {timeoutMs:5000}),
-        bridge.request('plugin.approval.list', {}, {timeoutMs:5000})
+        bridge.request('plugin.approval.list', {}, {timeoutMs:5000}),
+        bridge.request('openclaw.approval.list', {}, {timeoutMs:5000})
       ]);
-      return extractApprovals(execResult).concat(extractApprovals(pluginResult))
+      return extractApprovals(execResult).concat(extractApprovals(pluginResult), extractApprovals(systemAgentResult))
         .filter(item => item && item.id).slice(0, 20).map(item => ({
-          id:String(item.id), kind:item.approvalKind === 'plugin' ? 'plugin' : 'exec', summary:approvalSummary(item),
+          id:String(item.id),
+          kind:item.approvalKind === 'plugin' || item.kind === 'plugin' ? 'plugin' :
+            item.approvalKind === 'system-agent' || item.kind === 'system-agent' ? 'system-agent' : 'exec',
+          summary:approvalSummary(item),
           createdAt:Number(item.createdAtMs || item.createdAt || item.ts || 0),
           expiresAt:Number(item.expiresAtMs || item.expiresAt || 0)
         }));
@@ -111,7 +115,11 @@ export function createOpenClawApprovalClient(options = {}) {
       const pending = await this.listApprovals();
       if (!pending.some(item => item.id === id)) throw new Error('The exact approval is no longer pending');
       const item = pending.find(item => item.id === id);
-      await bridge.request(`${item.kind}.approval.resolve`, {id, decision}, {timeoutMs:15000});
+      if (item.kind === 'system-agent') {
+        await bridge.request('approval.resolve', {id, kind:item.kind, decision}, {timeoutMs:15000});
+      } else {
+        await bridge.request(`${item.kind}.approval.resolve`, {id, decision}, {timeoutMs:15000});
+      }
       return {ok:true, decision};
     },
     stop() { bridge.stop(); }
