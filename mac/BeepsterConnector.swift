@@ -74,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshButton = button("Test Everything", #selector(refresh))
         let mainActions = [
             primaryActionRow(setupButton,
-                             description: "Installs or repairs the Mac service, connects Beeper, requests Contacts access, starts the private route, and checks the result."),
+                             description: "Installs or repairs the Mac service, guides you through connecting Beeper, requests Contacts access, starts the private route, and checks the result."),
             primaryActionRow(connectPhoneButton,
                              description: "Copies the private address and shows the pairing code together with short phone instructions."),
             primaryActionRow(refreshButton,
@@ -578,12 +578,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func promptForBeeperToken() -> String? {
         let alert = NSAlert()
         alert.messageText = "Connect Beeper Desktop"
-        alert.informativeText = "Create a dedicated token in Beeper Desktop’s API settings, then paste it here. Beepster stores it only in your Mac login Keychain."
+        alert.informativeText = "Follow these steps in Beeper Desktop, then paste the new token below."
         alert.addButton(withTitle: "Save and Continue")
         alert.addButton(withTitle: "Skip for Now")
-        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
-        field.placeholderString = "Beeper Desktop API token"
-        alert.accessoryView = field
+        let (view, field) = beeperTokenAccessory()
+        alert.accessoryView = view
         window.makeFirstResponder(field)
         guard alert.runModal() == .alertFirstButtonReturn else { return nil }
         let token = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -682,12 +681,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func setBeeperToken() {
         let alert = NSAlert()
         alert.messageText = "Set dedicated Beeper token"
-        alert.informativeText = "Paste the token created in Beeper Desktop. It will be stored in your login Keychain and is never displayed again."
+        alert.informativeText = "Follow these steps in Beeper Desktop, then paste the new token below."
         alert.addButton(withTitle: "Save Token")
         alert.addButton(withTitle: "Cancel")
-        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
-        field.placeholderString = "Beeper Desktop API token"
-        alert.accessoryView = field
+        let (view, field) = beeperTokenAccessory()
+        alert.accessoryView = view
         window.makeFirstResponder(field)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let token = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -707,6 +705,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.refresh()
             }
         }
+    }
+
+    private func beeperTokenAccessory() -> (NSView, NSSecureTextField) {
+        let instructions = wrappingLabel("""
+        1. Open Beeper Desktop and select the gear icon for Settings.
+        2. Select Integrations in the left sidebar.
+        3. Turn on Allow connections.
+        4. Find Approved connections and select the + button.
+        5. Enter Beepster as the name and set Expires In to Never.
+        6. Turn on Allow sensitive actions. This is required to send replies.
+        7. Select Create Access Token, copy the token, and paste it below.
+
+        The token is shown only when it is created. Beepster stores it only in your Mac login Keychain.
+        """)
+        instructions.font = .systemFont(ofSize: 13)
+        instructions.maximumNumberOfLines = 0
+
+        let openBeeper = button("Open Beeper Desktop", #selector(openBeeperDesktop))
+        openBeeper.bezelStyle = .rounded
+
+        let pasteLabel = NSTextField(labelWithString: "Paste the new token here:")
+        pasteLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+
+        let field = NSSecureTextField()
+        field.placeholderString = "Paste Beeper Desktop API token"
+
+        let stack = NSStackView(views: [instructions, openBeeper, pasteLabel, field])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        instructions.widthAnchor.constraint(equalToConstant: 470).isActive = true
+        field.widthAnchor.constraint(equalToConstant: 470).isActive = true
+        return (stack, field)
+    }
+
+    @objc private func openBeeperDesktop() {
+        let workspace = NSWorkspace.shared
+        let appURL = workspace.urlForApplication(withBundleIdentifier: "com.automattic.beeper.desktop")
+            ?? URL(fileURLWithPath: "/Applications/Beeper Desktop.app")
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        workspace.openApplication(at: appURL, configuration: configuration)
     }
 
     @objc private func startPrivateRoute() {

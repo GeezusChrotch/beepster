@@ -31,20 +31,34 @@ On first launch, macOS may ask you to confirm that you downloaded the app from t
 public release must be Developer ID signed and notarized; do not bypass a warning that says the app
 cannot be checked for malicious software.
 
-Select **Set Up Beepster**. This one guided action installs or repairs the bundled gateway, asks for
-the Beeper token only when it is missing, requests Contacts access when needed, starts the private
-Tailscale route, restarts the service, and checks the result. Existing credentials, Contacts
-permission, and phone pairing are preserved when you update or repair the Connector.
+Select **Set Up Beepster**. This guided action installs or repairs the bundled gateway, walks you
+through creating the Beeper connection when its token is missing, requests Contacts access when
+needed, starts the private Tailscale route, restarts the service, and checks the result. Existing
+credentials, Contacts permission, and phone pairing are preserved when you update or repair the
+Connector.
 
 ## 2. Connect Beeper
 
-Keep Beeper Desktop open. In Beeper Desktop, open its developer or Desktop API settings and create
-a separate access token for Beepster. The exact wording may change between Beeper releases; use the
-authentication link in Beeper's current [Desktop API documentation](https://developers.beeper.com/desktop-api/).
+Keep Beeper Desktop open. When Connector asks for a token:
 
-The guided setup asks for this token only on the first setup or when it is missing. Paste it into the
-concealed field and continue. It goes directly into the macOS login Keychain and is never placed in
-the watch app, copied to the phone, or displayed again.
+1. In Beeper Desktop, select the **gear icon** to open **Settings**.
+2. Select **Integrations** in the left sidebar.
+3. Turn on **Allow connections**.
+4. Under **Approved connections**, select the **+** button.
+5. Enter **Beepster** as the name and set **Expires In** to **Never**.
+6. Turn on **Allow sensitive actions**. Beepster needs this permission to send dictated and quick
+   replies; without it, reading may work but sending will fail.
+7. Select **Create Access Token**, copy the newly displayed token, return to Beepster Connector,
+   paste it into the concealed field, and select **Save and Continue**.
+
+The token is displayed only when it is created. If it is lost, return to **Settings → Integrations →
+Approved connections**, revoke the old Beepster connection, and create a replacement. These steps
+match Beeper Desktop 4.3.89 and Beeper's current
+[authentication guide](https://developers.beeper.com/desktop-api/auth/).
+
+The guided setup asks for this token only on the first setup or when it is missing. It goes directly
+into the macOS login Keychain and is never placed in the watch app, copied to the phone, or displayed
+again.
 
 ## 3. Enable names and the private connection
 
