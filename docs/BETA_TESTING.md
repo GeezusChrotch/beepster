@@ -1,4 +1,4 @@
-# Beepster 0.11.0 Beta Testing
+# Beepster 0.12.0 Beta Testing
 
 Thanks for helping test Beepster before its public Pebble Store release. The normal setup is guided
 and does not require Terminal, Git, Node.js, or developer tools. Allow about 10–15 minutes.
@@ -16,7 +16,7 @@ closed after setup; its small background gateway continues at Mac login.
 
 ## Install and connect
 
-1. Download the signed `Beepster-Connector-0.11.0.dmg`, open it, and drag **Beepster Connector** to
+1. Download the signed `Beepster-Connector-0.12.0.dmg`, open it, and drag **Beepster Connector** to
    **Applications**. Open the installed app.
 2. Select **Set Up Beepster**. Follow each item in the guided list.
 3. If asked for a Beeper token, open **Beeper Desktop → Settings → Integrations**. Turn on
@@ -46,6 +46,13 @@ gateway credential. Do not send anyone your token, pairing code, or private Tail
    confirm its preview appears.
 6. Open Settings and change a theme, one quick reply, or a button action. Save, reopen Beepster, and
    confirm the choice persists.
+7. Configure **Delete** for one unused button gesture. In Threads, repeat that gesture within six
+   seconds and confirm the conversation moves to Beeper's Archive rather than being permanently
+   erased. In Chat, use a disposable test message and confirm deletion is limited to that message.
+8. Optional OpenClaw test: enable **OpenClaw Approvals** in Connector and **Show pending OpenClaw
+   approvals** in watch Settings. Trigger a harmless protected action through your Telegram agent.
+   In that same Telegram conversation, select the approval message, press Center, review the full
+   description, then choose **Approve** or **Deny**. No separate approval conversation should appear.
 
 ## What is expected in this beta
 
@@ -63,7 +70,7 @@ gateway credential. Do not send anyone your token, pairing code, or private Tail
 First select **Test Everything** in Connector and record the exact wording of any red status row.
 Then use the repository's **Beta feedback** or **Bug report** issue form. Include:
 
-- Beepster version 0.11.0
+- Beepster version 0.12.0
 - Pebble firmware, phone model and OS, macOS version, Beeper Desktop version, and messaging service
 - The exact steps, expected result, and actual result
 - A screenshot only after hiding contact names, phone numbers, messages, private hostnames, and codes

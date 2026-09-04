@@ -117,10 +117,14 @@ review, and information must remain understandable without color.
 
 - Keep OpenClaw integration off by default and require explicit Connector-side enablement plus a
   separate phone Settings opt-in.
-- Show a synthetic OpenClaw conversation only when at least one protected action is pending.
-- Present sanitized action summaries and bind each watch row to its exact opaque pending ID.
-- Immediately revalidate that ID before resolving it. Offer only Allow once and Deny, never a
-  standing grant.
+- Correlate a pending action with its incoming prompt in the matching Telegram agent conversation;
+  never add a separate approval conversation.
+- Label only that message as an OpenClaw approval, show the complete sanitized action summary, and
+  bind it to its exact opaque pending ID.
+- Pressing Select on an approval message opens a dedicated two-item Approve and Deny menu; ordinary
+  messages in the same conversation retain configured reply controls.
+- Immediately revalidate that ID before resolving it. Offer only Approve for this exact action once
+  and Deny, never a standing grant.
 - Keep the OpenClaw private key and scoped device token on the Mac; never put either in PebbleKit JS
   storage or AppMessage packets.
 

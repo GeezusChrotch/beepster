@@ -34,7 +34,7 @@ development source maps, scans the PBW for credentials, private tailnet addresse
 local paths, and creates:
 
 ```text
-dist/beepster-0.11.0.pbw
+dist/beepster-0.12.0.pbw
 dist/SHA256SUMS
 ```
 
@@ -55,7 +55,7 @@ BEEPSTER_NOTARY_PROFILE='beepster-notary' \
 ./scripts/package-mac-app.sh
 ```
 
-This produces `dist/Beepster-Connector-0.11.0.dmg` and a SHA-256 sidecar. The script refuses to
+This produces `dist/Beepster-Connector-0.12.0.dmg` and a SHA-256 sidecar. The script refuses to
 notarize without a signing identity, waits for Apple's result, staples the ticket, and validates it.
 A run without those variables is an ad-hoc development package and must never be published.
 

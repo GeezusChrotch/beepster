@@ -49,8 +49,8 @@ gateway address in the browser and redirects directly to that Mac's `/configure`
 gateway page performs the one-time pairing exchange and returns settings to PebbleKit JS.
 
 When explicitly enabled, the gateway also owns a separate Ed25519 identity for the local OpenClaw
-Gateway. It requests only `operator.approvals`. Pending exec and plugin approvals are converted to
-sanitized watch messages in a synthetic conversation; raw unmodeled
-payload fields never cross the gateway boundary. Resolution accepts only `allow-once` or `deny` and
-rechecks the exact opaque ID against the current pending list immediately before sending
-the matching OpenClaw approval resolver.
+Gateway. It requests only `operator.approvals`. Pending exec, plugin, and system-agent approvals are
+reduced to a sanitized description and opaque ID; raw unmodeled payload fields never cross the
+gateway boundary. PebbleKit JS correlates the pending action by timestamp with its incoming Telegram
+approval prompt and marks only that message as actionable. Resolution accepts only `allow-once` or
+`deny` and rechecks the exact opaque ID immediately before using the matching OpenClaw resolver.

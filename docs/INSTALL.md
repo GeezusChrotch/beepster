@@ -111,9 +111,10 @@ token remain in `~/Library/Application Support/Beepster` on the Mac. If OpenClaw
 review the device named **Beepster Connector** in the OpenClaw app and approve it.
 
 Then open Beepster Settings on the phone and turn on **Show pending OpenClaw approvals**. No Terminal
-command is required. When a protected action is waiting, **OpenClaw Approvals** appears at the top
-of the watch inbox. Open it, select the exact action, and choose **Allow once** or **Deny**. Beepster
-does not expose Allow always and cannot use this feature to create standing permission.
+command is required. When a protected action is waiting, Beepster identifies its approval prompt
+inside the matching Telegram agent conversation. Select that message and press Center to review the
+full sanitized action description, then choose **Approve** or **Deny**. Beepster never offers a
+standing or **Allow always** grant, and it does not add a separate approval conversation.
 
 The Mac and phone can share the copied address through Apple's Universal Clipboard. If that is not
 enabled, the Connector also displays the address so it can be entered manually; no Terminal lookup

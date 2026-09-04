@@ -6,8 +6,8 @@ Beepster is a readable, reliable, open-source Beeper client for Pebble Time 2. I
 chats, complete message text, voice dictation, saved replies, themes, bitmap emoji, and inline
 photo previews to the watch without putting a Beeper credential on the watch or phone.
 
-Version 0.11.0 is the invitation-only beta candidate. The watch app and signed, notarized Mac
-Connector are ready to be packaged for a small tester group before the public Pebble Store launch.
+Version 0.12.0 is the invitation-only beta candidate. The watch app and signed, notarized Mac
+Connector are distributed to a small tester group before the public Pebble Store launch.
 
 ## What you need
 
@@ -25,6 +25,7 @@ The Connector window can be closed after setup; its login background service con
 
 - [Install Beepster](docs/INSTALL.md) — complete Mac, Tailscale, watch, and pairing walkthrough
 - [Beta testing](docs/BETA_TESTING.md) — invitation, installation, smoke test, and safe feedback
+- [0.12.0 beta notes](docs/RELEASE_NOTES_0.12.0.md) — archive/delete and inline OpenClaw changes
 - [Use Beepster](docs/USER_GUIDE.md) — controls, replies, themes, media, and limitations
 - [Troubleshoot](docs/TROUBLESHOOTING.md) — symptom-based fixes and the private health checker
 - [Privacy](PRIVACY.md) and [security model](SECURITY.md)
@@ -50,8 +51,9 @@ The Connector window can be closed after setup; its login background service con
 - Explicit setup, loading, empty, timeout, offline, and retry states
 - Self-contained, Keychain-backed Mac Connector with one-pass setup, combined phone pairing,
   end-to-end readiness checks, advanced repair controls, and idempotent reply transport
-- Optional OpenClaw protected-action inbox with exact Allow once and Deny decisions; its separately
-  scoped device credential remains on the Mac and no standing grants are offered
+- Optional inline OpenClaw approvals in the matching Telegram agent conversation, with a clear
+  action description and exact one-time Approve or Deny decisions; the separately scoped device
+  credential remains on the Mac and no standing grants are offered
 
 Animated GIF playback and multiple attachments per message remain planned. See the
 [roadmap](ROADMAP.md) and [UX requirements](docs/UX_REQUIREMENTS.md).

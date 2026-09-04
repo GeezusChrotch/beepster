@@ -91,7 +91,7 @@ test('configuration page supports editing an existing paired connection', async 
     assert.match(html, /Archived/);
     assert.match(html, /inboxes:inboxes/);
     assert.match(html, /Show pending OpenClaw approvals/);
-    assert.match(html, /Allow once and Deny/);
+    assert.match(html, /Approve once and Deny/);
     assert.match(html, /openClawApprovals/);
     assert.match(html, /Link Apple conversations/);
     assert.match(html, /appleCandidates/);

@@ -1,13 +1,13 @@
-# Beepster 0.11.0 Beta Release Checklist
+# Beepster 0.12.0 Beta Release Checklist
 
 This checklist prepares a small invitation-only beta. It does not make the final public Store
 listing discoverable.
 
 ## Artifacts
 
-- [ ] `dist/beepster-0.11.0.pbw` passes the credential, private-host, local-path, and source-map scan
+- [ ] `dist/beepster-0.12.0.pbw` passes the credential, private-host, local-path, and source-map scan
 - [ ] The release PBW passes the physical Pebble Time 2 smoke test
-- [ ] `dist/Beepster-Connector-0.11.0.dmg` is universal, Developer ID signed, notarized, stapled,
+- [ ] `dist/Beepster-Connector-0.12.0.dmg` is universal, Developer ID signed, notarized, stapled,
       and accepted by Gatekeeper
 - [ ] Published downloads match `dist/SHA256SUMS` and the Connector `.sha256` sidecar
 - [ ] No PBW, screenshot, log, issue, or documentation contains a private hostname or credential
@@ -18,7 +18,7 @@ listing discoverable.
    `https://geezuschrotch.github.io/beepster/setup/`. The universal watch app uses this only to
    collect the tester's private Connector address on first setup; it receives no credential or
    message data.
-2. Create a GitHub **prerelease** named `Beepster 0.11.0 Beta`; attach the DMG, PBW, and checksum
+2. Create a GitHub **prerelease** named `Beepster 0.12.0 Beta`; attach the DMG, PBW, and checksum
    files, and link to [Beta Testing](BETA_TESTING.md). The repository and prerelease are public, so
    they must contain no private tester or network information.
 3. In the Pebble developer portal, upload the same PBW and choose **Publish Privately**. Share its
@@ -41,7 +41,7 @@ listing discoverable.
 - [ ] GitHub Pages setup URL opens successfully inside the Pebble mobile app
 - [ ] Test a new Connector install on a Mac or macOS account that has never run Beepster
 - [ ] Test Connector upgrade/repair on the current working installation without losing pairing
-- [ ] Confirm the private Store link installs version 0.11.0 from both iPhone and Android if both
+- [ ] Confirm the private Store link installs version 0.12.0 from both iPhone and Android if both
       platforms will be invited
 - [ ] Confirm issue forms are enabled and labels exist or can be created automatically
 - [ ] Start with two or three trusted testers, resolve setup blockers, then widen the group

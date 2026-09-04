@@ -115,7 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                       why: "Gives your phone private HTTPS access without exposing Beepster publicly."),
             actionRow(button("OpenClaw Approvals", #selector(enableOpenClawApprovals)),
                       what: "Pairs Beepster with the local OpenClaw Gateway using approval-only operator access.",
-                      why: "Lets the watch review exact protected actions with Allow once or Deny. This is optional."),
+                      why: "Lets the watch review exact protected actions inside Telegram with Approve once or Deny. This is optional."),
             actionRow(button("Install Guide", #selector(openInstallGuide)),
                       what: "Opens the complete step-by-step installation guide.",
                       why: "Provides exact repair instructions when a readiness check needs attention.")
@@ -599,7 +599,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let warning = NSAlert()
         warning.messageText = "Enable OpenClaw approvals on your watch?"
-        warning.informativeText = "This gives Beepster a narrowly scoped OpenClaw operator credential that can view pending protected actions and resolve an exact action as Allow once or Deny. Beepster never offers Allow always, and the credential remains on this Mac."
+        warning.informativeText = "This gives Beepster a narrowly scoped OpenClaw operator credential that can view pending protected actions and resolve an exact action as Approve once or Deny inside the matching Telegram chat. Beepster never offers Allow always, and the credential remains on this Mac."
         warning.addButton(withTitle: "Enable Securely")
         warning.addButton(withTitle: "Cancel")
         guard warning.runModal() == .alertFirstButtonReturn else { return }
@@ -631,7 +631,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     alert.informativeText = "Reinstall Beepster Connector, then try again."
                 } else if health.0 == "paired" {
                     alert.messageText = "OpenClaw approvals are ready"
-                    alert.informativeText = "Now turn on Show pending OpenClaw approvals in Beepster Settings on your phone. Pending protected actions will appear as a watch conversation with only Allow once and Deny choices."
+                    alert.informativeText = "Now turn on Show pending OpenClaw approvals in Beepster Settings on your phone. Protected actions will appear inside the matching Telegram agent conversation with a description and one-time Approve or Deny choices."
                 } else {
                     alert.messageText = "Approve Beepster in OpenClaw"
                     alert.informativeText = "Open the OpenClaw app, review the pending Beepster Connector device with its operator.approvals scope, and approve it. Then select Test Everything. No Terminal command is required."

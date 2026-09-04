@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.12.0 — Archive actions and inline OpenClaw approvals
+
 - Added a configurable Delete action for both views. In Threads it safely archives the selected
   Beeper conversation; in Chat it deletes the selected message for the current user. Repeating the
   configured Delete gesture within six seconds confirms the operation.
@@ -9,8 +11,11 @@
   is routed to the exact underlying conversation and message.
 - Removed the obsolete separate message-reading window; complete messages continue to expand and
   scroll directly in the chat, freeing enough Pebble executable space for deletion support.
-- Added optional OpenClaw protected-action review as a synthetic watch conversation, with exact
-  pending-ID revalidation and only Allow once or Deny decisions.
+- Added optional OpenClaw protected-action review directly inside the matching Telegram agent
+  conversation. Selecting the correlated approval shows its full sanitized action description and
+  a dedicated Approve or Deny menu.
+- Added OpenClaw's system-agent approval registry alongside exec and plugin approvals, with exact
+  pending-ID revalidation and only one-time approval or denial decisions.
 - Added Connector-led OpenClaw setup, a separate scoped device identity stored only on the Mac,
   watch Settings opt-in, live approval polling, tests, and end-user documentation.
 

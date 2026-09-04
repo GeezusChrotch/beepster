@@ -91,16 +91,17 @@ default. When multiple sections are enabled, Beepster pages through them in that
 
 ## Optional OpenClaw approvals
 
-After enabling and pairing **OpenClaw Approvals** in **Beepster Connector → Advanced options**, turn on **Show
-pending OpenClaw approvals** in phone Settings. A synthetic **OpenClaw Approvals** conversation
-appears at the top only while one or more protected actions are pending. Each row contains a
-sanitized description supplied by the local OpenClaw Gateway.
+After enabling and pairing **OpenClaw Approvals** in **Beepster Connector → Advanced options**, turn
+on **Show pending OpenClaw approvals** in phone Settings. When a protected action is pending,
+Beepster correlates it with the approval prompt already delivered in the Telegram conversation with
+your agent. The prompt is labeled **OpenClaw approval** and shows the complete sanitized description
+supplied by the local OpenClaw Gateway; no separate approval thread is added.
 
-Select the exact approval, open Quick replies (the configured Dictate action also opens this menu
-inside the approvals conversation), and choose **Allow once** or **Deny**. Beepster rechecks that the
-same opaque approval ID is still pending immediately before resolving it. There is deliberately no
-Allow always choice. The OpenClaw identity and scoped token stay on the Mac; the phone and watch
-receive only sanitized summaries and opaque pending IDs.
+Select that approval message and press Center. Its dedicated menu contains only **Approve** and
+**Deny**. Approve means this exact action once: Beepster rechecks the opaque pending ID immediately
+before resolving it and never provides an Allow always choice. Ordinary messages in the same chat
+retain normal dictation and quick replies. The OpenClaw identity and scoped token stay on the Mac;
+the phone and watch receive only the sanitized summary and opaque ID.
 
 ## Linking split Apple conversations
 
