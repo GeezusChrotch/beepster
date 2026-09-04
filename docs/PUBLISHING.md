@@ -66,8 +66,10 @@ Advanced options fallback, and Gatekeeper acceptance.
 ## Store artwork
 
 - Launcher icon: `resources/images/beepster-menu-icon.png` (25×25, palettized PNG)
-- Store icon: `assets/store/beepster-icon-144.png` (144×144 PNG)
-- Header: `assets/store/beepster-header-1000x320.png` (1000×320 PNG)
+- Large Store icon: `assets/store/beepster-icon-144.png` (144×144 PNG)
+- Small Store icon: `assets/store/beepster-icon-48.png` (48×48 PNG)
+- App Store banner: `assets/store/beepster-banner-720x320.png` (720×320 PNG)
+- Repository header: `assets/store/beepster-header-1000x320.png` (1000×320 PNG)
 - Editable mark: `assets/brand/beepster-mark.svg`
 - Synthetic screenshots: `assets/store/screenshots/`
 
