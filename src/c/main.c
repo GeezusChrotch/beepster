@@ -2,6 +2,7 @@
 
 #define MAX_CHATS 30
 #define MAX_MESSAGES 60
+#define SENDER_COLOR_COUNT 7
 #define CHAT_ID_LEN 128
 #define CHAT_NAME_LEN 64
 #define CHAT_PREVIEW_LEN 128
@@ -9,7 +10,8 @@
 #define MESSAGE_TEXT_LEN 256
 #define MESSAGE_TIME_LEN 20
 #define MESSAGE_ATTACHMENT_LEN 32
-#define MESSAGE_ID_LEN 128
+// PebbleKit JS caps message IDs at 120 characters; include one byte for NUL.
+#define MESSAGE_ID_LEN 121
 #define DETAIL_TEXT_CAPACITY 32768
 #define MAX_QUICK_REPLIES 8
 #define QUICK_REPLY_LEN 96
@@ -77,6 +79,7 @@ typedef struct {
   char id[MESSAGE_ID_LEN];
   char attachment_id[MESSAGE_ATTACHMENT_LEN];
   uint8_t attachment_kind;
+  bool is_self;
   int16_t cached_text_height;
 } Message;
 
@@ -569,6 +572,34 @@ static void load_watchdog(void *context) {
 static void copy_text(char *destination, size_t size, const char *source) {
   if (!destination || size == 0) return;
   snprintf(destination, size, "%s", source ? source : "");
+}
+
+static GColor sender_color(const Message *message) {
+  if (!message || message->is_self) return s_theme.accent;
+  static const uint8_t light_background_palette[SENDER_COLOR_COUNT] = {
+    GColorDukeBlueARGB8, GColorDarkCandyAppleRedARGB8, GColorDarkGreenARGB8,
+    GColorPurpleARGB8, GColorWindsorTanARGB8, GColorMidnightGreenARGB8,
+    GColorJaegerGreenARGB8
+  };
+  static const uint8_t dark_background_palette[SENDER_COLOR_COUNT] = {
+    GColorVividCeruleanARGB8, GColorChromeYellowARGB8, GColorSpringBudARGB8,
+    GColorMagentaARGB8, GColorOrangeARGB8, GColorElectricBlueARGB8,
+    GColorRajahARGB8
+  };
+  bool light_background = (s_theme.background.r * 3 + s_theme.background.g * 6 +
+    s_theme.background.b) >= 15;
+  const uint8_t *palette = light_background ? light_background_palette : dark_background_palette;
+  uint32_t hash = 2166136261u;
+  for (const unsigned char *cursor = (const unsigned char *)message->sender; *cursor; cursor++) {
+    hash ^= *cursor;
+    hash *= 16777619u;
+  }
+  uint8_t theme_offset = (s_theme.accent.r * 3 + s_theme.accent.g * 5 + s_theme.accent.b) %
+    SENDER_COLOR_COUNT;
+  uint8_t index = ((hash % SENDER_COLOR_COUNT) + theme_offset) % SENDER_COLOR_COUNT;
+  GColor color = (GColor) {.argb = palette[index]};
+  if (gcolor_equal(color, s_theme.accent)) color.argb = palette[(index + 1) % SENDER_COLOR_COUNT];
+  return color;
 }
 
 static const char *state_text(ViewState state, bool messages) {
@@ -1435,7 +1466,6 @@ static int32_t message_content_height(MenuLayer *menu_layer, Message *message,
       height += 24;
     }
   }
-  if (expanded) height += 35;
   return height < 32000 ? height : 32000;
 }
 
@@ -1474,8 +1504,8 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
   int content_y = text_y + text_height + 5;
   int32_t natural_height = message_content_height(s_message_menu, message, expanded, body);
   int time_y = natural_height - 19 - content_scroll;
-  GColor sender_color = selected ? s_theme.accent : s_theme.text;
-  graphics_context_set_text_color(ctx, sender_color);
+  GColor participant_color = sender_color(message);
+  graphics_context_set_text_color(ctx, participant_color);
 
   draw_marquee_text(ctx, message->sender, font_for_text(message->sender),
     GRect(25, 1 - content_scroll, bounds.size.w - 33, sender_height), selected);
@@ -1483,7 +1513,7 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
   graphics_fill_rect(ctx, GRect(0, 1 - content_scroll, 24, sender_height), 0, GCornerNone);
   draw_service_icon(ctx,
     GRect(7, 1 - content_scroll + (sender_height - 14) / 2, 14, 14),
-    s_active_chat_network, sender_color);
+    s_active_chat_network, participant_color);
   graphics_context_set_text_color(ctx, s_theme.text);
   if (has_inline_emoji(body)) {
     layout_inline_emoji_text(ctx, body, font_for_text(body),
@@ -1512,13 +1542,6 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
       content_y += 24;
     }
   }
-  if (expanded) {
-    graphics_context_set_text_color(ctx, s_theme.muted);
-    graphics_draw_text(ctx, "Buttons customizable in Settings",
-      fonts_get_system_font(FONT_KEY_GOTHIC_14),
-      GRect(8, content_y, bounds.size.w - 16, 32),
-      GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
-  }
   graphics_context_set_fill_color(ctx, s_theme.background);
   graphics_fill_rect(ctx, GRect(0, time_y - 3, bounds.size.w, 22), 0, GCornerNone);
   graphics_context_set_text_color(ctx, s_theme.muted);
@@ -1526,6 +1549,8 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
     fonts_get_system_font(FONT_KEY_GOTHIC_14),
     GRect(8, time_y, bounds.size.w - 16, 16),
     GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
+  graphics_context_set_fill_color(ctx, participant_color);
+  graphics_fill_rect(ctx, GRect(0, 2, 3, bounds.size.h - 4), 0, GCornerNone);
 }
 
 static void retry_messages(ClickRecognizerRef recognizer, void *context) {
@@ -2172,10 +2197,12 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     Tuple *text = dict_find(iterator, MESSAGE_KEY_MSG_TEXT);
     Tuple *time = dict_find(iterator, MESSAGE_KEY_MSG_TIME);
     Tuple *message_id = dict_find(iterator, MESSAGE_KEY_MSG_ID);
+    Tuple *is_self = dict_find(iterator, MESSAGE_KEY_MSG_IS_SELF);
     copy_text(s_messages[slot].sender, sizeof(s_messages[slot].sender), sender ? sender->value->cstring : "Unknown");
     copy_text(s_messages[slot].text, sizeof(s_messages[slot].text), text ? text->value->cstring : "");
     copy_text(s_messages[slot].time, sizeof(s_messages[slot].time), time ? time->value->cstring : "");
     copy_text(s_messages[slot].id, sizeof(s_messages[slot].id), message_id ? message_id->value->cstring : "");
+    s_messages[slot].is_self = is_self && is_self->value->int32 != 0;
     Tuple *attachment_id = dict_find(iterator, MESSAGE_KEY_ATTACHMENT_ID);
     Tuple *attachment_kind = dict_find(iterator, MESSAGE_KEY_ATTACHMENT_KIND);
     copy_text(s_messages[slot].attachment_id, sizeof(s_messages[slot].attachment_id), attachment_id ? attachment_id->value->cstring : "");

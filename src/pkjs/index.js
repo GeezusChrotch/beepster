@@ -36,6 +36,7 @@ var KEY_QUICK_REPLY_TEXT = 32;
 var KEY_HAS_MORE = 33;
 var KEY_THEME_SIZE = 34;
 var KEY_CHAT_PINNED = 35;
+var KEY_MSG_IS_SELF = 36;
 
 var BUILT_IN_THEMES = [
   {id:'classic',name:'Classic',background:'#FFFFFF',text:'#000000',muted:'#555555',accent:'#0055AA',accentText:'#FFFFFF',font:'inter',size:22,builtIn:true},
@@ -1122,6 +1123,7 @@ function queueMessage(item, index, total) {
   message[KEY_MSG_TEXT] = safeSlice(watchText, 240);
   message[KEY_MSG_TIME] = safeSlice(item.time, 18);
   message[KEY_MSG_ID] = safeSlice(messageID, 120);
+  message[KEY_MSG_IS_SELF] = item.isSelf === true || item.sender === 'Me' ? 1 : 0;
   if (item.attachment) {
     message[KEY_ATTACHMENT_ID] = safeSlice(item.attachment.id, 30);
     message[KEY_ATTACHMENT_KIND] = item.attachment.kind === 'gif' ? 2 : (item.attachment.kind === 'video' ? 3 : 1);

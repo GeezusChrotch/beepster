@@ -462,6 +462,7 @@ export class BeeperClient {
       return {
         id: message.id,
         sender: normalizeEmojiForPebble(this.resolveMessageSender(chatID, message)),
+        isSelf: message.isSender === true,
         text,
         watchText: watch.text,
         emojiKeys: watch.keys,

@@ -135,7 +135,7 @@ test('message emoji tokens become compact inline bitmap slots', () => {
   context.loadMessages('chat-emoji');
   requests[0].status = 200;
   requests[0].responseText = JSON.stringify({items:[{
-    id:'emoji-1',sender:'Avery',text:'Nice 😂 ❤️',
+    id:'emoji-1',sender:'Avery',isSelf:false,text:'Nice 😂 ❤️',
     watchText:'Nice \u001e1f602\u001f \u001e2764\u001f',emojiKeys:['1f602','2764']
   }]});
   requests[0].onload();
@@ -143,6 +143,31 @@ test('message emoji tokens become compact inline bitmap slots', () => {
   assert.deepEqual(JSON.parse(atlasRequest.body), {keys:['1f602','2764'],size:18,columns:4});
   const message = appMessages.find(packet => packet[0] === 'message');
   assert.equal(message[11], 'Nice \x1dA\x1d \x1dB\x1d');
+  assert.equal(message[36], 0);
+});
+
+test('message ownership reaches the watch for stable sender colors', () => {
+  const { context, requests, appMessages } = replyRuntime();
+  context.loadMessages('chat-self-color');
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items:[{
+    id:'mine-1',sender:'Me',isSelf:true,text:'On my way',watchText:'On my way',emojiKeys:[]
+  }]});
+  requests[0].onload();
+  const message = appMessages.find(packet => packet[0] === 'message');
+  assert.equal(message[36], 1);
+});
+
+test('older gateways still identify the local sender by the Me label', () => {
+  const { context, requests, appMessages } = replyRuntime();
+  context.loadMessages('chat-legacy-self-color');
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items:[{
+    id:'mine-legacy',sender:'Me',text:'Legacy gateway',watchText:'Legacy gateway',emojiKeys:[]
+  }]});
+  requests[0].onload();
+  const message = appMessages.find(packet => packet[0] === 'message');
+  assert.equal(message[36], 1);
 });
 
 test('saved emoji order persists and is applied immediately', () => {

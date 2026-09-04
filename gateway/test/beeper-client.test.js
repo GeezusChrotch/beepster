@@ -67,6 +67,8 @@ test('chat and message requests are bounded and normalized', async () => {
   const messages = await client.listMessages('chat-1', 12);
   assert.equal(chats[0].name, 'Readable Name');
   assert.equal(messages.items[0].text, 'Earlier');
+  assert.equal(messages.items[0].isSelf, false);
+  assert.equal(messages.items[1].isSelf, true);
   assert.deepEqual(paths, ['/v1/chats/search?limit=12&type=any&inbox=primary', '/v1/chats/chat-1/messages?limit=12']);
 });
 
