@@ -5,7 +5,8 @@ listing discoverable.
 
 ## Artifacts
 
-- [ ] `dist/beepster-0.10.0.pbw` passes the release scan and physical Pebble Time 2 smoke test
+- [ ] `dist/beepster-0.10.0.pbw` passes the credential, private-host, local-path, and source-map scan
+- [ ] The release PBW passes the physical Pebble Time 2 smoke test
 - [ ] `dist/Beepster-Connector-0.10.0.dmg` is universal, Developer ID signed, notarized, stapled,
       and accepted by Gatekeeper
 - [ ] Published downloads match `dist/SHA256SUMS` and the Connector `.sha256` sidecar

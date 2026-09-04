@@ -22,6 +22,19 @@ fi
 mkdir -p dist
 artifact="dist/beepster-$version.pbw"
 cp build/beepster.pbw "$artifact"
+# Pebble's build includes a development source map with the absolute local
+# checkout path. It is not needed at runtime and must not ship in public builds.
+if zipinfo -1 "$artifact" | rg -Fx 'pebble-js-app.js.map' >/dev/null; then
+  zip -dq "$artifact" pebble-js-app.js.map
+fi
+if zipinfo -1 "$artifact" | rg -q '\.map$'; then
+  echo 'Release bundle contains a source map' >&2
+  exit 1
+fi
+if unzip -p "$artifact" | rg -a -n '/Users/|/home/' >/dev/null; then
+  echo 'Release bundle contains an absolute local filesystem path' >&2
+  exit 1
+fi
 shasum -a 256 "$artifact" > dist/SHA256SUMS
 printf '%s\n' "$artifact"
 cat dist/SHA256SUMS

@@ -29,8 +29,9 @@ Set a Store-compatible `major.minor.0` version, update `CHANGELOG.md`, then run:
 npm run release
 ```
 
-The script runs all checks, validates the 25×25 launcher icon and public settings URL, scans the PBW
-for credential markers and private tailnet addresses, and creates:
+The script runs all checks, validates the 25×25 launcher icon and public settings URL, removes
+development source maps, scans the PBW for credentials, private tailnet addresses, and absolute
+local paths, and creates:
 
 ```text
 dist/beepster-0.10.0.pbw
@@ -105,7 +106,7 @@ hostname, or pairing code. Never upload the demo PBW as the release artifact.
 - [ ] Connector DMG is universal, Developer ID signed, notarized, stapled, and Gatekeeper accepted
 - [ ] Fresh-Mac Connector install and existing-user repair both pass without Terminal
 - [ ] Beepster and Node.js license notices are present in the Connector bundle
-- [ ] Universal PBW contains no `.ts.net` address or credential marker
+- [ ] Universal PBW contains no source maps, absolute local paths, `.ts.net` address, or credential marker
 - [ ] Store PBW and GitHub Release PBW have the same SHA-256 digest
 - [ ] Physical Time 2 smoke test passes
 - [ ] Screenshots contain only synthetic data

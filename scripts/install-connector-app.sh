@@ -22,13 +22,17 @@ build_swift() {
   source_file=$1
   frameworks=$2
   output_file=$3
+  source_name=$(basename "$source_file")
+  cp "$source_file" "$work_dir/$source_name"
   slices=''
   for build_arch in $build_arches; do
     slice="$work_dir/$(basename "$output_file").$build_arch"
     framework_flags=''
     for framework in $frameworks; do framework_flags="$framework_flags -framework $framework"; done
     # shellcheck disable=SC2086
-    swiftc -target "$build_arch-apple-macosx13.0" $framework_flags "$source_file" -o "$slice"
+    (cd "$work_dir" && swiftc -target "$build_arch-apple-macosx13.0" \
+      -gnone -file-prefix-map "$project_dir=." \
+      $framework_flags "$source_name" -o "$slice")
     slices="$slices $slice"
   done
   if [ "$(printf '%s\n' $build_arches | wc -l | tr -d ' ')" -gt 1 ]; then

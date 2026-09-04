@@ -37,6 +37,13 @@ if rg -a -n 'https://[A-Za-z0-9.-]+\.ts\.net' "$app/Contents/Resources/gateway";
   echo 'Private Tailscale address found in Connector resources.' >&2
   exit 1
 fi
+if rg -a -l '/Users/|/home/' \
+  "$app/Contents/MacOS/beepster-connector" \
+  "$app/Contents/Resources/beepster-keychain" \
+  "$app/Contents/Resources/Beepster Contacts.app/Contents/MacOS/beepster-contacts"; then
+  echo 'Absolute local filesystem path found in Connector executables.' >&2
+  exit 1
+fi
 codesign --verify --deep --strict "$app"
 ln -s /Applications "$stage/Applications"
 hdiutil create -quiet -volname "Beepster Connector" -srcfolder "$stage" -ov -format UDZO "$dmg"
@@ -54,6 +61,9 @@ else
   echo 'Development DMG created without Apple notarization; do not publish it.' >&2
 fi
 
-shasum -a 256 "$dmg" > "$dmg.sha256"
+(
+  cd "$(dirname "$dmg")"
+  shasum -a 256 "$(basename "$dmg")" > "$(basename "$dmg").sha256"
+)
 echo "$dmg"
 cat "$dmg.sha256"
