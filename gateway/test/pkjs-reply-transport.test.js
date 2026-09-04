@@ -534,6 +534,44 @@ test('a late response from an abandoned chat cannot replace the active thread', 
   assert.deepEqual(messagePackets.map((message) => message[30]), ['current-message']);
 });
 
+test('an open chat polls every fifteen seconds and only redraws for changed messages', () => {
+  const { context, requests, appMessages, timers } = replyRuntime();
+  context.loadMessages('chat-live');
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items:[{id:'message-1',text:'First',timestamp:'2026-09-03T20:00:00Z'}]});
+  requests[0].onload();
+  assert.ok(timers.some(timer => timer.delay === 15000));
+
+  const initialPacketCount = appMessages.length;
+  context.refreshActiveMessages();
+  requests[1].status = 200;
+  requests[1].responseText = requests[0].responseText;
+  requests[1].onload();
+  assert.equal(appMessages.length, initialPacketCount);
+
+  context.refreshActiveMessages();
+  requests[2].status = 200;
+  requests[2].responseText = JSON.stringify({items:[
+    {id:'message-1',text:'First',timestamp:'2026-09-03T20:00:00Z'},
+    {id:'message-2',text:'New reply',timestamp:'2026-09-03T20:00:15Z'}
+  ]});
+  requests[2].onload();
+  assert.equal(appMessages.filter(packet => packet[0] === 'message').at(-1)[30], 'message-2');
+  assert.equal(appMessages.at(-1)[0], 'messages_ready');
+});
+
+test('active chat polling stops when the watch leaves the chat', () => {
+  const { context, eventListeners, requests } = replyRuntime();
+  context.loadMessages('chat-live');
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items:[{id:'message-1',text:'First'}]});
+  requests[0].onload();
+  eventListeners.appmessage({payload:{0:'chat_view_closed',5:'chat-live'}});
+  context.refreshActiveMessages();
+  assert.equal(context.activeMessageChatID, '');
+  assert.equal(requests.length, 1);
+});
+
 test('new message detail discards unsent chunks for the previous selection', () => {
   const { context } = replyRuntime({autoAck:false});
   context.messageTextByID.old = 'A'.repeat(1600);

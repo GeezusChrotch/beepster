@@ -73,6 +73,8 @@ review, and information must remain understandable without color.
 - Keep at most 30 chats resident on the watch. Show explicit older/newer navigation rows backed by
   opaque Beeper cursors so all enabled Primary, Low Priority, and Archived chats remain reachable.
 - Opening a chat selects its newest message at the bottom of a chronological timeline.
+- While a chat is visible, poll its newest page every 15 seconds. Do not redraw or transfer message
+  packets when nothing changed, and pause polling when the user leaves or covers the chat.
 - Reaching an Older or Newer conversations boundary by scrolling starts that page load immediately;
   pagination never requires a separate confirmation press and always shows a loading state.
 - Moving upward near the oldest loaded message fetches an earlier page without jumping back to the

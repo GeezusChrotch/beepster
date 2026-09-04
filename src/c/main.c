@@ -2479,6 +2479,14 @@ static void main_unload(Window *window) {
   s_status_layer = NULL;
 }
 
+static void message_appear(Window *window) {
+  (void)request_command("chat_view_open", s_active_chat_id);
+}
+
+static void message_disappear(Window *window) {
+  (void)request_command("chat_view_closed", s_active_chat_id);
+}
+
 static void message_load(Window *window) {
   Layer *root = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(root);
@@ -2679,6 +2687,8 @@ static void init(void) {
   s_message_window = window_create();
   window_set_window_handlers(s_message_window, (WindowHandlers) {
     .load = message_load,
+    .appear = message_appear,
+    .disappear = message_disappear,
     .unload = message_unload
   });
   s_detail_window = window_create();

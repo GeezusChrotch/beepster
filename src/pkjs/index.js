@@ -54,6 +54,10 @@ var sending = false;
 var DEMO_MODE = false;
 var DEFAULT_SETTINGS_URL = 'https://geezuschrotch.github.io/beepster/setup/';
 var refreshTimer = null;
+var messageRefreshTimer = null;
+var messageRefreshInFlight = false;
+var newestMessageSignature = '';
+var ACTIVE_CHAT_REFRESH_SECONDS = 15;
 var lastThemeSignature = '';
 var chatLoadGeneration = 0;
 var messageLoadGeneration = 0;
@@ -598,9 +602,91 @@ function scheduleRefresh() {
   if (refreshTimer) clearTimeout(refreshTimer);
   var seconds = Number(localStorage.getItem('beepster_refresh') || '180');
   if (seconds > 0) refreshTimer = setTimeout(function() {
-    if (inboxPageStart === 0) loadChats();
+    if (activeMessageChatID) scheduleRefresh();
+    else if (inboxPageStart === 0) loadChats();
     else scheduleRefresh();
   }, Math.max(60, seconds) * 1000);
+}
+
+function messageSignature(items) {
+  return (items || []).slice(-12).map(function(item) {
+    var attachmentID = item.attachment && item.attachment.id ? item.attachment.id : '';
+    return [item.id || '', item.timestamp || '', item.text || '', attachmentID].join('\x1f');
+  }).join('\x1e');
+}
+
+function stopActiveMessageRefresh() {
+  if (messageRefreshTimer) clearTimeout(messageRefreshTimer);
+  messageRefreshTimer = null;
+  messageRefreshInFlight = false;
+}
+
+function scheduleActiveMessageRefresh() {
+  if (messageRefreshTimer) clearTimeout(messageRefreshTimer);
+  messageRefreshTimer = null;
+  if (!activeMessageChatID) return;
+  messageRefreshTimer = setTimeout(refreshActiveMessages, ACTIVE_CHAT_REFRESH_SECONDS * 1000);
+}
+
+function applyActiveMessageRefresh(chatID, generation, items, paging) {
+  messageRefreshInFlight = false;
+  if (!activeMessageChatID || chatID !== activeMessageChatID || generation !== messageLoadGeneration) return;
+  var bounded = (items || []).slice(-MAX_WATCH_MESSAGES);
+  var signature = messageSignature(bounded);
+  if (signature && signature !== newestMessageSignature) {
+    discardQueuedCommands(['messages_start', 'messages_prepend_start', 'message', 'messages_ready', 'message_history_failed', 'message_detail_start', 'message_detail_chunk', 'message_detail_end', 'media_start', 'media_chunk', 'media_end', 'media_failed']);
+    messageHistory = bounded;
+    newestMessageSignature = signature;
+    messageTextByID = {};
+    chatEmojiKeys = [];
+    addChatEmojiKeys(bounded, true);
+    sendChatEmojiAtlas();
+    oldestMessageCursor = paging && paging.nextCursor ? paging.nextCursor : '';
+    hasOlderMessages = Boolean(paging && paging.hasMore && oldestMessageCursor && bounded.length < MAX_WATCH_MESSAGES);
+    var start = {}; start[KEY_COMMAND] = 'messages_start'; start[KEY_TOTAL] = bounded.length; enqueue(start);
+    for (var i = 0; i < bounded.length; i++) queueMessage(bounded[i], i, bounded.length);
+    finishMessageBatch('refresh', bounded.length - 1);
+    console.log('Beepster refreshed active chat count=' + bounded.length);
+  }
+  scheduleActiveMessageRefresh();
+}
+
+function refreshActiveMessages() {
+  if (!activeMessageChatID || messageRefreshInFlight) { scheduleActiveMessageRefresh(); return; }
+  var chatID = activeMessageChatID;
+  var generation = messageLoadGeneration;
+  messageRefreshInFlight = true;
+  if (mergedChats[chatID]) {
+    var merged = mergedChats[chatID], remaining = merged.members.length, combined = [];
+    if (!remaining) { applyActiveMessageRefresh(chatID, generation, combined, null); return; }
+    merged.members.forEach(function(memberID, memberIndex) {
+      request('/v1/chats/' + encodeURIComponent(memberID) + '/messages?limit=12', function(data) {
+        (data.items || []).forEach(function(item) {
+          var copy = Object.assign({}, item);
+          copy.id = 'm' + memberIndex + '-' + String(item.id || 'message');
+          combined.push(copy);
+        });
+        remaining--;
+        if (remaining === 0) {
+          combined.sort(function(a,b) { return (Date.parse(a.timestamp || '') || 0) - (Date.parse(b.timestamp || '') || 0); });
+          applyActiveMessageRefresh(chatID, generation, combined, null);
+        }
+      }, function() {
+        remaining--;
+        if (remaining === 0) {
+          combined.sort(function(a,b) { return (Date.parse(a.timestamp || '') || 0) - (Date.parse(b.timestamp || '') || 0); });
+          applyActiveMessageRefresh(chatID, generation, combined, null);
+        }
+      });
+    });
+    return;
+  }
+  request('/v1/chats/' + encodeURIComponent(chatID) + '/messages?limit=12', function(data) {
+    applyActiveMessageRefresh(chatID, generation, data.items || [], data);
+  }, function() {
+    messageRefreshInFlight = false;
+    if (chatID === activeMessageChatID && generation === messageLoadGeneration) scheduleActiveMessageRefresh();
+  });
 }
 
 function request(path, callback, failure) {
@@ -1027,6 +1113,7 @@ function loadMessages(chatID) {
   chatLoadGeneration++;
   discardQueuedCommands(['chat', 'chats_ready', 'messages_start', 'messages_prepend_start', 'message', 'messages_ready', 'message_history_failed', 'message_detail_start', 'message_detail_chunk', 'message_detail_end', 'media_start', 'media_chunk', 'media_end', 'media_failed']);
   activeMessageChatID = chatID;
+  stopActiveMessageRefresh();
   messageHistory = [];
   chatEmojiKeys = [];
   chatEmojiAtlasGeneration++;
@@ -1042,8 +1129,9 @@ function loadMessages(chatID) {
   request('/v1/chats/' + encodeURIComponent(chatID) + '/messages?limit=12', function(data) {
     if (generation !== messageLoadGeneration || chatID !== activeMessageChatID) return;
     var items = (data.items || []).slice(0, MAX_WATCH_MESSAGES);
-    if (items.length === 0) { sendState('empty'); return; }
+    if (items.length === 0) { newestMessageSignature = ''; sendState('empty'); scheduleActiveMessageRefresh(); return; }
     messageHistory = items;
+    newestMessageSignature = messageSignature(items);
     addChatEmojiKeys(items, true);
     sendChatEmojiAtlas();
     oldestMessageCursor = data.nextCursor || '';
@@ -1052,8 +1140,12 @@ function loadMessages(chatID) {
     for (var i = 0; i < items.length; i++) queueMessage(items[i], i, items.length);
     finishMessageBatch('initial', items.length - 1);
     console.log('Beepster queued newest messages count=' + items.length);
+    scheduleActiveMessageRefresh();
   }, function(error) {
-    if (generation === messageLoadGeneration && chatID === activeMessageChatID) sendState('error', error);
+    if (generation === messageLoadGeneration && chatID === activeMessageChatID) {
+      sendState('error', error);
+      scheduleActiveMessageRefresh();
+    }
   });
 }
 
@@ -1062,15 +1154,16 @@ function loadMergedMessages(chatID, merged, generation) {
   function complete() {
     remaining--;
     if (remaining > 0 || generation !== messageLoadGeneration || chatID !== activeMessageChatID) return;
-    if (failed && combined.length === 0) { sendState('error', 'Merged Apple history unavailable'); return; }
+    if (failed && combined.length === 0) { sendState('error', 'Merged Apple history unavailable'); scheduleActiveMessageRefresh(); return; }
     combined.sort(function(a,b) {
       var aTime = Date.parse(a.timestamp || '') || 0;
       var bTime = Date.parse(b.timestamp || '') || 0;
       return aTime - bTime;
     });
     var items = combined.slice(-MAX_WATCH_MESSAGES);
-    if (!items.length) { sendState('empty'); return; }
+    if (!items.length) { newestMessageSignature = ''; sendState('empty'); scheduleActiveMessageRefresh(); return; }
     messageHistory = items;
+    newestMessageSignature = messageSignature(items);
     addChatEmojiKeys(items, true);
     sendChatEmojiAtlas();
     hasOlderMessages = false;
@@ -1078,6 +1171,7 @@ function loadMergedMessages(chatID, merged, generation) {
     for (var i = 0; i < items.length; i++) queueMessage(items[i], i, items.length);
     finishMessageBatch('initial', items.length - 1);
     console.log('Beepster queued merged Apple messages count=' + items.length + ' sources=' + merged.members.length);
+    scheduleActiveMessageRefresh();
   }
   merged.members.forEach(function(memberID, memberIndex) {
     request('/v1/chats/' + encodeURIComponent(memberID) + '/messages?limit=60', function(data) {
@@ -1099,6 +1193,7 @@ function loadDemoMessages(chatID) {
     {id:'demo-message-2',sender:'Me',text:'Thanks! Complete messages stay in the thread now, with simple two-line scrolling.',time:'9:40 AM'},
     {id:'demo-message-3',sender:'Avery',text:'Perfect. Voice dictation and quick replies make this genuinely useful from the wrist.',time:'9:41 AM'}
   ];
+  newestMessageSignature = messageSignature(messageHistory);
   addChatEmojiKeys(messageHistory, true);
   if (!DEMO_MODE) sendChatEmojiAtlas();
   var start = {}; start[KEY_COMMAND] = 'messages_start'; start[KEY_TOTAL] = messageHistory.length; enqueue(start);
@@ -1278,7 +1373,7 @@ Pebble.addEventListener('appmessage', function(event) {
   var payload = event.payload || {};
   var command = payload[KEY_COMMAND] || payload.COMMAND || payload.command;
   console.log('Beepster watch command=' + String(command || 'missing'));
-  if (command === 'load_chats') loadChats();
+  if (command === 'load_chats') { activeMessageChatID = ''; stopActiveMessageRefresh(); loadChats(); }
   if (command === 'load_older_chats') loadOlderChats();
   if (command === 'load_newer_chats') loadNewerChats();
   if (command === 'set_chat_pinned') setChatPinned(
@@ -1286,6 +1381,16 @@ Pebble.addEventListener('appmessage', function(event) {
     Number((payload[KEY_CHAT_PINNED] != null ? payload[KEY_CHAT_PINNED] : payload.CHAT_PINNED) || 0) !== 0
   );
   if (command === 'load_messages') loadMessages(payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || '');
+  if (command === 'chat_view_open') {
+    activeMessageChatID = payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || activeMessageChatID;
+    scheduleActiveMessageRefresh();
+  }
+  if (command === 'chat_view_closed') {
+    var closedChatID = payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || '';
+    if (!closedChatID || closedChatID === activeMessageChatID) activeMessageChatID = '';
+    stopActiveMessageRefresh();
+    scheduleRefresh();
+  }
   if (command === 'load_older_messages') loadOlderMessages(payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || '');
   if (command === 'send_reply') sendReply(payload[KEY_CHAT_ID] || payload.CHAT_ID || '', payload[KEY_REPLY_TEXT] || payload.REPLY_TEXT || '', payload[KEY_REPLY_REQUEST_ID] || payload.REPLY_REQUEST_ID || '');
   if (command === 'load_attachment') loadAttachment(payload[KEY_ATTACHMENT_ID] || payload.ATTACHMENT_ID || payload[KEY_CHAT_ID] || payload.CHAT_ID || '');
