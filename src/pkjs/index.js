@@ -449,6 +449,15 @@ function routedChatID(chatID) {
   return mergedChats[chatID] ? mergedChats[chatID].primary : chatID;
 }
 
+function replyRoute(chatID) {
+  var merged = mergedChats[chatID];
+  if (!merged) return {primary:chatID,fallbacks:[]};
+  var members = [merged.primary].concat(merged.members || []).filter(function(value, index, values) {
+    return value && values.indexOf(value) === index;
+  });
+  return {primary:members[0] || chatID,fallbacks:members.slice(1)};
+}
+
 function watchQuickReply(value) {
   var text = String(value || '')
     .replace(/[\uFE0F\u200D]/g, '')
@@ -733,6 +742,7 @@ function sendRequest(path, body, callback) {
     fallback.setRequestHeader('Authorization', 'Bearer ' + token);
     fallback.setRequestHeader('X-Beepster-Reply-Text', encodeURIComponent(String(body.text || '')));
     fallback.setRequestHeader('X-Beepster-Request-ID', String(body.requestID || ''));
+    fallback.setRequestHeader('X-Beepster-Fallback-Chat-IDs', encodeURIComponent(JSON.stringify(body.fallbackChatIDs || [])));
     fallback.timeout = 10000;
     fallback.onload = function() { parseResponse(fallback, 'GET'); };
     fallback.onerror = function() { fail('Gateway unavailable'); };
@@ -774,16 +784,25 @@ function pollReply(chatID, pendingMessageID, attempt) {
 
 function sendReply(chatID, text, requestID) {
   if (!chatID || !text) { sendState('reply_failed', 'Reply data missing'); return; }
-  chatID = routedChatID(chatID);
+  var selectedChatID = chatID;
+  var route = replyRoute(chatID);
+  chatID = route.primary;
   if (!requestID) {
     quickReplyCounter++;
     requestID = 'reply-' + Date.now() + '-' + quickReplyCounter;
   }
   sendState('reply_sending');
-  sendRequest('/v1/chats/' + encodeURIComponent(chatID) + '/messages', {text:text,requestID:requestID}, function(data) {
+  var replyBody = {text:text,requestID:requestID};
+  if (route.fallbacks.length) replyBody.fallbackChatIDs = route.fallbacks;
+  sendRequest('/v1/chats/' + encodeURIComponent(chatID) + '/messages', replyBody, function(data) {
     if (!data.pendingMessageID) { sendState('reply_failed', 'Beeper did not return a message ID'); return; }
+    var acceptedChatID = data.chatID || chatID;
+    if (mergedChats[selectedChatID] && mergedChats[selectedChatID].members.indexOf(acceptedChatID) !== -1) {
+      mergedChats[selectedChatID].primary = acceptedChatID;
+      if (configuredPinnedChats().indexOf(selectedChatID) !== -1) updatePinnedSnapshot(selectedChatID, false);
+    }
     sendState('reply_pending');
-    pollReply(chatID, data.pendingMessageID, 0);
+    pollReply(acceptedChatID, data.pendingMessageID, 0);
   });
 }
 

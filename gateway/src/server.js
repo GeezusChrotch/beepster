@@ -76,6 +76,12 @@ function requestTag(requestID) {
   return createHash('sha256').update(requestID).digest('hex').slice(0, 12);
 }
 
+function replyChatIDs(primaryChatID, fallbackChatIDs) {
+  const values = [primaryChatID].concat(Array.isArray(fallbackChatIDs) ? fallbackChatIDs : []);
+  return values.map((value) => String(value || '').trim()).filter((value, index, items) =>
+    value && value.length <= 500 && items.indexOf(value) === index).slice(0, 10);
+}
+
 export function createServer({ beeperClient, gatewayToken, pairingCode = '', rotatePairingCode = async () => '', logger = console }) {
   if (!gatewayToken) throw new Error('gatewayToken is required');
   const cache = new Map();
@@ -187,6 +193,15 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '', rot
         const headerRequestID = typeof request.headers['x-beepster-request-id'] === 'string' ?
           request.headers['x-beepster-request-id'] : '';
         const requestID = (typeof body.requestID === 'string' ? body.requestID : headerRequestID).trim();
+        const encodedFallbackHeader = typeof request.headers['x-beepster-fallback-chat-ids'] === 'string' ?
+          request.headers['x-beepster-fallback-chat-ids'] : '';
+        let headerFallbackChatIDs = [];
+        try {
+          const decoded = JSON.parse(decodeURIComponent(encodedFallbackHeader));
+          if (Array.isArray(decoded)) headerFallbackChatIDs = decoded;
+        } catch {}
+        const chatIDs = replyChatIDs(chatID,
+          Array.isArray(body.fallbackChatIDs) ? body.fallbackChatIDs : headerFallbackChatIDs);
         if (!text || text.length > 1000 || !requestID || requestID.length > 80) {
           sendJSON(response, 400, { error: 'Reply requires text and a request ID' });
           return;
@@ -194,7 +209,7 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '', rot
         const duplicate = replyRequests.get(requestID);
         const replyTag = requestTag(requestID);
         if (duplicate) {
-          if (duplicate.chatID !== chatID || duplicate.text !== text) {
+          if (duplicate.text !== text || duplicate.chatIDs.join('\n') !== chatIDs.join('\n')) {
             sendJSON(response, 409, { error: 'Reply request ID was already used for different content' });
             return;
           }
@@ -205,16 +220,27 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '', rot
         }
         logger.info(`reply received transport=${request.method} request=${replyTag} characters=${[...text].length}`);
         const sentAfter = Date.now();
-        const promise = beeperClient.sendReply(chatID, text).then((result) => ({
-          state: 'pending',
-          pendingMessageID: result.pendingMessageID
-        }));
-        replyRequests.set(requestID, { chatID, text, promise });
+        const promise = (async () => {
+          let lastError;
+          for (let index = 0; index < chatIDs.length; index++) {
+            try {
+              const result = await beeperClient.sendReply(chatIDs[index], text);
+              return {state:'pending',pendingMessageID:result.pendingMessageID,chatID:chatIDs[index]};
+            } catch (error) {
+              lastError = error;
+              if (index + 1 < chatIDs.length) {
+                logger.warn(`reply route unavailable request=${replyTag} trying=${index + 2}/${chatIDs.length}`);
+              }
+            }
+          }
+          throw lastError || new Error('No reply destination is available');
+        })();
+        replyRequests.set(requestID, { chatIDs, text, promise });
         if (replyRequests.size > 100) replyRequests.delete(replyRequests.keys().next().value);
         try {
           const accepted = await promise;
           if (accepted.pendingMessageID) {
-            pendingReplies.set(`${chatID}:${accepted.pendingMessageID}`, {chatID,text,sentAfter});
+            pendingReplies.set(`${accepted.chatID}:${accepted.pendingMessageID}`, {chatID:accepted.chatID,text,sentAfter});
             if (pendingReplies.size > 100) pendingReplies.delete(pendingReplies.keys().next().value);
           }
           logger.info(`reply accepted request=${replyTag} pending=${Boolean(accepted.pendingMessageID)}`);

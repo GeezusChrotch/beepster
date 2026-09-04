@@ -510,6 +510,14 @@ test('a linked Apple thread combines history and routes replies to its newest de
 
   context.sendReply(virtualID, 'On my way', 'linked-reply');
   assert.equal(requests[3].url, 'https://gateway.example/v1/chats/apple-phone/messages');
+  assert.deepEqual(JSON.parse(requests[3].body), {
+    text:'On my way',requestID:'linked-reply',fallbackChatIDs:['apple-email']
+  });
+  requests[3].status = 202;
+  requests[3].responseText = JSON.stringify({pendingMessageID:'pending-email',chatID:'apple-email'});
+  requests[3].onload();
+  assert.equal(context.mergedChats[virtualID].primary, 'apple-email');
+  assert.equal(requests[4].url, 'https://gateway.example/v1/chats/apple-email/messages/pending-email');
 });
 
 test('a late response from an abandoned chat cannot replace the active thread', () => {

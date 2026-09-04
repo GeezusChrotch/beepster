@@ -263,7 +263,37 @@ test('watch replies support an authenticated no-store GET compatibility fallback
     });
     assert.equal(response.status, 202);
     assert.equal(response.headers.get('cache-control'), 'no-store');
-    assert.deepEqual(await response.json(), {state:'pending',pendingMessageID:'pending-chat-1-6'});
+    assert.deepEqual(await response.json(), {state:'pending',pendingMessageID:'pending-chat-1-6',chatID:'chat-1'});
+  });
+});
+
+test('reply requests retry another member of a merged chat when its newest route is stale', async () => {
+  const attempts = [];
+  const client = {
+    sendReply: async (chatID) => {
+      attempts.push(chatID);
+      if (chatID === 'apple-phone') throw new Error('POST failed with HTTP 500');
+      return {pendingMessageID:'pending-email'};
+    },
+    getMessageStatus: async () => ({id:'sent-email',status:'SUCCESS',reason:''})
+  };
+  await withServer(client, async (baseURL) => {
+    const response = await fetch(`${baseURL}/v1/chats/apple-phone/messages`, {
+      method:'POST',
+      headers:{Authorization:'Bearer gateway-secret','Content-Type':'application/json'},
+      body:JSON.stringify({
+        text:'Sounds good!',requestID:'merged-reply-1',fallbackChatIDs:['apple-email']
+      })
+    });
+    assert.equal(response.status, 202);
+    assert.deepEqual(await response.json(), {
+      state:'pending',pendingMessageID:'pending-email',chatID:'apple-email'
+    });
+    assert.deepEqual(attempts, ['apple-phone','apple-email']);
+    const status = await fetch(`${baseURL}/v1/chats/apple-email/messages/pending-email`, {
+      headers:{Authorization:'Bearer gateway-secret'}
+    });
+    assert.equal((await status.json()).status, 'SUCCESS');
   });
 });
 
