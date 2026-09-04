@@ -599,8 +599,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 contacts = self.contactsAuthorization()
             }
 
+            var tailscaleConnected = false
             var tailscaleReady = false
-            if let binary = self.tailscaleBinary(), self.run(binary, ["status"]).0 == 0 {
+            if let binary = self.tailscaleBinary() {
+                tailscaleConnected = self.run(binary, ["status"]).0 == 0
+            }
+            if let binary = self.tailscaleBinary(), tailscaleConnected {
                 _ = self.run(binary, ["serve", "--bg", "8794"])
                 tailscaleReady = self.tailscaleHealth().0
             }
@@ -623,7 +627,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     var issues: [String] = []
                     if !tokenReady { issues.append("Add the dedicated Beeper Desktop token.") }
                     if contacts != "authorized" { issues.append("Allow Contacts access so names can be shown.") }
-                    if !tailscaleReady || !route.0 { issues.append("Open Tailscale on this Mac and sign in, then run setup again.") }
+                    if !tailscaleConnected {
+                        issues.append("Open Tailscale on this Mac and sign in, then run setup again.")
+                    } else if !tailscaleReady {
+                        issues.append("Tailscale is connected. Select Start Private Route under Advanced options.")
+                    } else if !route.0 {
+                        issues.append("The Serve route exists but did not reach Beepster. Select Test Everything to retry.")
+                    }
                     if tokenReady && !gateway.0 { issues.append("Keep Beeper Desktop open and signed in.") }
                     let alert = NSAlert()
                     alert.messageText = "One more step is needed"
@@ -717,7 +727,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let url, pairing.0 == 0, !pairing.1.isEmpty else {
                     let alert = NSAlert()
                     alert.messageText = "Phone setup is not ready yet"
-                    alert.informativeText = "Select Set Up Beepster first. If Tailscale needs you to sign in, open it and then try again."
+                    alert.informativeText = route.1 == "not connected"
+                        ? "Open Tailscale and sign in, then try again."
+                        : (route.1 == "connected; Serve route missing"
+                            ? "Tailscale is connected. Select Start Private Route under Advanced options, then try again."
+                            : "Select Test Everything to identify the remaining setup problem.")
                     alert.runModal()
                     return
                 }
@@ -756,7 +770,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard tailscaleHealth().0, let url = phoneSetupURL() else {
             let alert = NSAlert()
             alert.messageText = "Private setup address unavailable"
-            alert.informativeText = "Connect Tailscale and select Start Private Route, then try again."
+            let tailscale = tailscaleHealth()
+            alert.informativeText = tailscale.1 == "not connected"
+                ? "Open Tailscale and sign in, then try again."
+                : "Tailscale is connected. Select Start Private Route under Advanced options, then try again."
             alert.runModal()
             return
         }
