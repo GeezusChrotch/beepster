@@ -6,8 +6,8 @@ Beepster is a readable, reliable, open-source Beeper client for Pebble Time 2. I
 chats, complete message text, voice dictation, saved replies, themes, bitmap emoji, and inline
 photo previews to the watch without putting a Beeper credential on the watch or phone.
 
-Version 0.9.0 is the public-release candidate. The self-contained Mac Connector and watch app are
-being prepared for signed release; the Pebble Store listing is still awaiting publication.
+Version 0.10.0 is the invitation-only beta candidate. The watch app and signed, notarized Mac
+Connector are ready to be packaged for a small tester group before the public Pebble Store launch.
 
 ## What you need
 
@@ -24,6 +24,7 @@ The Connector window can be closed after setup; its login background service con
 ## Start here
 
 - [Install Beepster](docs/INSTALL.md) — complete Mac, Tailscale, watch, and pairing walkthrough
+- [Beta testing](docs/BETA_TESTING.md) — invitation, installation, smoke test, and safe feedback
 - [Use Beepster](docs/USER_GUIDE.md) — controls, replies, themes, media, and limitations
 - [Troubleshoot](docs/TROUBLESHOOTING.md) — symptom-based fixes and the private health checker
 - [Privacy](PRIVACY.md) and [security model](SECURITY.md)

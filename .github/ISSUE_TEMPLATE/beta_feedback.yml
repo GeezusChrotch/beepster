@@ -1,0 +1,51 @@
+name: Beta feedback
+description: Share a Beepster beta success, rough edge, or suggestion.
+title: "[Beta]: "
+labels: [beta-feedback]
+body:
+  - type: markdown
+    attributes:
+      value: "Thank you for testing Beepster. Never include tokens, pairing codes, private hostnames, contact details, or unredacted messages."
+  - type: input
+    id: version
+    attributes:
+      label: Beepster version
+      placeholder: 0.10.0
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: Overall result
+      options:
+        - Setup completed and messaging works
+        - Setup completed but something does not work
+        - I could not complete setup
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Test setup
+      description: Pebble firmware, phone and OS, macOS version, and Beeper Desktop version.
+    validations:
+      required: true
+  - type: textarea
+    id: experience
+    attributes:
+      label: What happened?
+      description: Include the step, expected result, actual result, and exact red status-row wording if setup failed.
+    validations:
+      required: true
+  - type: textarea
+    id: strengths
+    attributes:
+      label: What felt good?
+      description: Tell us what was clear, fast, or useful so we preserve it.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed private messages, contacts, identifiers, tokens, hostnames, and pairing codes.
+          required: true

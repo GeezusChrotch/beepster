@@ -1,7 +1,13 @@
 # Publishing Beepster
 
-This is the maintainer checklist for the first public release. Do not upload the personal PBW from
+This is the maintainer checklist for beta and public releases. Do not upload the personal PBW from
 `local/`; it contains a private setup URL. The universal artifact is produced in `dist/`.
+
+For a small tester group, follow [the beta release checklist](BETA_RELEASE_CHECKLIST.md). Upload the
+universal PBW using the Pebble developer portal's
+[**Publish Privately** option](https://developer.rebble.io/guides/appstore-publishing/publishing-an-app/)
+and distribute its direct Store link. That retains the normal phone installation flow without
+making the listing discoverable or requiring testers to install developer tools.
 
 ## One-time release infrastructure
 
@@ -27,7 +33,7 @@ The script runs all checks, validates the 25×25 launcher icon and public settin
 for credential markers and private tailnet addresses, and creates:
 
 ```text
-dist/beepster-0.9.0.pbw
+dist/beepster-0.10.0.pbw
 dist/SHA256SUMS
 ```
 
@@ -48,7 +54,7 @@ BEEPSTER_NOTARY_PROFILE='beepster-notary' \
 ./scripts/package-mac-app.sh
 ```
 
-This produces `dist/Beepster-Connector-0.9.0.dmg` and a SHA-256 sidecar. The script refuses to
+This produces `dist/Beepster-Connector-0.10.0.dmg` and a SHA-256 sidecar. The script refuses to
 notarize without a signing identity, waits for Apple's result, staples the ticket, and validates it.
 A run without those variables is an ad-hoc development package and must never be published.
 

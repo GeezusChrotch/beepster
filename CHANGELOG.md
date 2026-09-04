@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.10.0 — Invitation beta
+
 - Added a complete 3,944-entry Unicode Emoji 17.0/Twemoji library to the Mac Connector, a visual
   Settings picker for 15 reorderable emoji replies, and compact on-demand watch atlases.
 - Chat messages now replace emoji—including skin tones, flags, and joined family sequences—with
@@ -23,6 +25,17 @@
 - The hardened Contacts helper now includes the required macOS Address Book entitlement.
 - Apple email and phone destinations matched to the same Mac Contacts record are now combined
   automatically on the watch, including their history, unread count, and newest reply route.
+- Reply delivery now retries the eligible routes behind a combined conversation while preserving
+  the original Beeper chat identifiers.
+- Open chats and the visible conversation list now refresh every 15 seconds while Beepster is in
+  use, without interrupting reading or scrolling.
+- Guided setup now includes the exact Beeper Desktop token path and checks the sensitive-action
+  permission required for sending replies.
+- The Connector now detects Tailscale Serve routes reliably when launched from Finder and explains
+  whether its window, background gateway, Beeper Desktop, and Tailscale need to remain running.
+- Removed the repeated button-customization notice from message views.
+- Group chats now keep the user's messages visually consistent while assigning stable,
+  theme-complementary colors to other participants.
 
 All notable changes to Beepster are documented here.
 
