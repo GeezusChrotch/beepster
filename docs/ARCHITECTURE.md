@@ -6,8 +6,8 @@ Pebble watch (C)
 PebbleKit JS on phone
     ⇅ private HTTPS with Beepster gateway credential
 Beepster gateway on Mac
-    ⇅ localhost with Beeper Desktop token
-Beeper Desktop API
+    ⇅ localhost with separate Mac-only credentials
+Beeper Desktop API          OpenClaw Gateway (optional approvals)
 ```
 
 The gateway subscribes to or queries the official Beeper Desktop API and returns a deliberately
@@ -47,3 +47,10 @@ owns presentation and interaction state and must remain understandable when tran
 The public first-run page contains no backend and no Beepster credential. It accepts a private HTTPS
 gateway address in the browser and redirects directly to that Mac's `/configure` page. The dynamic
 gateway page performs the one-time pairing exchange and returns settings to PebbleKit JS.
+
+When explicitly enabled, the gateway also owns a separate Ed25519 identity for the local OpenClaw
+Gateway. It requests only `operator.approvals`. Pending exec and plugin approvals are converted to
+sanitized watch messages in a synthetic conversation; raw unmodeled
+payload fields never cross the gateway boundary. Resolution accepts only `allow-once` or `deny` and
+rechecks the exact opaque ID against the current pending list immediately before sending
+the matching OpenClaw approval resolver.

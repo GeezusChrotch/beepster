@@ -21,3 +21,11 @@ so macOS does not silently invalidate access or rotate user credentials.
 
 Pairing codes are single-use. A successful exchange rotates the stored code before returning the
 narrow gateway credential, so restarting the gateway cannot make a consumed code valid again.
+
+OpenClaw integration is opt-in and uses a separate Ed25519 device identity with only
+`operator.approvals`. Its private key and device token remain
+in a mode-0700 Beepster application-support directory with mode-0600 files. The phone and watch see
+only sanitized summaries and opaque pending IDs. Before resolution, the gateway re-lists pending
+approvals and requires the exact ID; accepted decisions are limited in code to `allow-once` and
+`deny`. Beepster must never add `allow-always` or broader OpenClaw scopes without an explicit
+security review and a new user consent flow.

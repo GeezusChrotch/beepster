@@ -266,6 +266,30 @@ test('custom button mappings persist and are applied immediately', () => {
   assert.equal(appMessages.find((message) => message[0] === 'button_bindings_ready')[3], 7);
 });
 
+test('pending OpenClaw approvals load as exact synthetic watch messages', () => {
+  const { context, requests, appMessages, storage } = replyRuntime();
+  storage.set('beepster_openclaw_approvals', '1');
+  context.loadMessages('beepster-openclaw-approvals');
+  assert.equal(requests[0].url, 'https://gateway.example/v1/openclaw/approvals');
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items:[{id:'approval-exact-1',summary:'exec\n\nUpdate package'}]});
+  requests[0].onload();
+  const message = appMessages.find(packet => packet[0] === 'message');
+  assert.equal(message[30], 'approval-exact-1');
+  assert.equal(message[10], 'OpenClaw');
+  assert.equal(message[11], 'exec\n\nUpdate package');
+  assert.deepEqual(appMessages.filter(packet => packet[0] === 'quick_reply').map(packet => packet[32]), ['Allow once','Deny']);
+});
+
+test('watch approval actions resolve only the selected opaque approval id', () => {
+  const { context, requests } = replyRuntime();
+  context.sendQuickReply('beepster-openclaw-approvals', 0, 'ignored', 'Allow once', 'approval-exact-1');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].method, 'POST');
+  assert.equal(requests[0].url, 'https://gateway.example/v1/openclaw/approvals/approval-exact-1/decision');
+  assert.equal(requests[0].body, JSON.stringify({decision:'allow-once'}));
+});
+
 test('service aliases normalize to stable filter IDs', () => {
   const { context } = replyRuntime();
   assert.equal(context.serviceID('iMessage'), 'apple_messages');

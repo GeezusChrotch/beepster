@@ -49,6 +49,8 @@ The Connector window can be closed after setup; its login background service con
 - Explicit setup, loading, empty, timeout, offline, and retry states
 - Self-contained, Keychain-backed Mac Connector with one-pass setup, combined phone pairing,
   end-to-end readiness checks, advanced repair controls, and idempotent reply transport
+- Optional OpenClaw protected-action inbox with exact Allow once and Deny decisions; its separately
+  scoped device credential remains on the Mac and no standing grants are offered
 
 Animated GIF playback and multiple attachments per message remain planned. See the
 [roadmap](ROADMAP.md) and [UX requirements](docs/UX_REQUIREMENTS.md).
@@ -61,8 +63,8 @@ Pebble watch (C)
 PebbleKit JS on phone
     ⇅ private HTTPS with a narrow Beepster gateway credential
 Beepster gateway on Mac
-    ⇅ localhost with the Beeper Desktop token
-Beeper Desktop API
+    ⇅ localhost with separate, Mac-only credentials
+Beeper Desktop API          OpenClaw Gateway (optional approvals only)
 ```
 
 The Mac gateway resolves contacts, sanitizes rich text, resizes media, tracks delivery, caches safe
@@ -74,6 +76,7 @@ watch owns presentation and interaction state. See [Architecture](docs/ARCHITECT
 Requirements: macOS, Pebble SDK 4.33.1 or newer, Pebble Tool 5, and Node.js 20 or newer.
 
 ```sh
+npm --prefix gateway ci
 npm test
 npm run build
 npm run check

@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var contactStatus: NSTextField!
     private var gatewayStatus: NSTextField!
     private var tailscaleStatus: NSTextField!
+    private var openClawStatus: NSTextField!
     private var setupSummary: NSTextField!
     private var setupButton: NSButton!
     private var connectPhoneButton: NSButton!
@@ -23,7 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         let content = NSView()
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 610),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 680),
                           styleMask: [.titled, .closable, .miniaturizable],
                           backing: .buffered, defer: false)
         window.title = "Beepster Connector"
@@ -60,7 +61,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         contactStatus = statusRow("Contact names")
         gatewayStatus = statusRow("Beeper connection")
         tailscaleStatus = statusRow("Private connection")
-        [contactStatus, gatewayStatus, tailscaleStatus].forEach(stack.addArrangedSubview)
+        openClawStatus = statusRow("OpenClaw approvals (optional)")
+        [contactStatus, gatewayStatus, tailscaleStatus, openClawStatus].forEach(stack.addArrangedSubview)
 
         let actionsTitle = NSTextField(labelWithString: "Get started")
         actionsTitle.font = .systemFont(ofSize: 17, weight: .semibold)
@@ -111,6 +113,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             actionRow(button("Start Private Route", #selector(startPrivateRoute)),
                       what: "Starts Tailscale Serve for the local Beepster gateway.",
                       why: "Gives your phone private HTTPS access without exposing Beepster publicly."),
+            actionRow(button("OpenClaw Approvals", #selector(enableOpenClawApprovals)),
+                      what: "Pairs Beepster with the local OpenClaw Gateway using approval-only operator access.",
+                      why: "Lets the watch review exact protected actions with Allow once or Deny. This is optional."),
             actionRow(button("Install Guide", #selector(openInstallGuide)),
                       what: "Opens the complete step-by-step installation guide.",
                       why: "Provides exact repair instructions when a readiness check needs attention.")
@@ -122,7 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stack.addArrangedSubview(advancedStack)
         advancedStack.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
 
-        let footer = wrappingLabel("Your Beeper token stays in Keychain and is never sent to the phone or watch.")
+        let footer = wrappingLabel("Your Beeper and OpenClaw credentials stay on this Mac and are never sent to the phone or watch.")
         footer.textColor = .secondaryLabelColor
         footer.font = .systemFont(ofSize: 12)
         stack.addArrangedSubview(footer)
@@ -184,6 +189,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setStatus(_ label: NSTextField, ok: Bool, name: String, detail: String) {
         label.stringValue = "\(ok ? "●" : "⚠")  \(name): \(detail)"
         label.textColor = ok ? .systemGreen : .systemOrange
+    }
+
+    private func setOptionalStatus(_ label: NSTextField, state: String, detail: String) {
+        label.stringValue = "\(state == "paired" ? "●" : "○")  OpenClaw approvals (optional): \(detail)"
+        label.textColor = state == "paired" ? .systemGreen : .secondaryLabelColor
+    }
+
+    private func openClawApprovalHealth() -> (String, String) {
+        guard let url = URL(string: "http://127.0.0.1:8794/health") else { return ("disabled", "off") }
+        let semaphore = DispatchSemaphore(value: 0)
+        var result = ("disabled", "off")
+        URLSession.shared.dataTask(with: URLRequest(url: url, timeoutInterval: 4)) { data, _, _ in
+            defer { semaphore.signal() }
+            guard let data,
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["openClawEnabled"] as? Bool == true else { return }
+            let state = object["openClawState"] as? String ?? "connecting"
+            let detail = state == "paired" ? "ready" : (state == "pairing-required" ? "approval needed in OpenClaw" : "connecting")
+            result = (state, detail)
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 5)
+        return result
     }
 
     private func setWorking(_ working: Bool, message: String) {
@@ -536,14 +563,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func refresh() {
         setWorking(true, message: "Testing Contacts, Beeper, and the private connection…")
-        [contactStatus, gatewayStatus, tailscaleStatus].forEach {
+        [contactStatus, gatewayStatus, tailscaleStatus, openClawStatus].forEach {
             $0?.stringValue = "○  Checking…"
             $0?.textColor = .secondaryLabelColor
         }
         DispatchQueue.global(qos: .userInitiated).async {
             let checks = self.performChecks()
+            let openClaw = self.openClawApprovalHealth()
             DispatchQueue.main.async {
                 self.showCheckResults(checks)
+                self.setOptionalStatus(self.openClawStatus, state: openClaw.0, detail: openClaw.1)
+            }
+        }
+    }
+
+    @objc private func enableOpenClawApprovals() {
+        let existing = run(keychainHelperPath(), ["get", "openclaw-enabled"], timeout: nil)
+        if existing.0 == 0 && existing.1.trimmingCharacters(in: .whitespacesAndNewlines) == "enabled" {
+            let manage = NSAlert()
+            manage.messageText = "OpenClaw approvals are enabled"
+            manage.informativeText = "Disabling hides the integration and stops Beepster from connecting to OpenClaw. The local device identity is retained so re-enabling does not require a new identity."
+            manage.addButton(withTitle: "Keep Enabled")
+            manage.addButton(withTitle: "Disable")
+            guard manage.runModal() == .alertSecondButtonReturn else { return }
+            setWorking(true, message: "Disabling OpenClaw approvals…")
+            DispatchQueue.global(qos: .userInitiated).async {
+                _ = self.run(self.keychainHelperPath(), ["set", "openclaw-enabled"], input: "disabled", timeout: nil)
+                _ = self.run("/bin/launchctl", ["kickstart", "-k", "gui/\(getuid())/org.beepster.gateway"])
+                DispatchQueue.main.async {
+                    self.setOptionalStatus(self.openClawStatus, state: "disabled", detail: "off")
+                    self.setWorking(false, message: "OpenClaw approvals are off")
+                }
+            }
+            return
+        }
+        let warning = NSAlert()
+        warning.messageText = "Enable OpenClaw approvals on your watch?"
+        warning.informativeText = "This gives Beepster a narrowly scoped OpenClaw operator credential that can view pending protected actions and resolve an exact action as Allow once or Deny. Beepster never offers Allow always, and the credential remains on this Mac."
+        warning.addButton(withTitle: "Enable Securely")
+        warning.addButton(withTitle: "Cancel")
+        guard warning.runModal() == .alertFirstButtonReturn else { return }
+
+        setWorking(true, message: "Enabling and pairing OpenClaw approvals…")
+        DispatchQueue.global(qos: .userInitiated).async {
+            let installed = self.installBundledService()
+            guard installed.0 else {
+                DispatchQueue.main.async {
+                    self.setWorking(false, message: "OpenClaw setup needs attention")
+                    let alert = NSAlert(); alert.messageText = "Could not update Beepster"; alert.informativeText = installed.1; alert.runModal()
+                }
+                return
+            }
+            let stored = self.run(self.keychainHelperPath(), ["set", "openclaw-enabled"], input: "enabled", timeout: nil)
+            _ = self.run("/bin/launchctl", ["kickstart", "-k", "gui/\(getuid())/org.beepster.gateway"])
+            let deadline = Date().addingTimeInterval(10)
+            var health = self.openClawApprovalHealth()
+            while health.0 != "paired" && Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.4)
+                health = self.openClawApprovalHealth()
+            }
+            DispatchQueue.main.async {
+                self.setOptionalStatus(self.openClawStatus, state: health.0, detail: health.1)
+                self.setWorking(false, message: health.0 == "paired" ? "OpenClaw approvals are ready" : "OpenClaw pairing needs attention")
+                let alert = NSAlert()
+                if stored.0 != 0 {
+                    alert.messageText = "Could not enable OpenClaw approvals"
+                    alert.informativeText = "Reinstall Beepster Connector, then try again."
+                } else if health.0 == "paired" {
+                    alert.messageText = "OpenClaw approvals are ready"
+                    alert.informativeText = "Now turn on Show pending OpenClaw approvals in Beepster Settings on your phone. Pending protected actions will appear as a watch conversation with only Allow once and Deny choices."
+                } else {
+                    alert.messageText = "Approve Beepster in OpenClaw"
+                    alert.informativeText = "Open the OpenClaw app, review the pending Beepster Connector device with its operator.approvals scope, and approve it. Then select Test Everything. No Terminal command is required."
+                }
+                alert.runModal()
             }
         }
     }

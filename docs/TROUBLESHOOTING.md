@@ -87,6 +87,16 @@ data is modified.
 - Try both a short and long Center press.
 - Confirm the watch is connected to the phone; dictation is a Pebble system service.
 
+## OpenClaw Approvals does not appear
+
+- It appears only while at least one protected action is actually pending.
+- In Beepster Connector, expand **Advanced options**, select **OpenClaw Approvals**, and
+  confirm its optional status reads **ready**. If it says approval needed, review the device named
+  **Beepster Connector** in the OpenClaw app and then select **Test Everything**.
+- In the Pebble mobile app, open Beepster Settings and turn on **Show pending OpenClaw approvals**.
+- OpenClaw Gateway must be running on the same Mac. Telegram button metadata is not required;
+  Beepster obtains the pending action directly from the local OpenClaw Gateway.
+
 ## Photo preview is slow or unavailable
 
 - First conversion is intentionally slower; revisiting one of the eight most recent previews reuses

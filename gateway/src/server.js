@@ -3,6 +3,7 @@ import { createHash, randomInt } from 'node:crypto';
 import { BeeperClient } from './beeper-client.js';
 import { configurationPage } from './configuration-page.js';
 import { publicEmojiAtlas, publicEmojiCatalog, renderEmojiAtlas } from './emoji-assets.js';
+import { createOpenClawApprovalClient } from './openclaw-client.js';
 import { readSecret, writeSecret } from './secret-store.js';
 
 const MAX_BODY_BYTES = 16 * 1024;
@@ -82,7 +83,7 @@ function replyChatIDs(primaryChatID, fallbackChatIDs) {
     value && value.length <= 500 && items.indexOf(value) === index).slice(0, 10);
 }
 
-export function createServer({ beeperClient, gatewayToken, pairingCode = '', rotatePairingCode = async () => '', logger = console }) {
+export function createServer({ beeperClient, openClawClient = null, gatewayToken, pairingCode = '', rotatePairingCode = async () => '', logger = console }) {
   if (!gatewayToken) throw new Error('gatewayToken is required');
   const cache = new Map();
   const replyRequests = new Map();
@@ -106,7 +107,8 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '', rot
     try {
       const url = new URL(request.url, 'http://127.0.0.1');
       if (url.pathname === '/health' && request.method === 'GET') {
-        sendJSON(response, 200, { ok: true, service: 'beepster-gateway', beeperConfigured: Boolean(beeperClient) });
+        sendJSON(response, 200, { ok: true, service: 'beepster-gateway', beeperConfigured: Boolean(beeperClient),
+          openClawEnabled: Boolean(openClawClient), openClawState: openClawClient?.status?.().state || 'disabled' });
         return;
       }
       if (url.pathname === '/configure' && request.method === 'GET') {
@@ -143,6 +145,47 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '', rot
         sendJSON(response, 401, { error: 'Unauthorized' });
         return;
       }
+
+      if (url.pathname === '/v1/openclaw/status' && request.method === 'GET') {
+        sendJSON(response, 200, {enabled:Boolean(openClawClient), state:openClawClient?.status?.().state || 'disabled'});
+        return;
+      }
+
+      if (url.pathname === '/v1/openclaw/approvals' && request.method === 'GET') {
+        if (!openClawClient) {
+          sendJSON(response, 404, {error:'OpenClaw approvals are not enabled in Beepster Connector'});
+          return;
+        }
+        try {
+          const items = await openClawClient.listApprovals();
+          sendJSON(response, 200, {items});
+        } catch (error) {
+          logger.warn(`OpenClaw approval list unavailable state=${openClawClient.status?.().state || 'unknown'}`);
+          sendJSON(response, 503, {error:'OpenClaw approvals are not connected', state:openClawClient.status?.().state || 'error'});
+        }
+        return;
+      }
+
+      const approvalDecisionMatch = url.pathname.match(/^\/v1\/openclaw\/approvals\/([^/]+)\/decision$/);
+      if (approvalDecisionMatch && request.method === 'POST') {
+        if (!openClawClient) {
+          sendJSON(response, 404, {error:'OpenClaw approvals are not enabled in Beepster Connector'});
+          return;
+        }
+        const id = decodeURIComponent(approvalDecisionMatch[1]);
+        const body = await readJSON(request);
+        if (!id || id.length > 200 || (body.decision !== 'allow-once' && body.decision !== 'deny')) {
+          sendJSON(response, 400, {error:'Only an exact pending approval with allow-once or deny is supported'});
+          return;
+        }
+        try {
+          sendJSON(response, 200, await openClawClient.resolveApproval(id, body.decision));
+        } catch (error) {
+          sendJSON(response, 409, {error:'The exact approval is no longer pending'});
+        }
+        return;
+      }
+
       if (!beeperClient) {
         sendJSON(response, 503, { error: 'Beeper Desktop access is not configured on the Mac' });
         return;
@@ -289,13 +332,14 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '', rot
     } catch (error) {
       sendJSON(response, 502, { error: 'Upstream request failed' });
     }
-  });
+  }).on('close', () => openClawClient?.stop?.());
 }
 
 export async function createConfiguredServer(environment = process.env) {
   const beeperToken = environment.BEEPER_ACCESS_TOKEN || await readSecret('beeper-access-token');
   const gatewayToken = environment.BEEPSTER_GATEWAY_TOKEN || await readSecret('gateway-token');
   const pairingCode = environment.BEEPSTER_PAIRING_CODE || await readSecret('pairing-code');
+  const openClawSetting = environment.BEEPSTER_OPENCLAW_ENABLED || await readSecret('openclaw-enabled');
   if (!gatewayToken) throw new Error('BEEPSTER_GATEWAY_TOKEN is required');
   const client = beeperToken ? new BeeperClient({
     baseURL: environment.BEEPER_BASE_URL || 'http://127.0.0.1:23373',
@@ -306,5 +350,7 @@ export async function createConfiguredServer(environment = process.env) {
     const nextCode = String(randomInt(100000, 1000000));
     return await writeSecret('pairing-code', nextCode) ? nextCode : '';
   };
-  return createServer({ beeperClient: client, gatewayToken, pairingCode, rotatePairingCode });
+  const openClawClient = /^(1|true|yes|enabled)$/i.test(String(openClawSetting || '')) ?
+    createOpenClawApprovalClient() : null;
+  return createServer({ beeperClient: client, openClawClient, gatewayToken, pairingCode, rotatePairingCode });
 }

@@ -10,6 +10,8 @@ node --check "$project_dir/gateway/src/emoji.js"
 node --check "$project_dir/gateway/src/emoji-assets.js"
 node --check "$project_dir/gateway/src/image-preview.js"
 node --check "$project_dir/gateway/src/html-to-text.js"
+node --check "$project_dir/gateway/src/openclaw-client.js"
+node --check "$project_dir/gateway/src/openclaw-device-auth.js"
 node --check "$project_dir/gateway/src/server.js"
 node --check "$project_dir/scripts/build-emoji-assets.mjs"
 if [ "$(uname -s)" = Darwin ]; then

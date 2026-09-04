@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createServer } from '../src/server.js';
 
-async function withServer(client, callback) {
-  const server = createServer({ beeperClient: client, gatewayToken: 'gateway-secret' });
+async function withServer(client, callback, options = {}) {
+  const server = createServer({ beeperClient: client, gatewayToken: 'gateway-secret', ...options });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   try {
@@ -90,6 +90,9 @@ test('configuration page supports editing an existing paired connection', async 
     assert.match(html, /Low Priority/);
     assert.match(html, /Archived/);
     assert.match(html, /inboxes:inboxes/);
+    assert.match(html, /Show pending OpenClaw approvals/);
+    assert.match(html, /Allow once and Deny/);
+    assert.match(html, /openClawApprovals/);
     assert.match(html, /Link Apple conversations/);
     assert.match(html, /appleCandidates/);
     assert.match(html, /appleAliases:savedAppleAliases/);
@@ -105,6 +108,30 @@ test('configuration page supports editing an existing paired connection', async 
     assert.match(html, /buttonBindings:buttonBindings/);
     assert.match(html, /scrollLines:Number/);
   });
+});
+
+test('OpenClaw approval routes expose sanitized items and only exact one-time decisions', async () => {
+  const decisions = [];
+  const openClawClient = {
+    status: () => ({state:'paired'}),
+    listApprovals: async () => [{id:'approval-1',summary:'exec\n\nUpdate a package',createdAt:123,expiresAt:456}],
+    resolveApproval: async (id, decision) => { decisions.push({id,decision}); return {ok:true,decision}; },
+    stop: () => {}
+  };
+  await withServer({listChats:async () => []}, async (baseURL) => {
+    const headers = {Authorization:'Bearer gateway-secret'};
+    const listed = await fetch(`${baseURL}/v1/openclaw/approvals`, {headers});
+    assert.deepEqual(await listed.json(), {items:[{id:'approval-1',summary:'exec\n\nUpdate a package',createdAt:123,expiresAt:456}]});
+    const rejected = await fetch(`${baseURL}/v1/openclaw/approvals/approval-1/decision`, {
+      method:'POST', headers:{...headers,'Content-Type':'application/json'}, body:JSON.stringify({decision:'allow-always'})
+    });
+    assert.equal(rejected.status, 400);
+    const allowed = await fetch(`${baseURL}/v1/openclaw/approvals/approval-1/decision`, {
+      method:'POST', headers:{...headers,'Content-Type':'application/json'}, body:JSON.stringify({decision:'allow-once'})
+    });
+    assert.equal(allowed.status, 200);
+    assert.deepEqual(decisions, [{id:'approval-1',decision:'allow-once'}]);
+  }, {openClawClient});
 });
 
 test('message history pagination forwards the opaque cursor', async () => {

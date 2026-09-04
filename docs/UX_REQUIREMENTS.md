@@ -111,6 +111,17 @@ review, and information must remain understandable without color.
 - Preserve failed text and offer Retry and Cancel.
 - Use a client-generated operation ID to prevent duplicate sends during retries.
 
+## OpenClaw approvals
+
+- Keep OpenClaw integration off by default and require explicit Connector-side enablement plus a
+  separate phone Settings opt-in.
+- Show a synthetic OpenClaw conversation only when at least one protected action is pending.
+- Present sanitized action summaries and bind each watch row to its exact opaque pending ID.
+- Immediately revalidate that ID before resolving it. Offer only Allow once and Deny, never a
+  standing grant.
+- Keep the OpenClaw private key and scoped device token on the Mac; never put either in PebbleKit JS
+  storage or AppMessage packets.
+
 ## Attachments
 
 - Show a visible media label in the message row; never replace text with a blank row.

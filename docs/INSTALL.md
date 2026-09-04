@@ -102,6 +102,19 @@ pairing code and phone instructions together. On the phone, open **Pebble → Be
    same alias as a manual fallback.
 5. Tap **Test connection & pair**, then save.
 
+### Optional: OpenClaw approvals
+
+If you use OpenClaw, expand **Advanced options** in Beepster Connector and select **OpenClaw
+Approvals**. Read and accept the security explanation. Beepster creates its own device identity and
+requests only `operator.approvals`; its private key and scoped
+token remain in `~/Library/Application Support/Beepster` on the Mac. If OpenClaw asks for approval,
+review the device named **Beepster Connector** in the OpenClaw app and approve it.
+
+Then open Beepster Settings on the phone and turn on **Show pending OpenClaw approvals**. No Terminal
+command is required. When a protected action is waiting, **OpenClaw Approvals** appears at the top
+of the watch inbox. Open it, select the exact action, and choose **Allow once** or **Deny**. Beepster
+does not expose Allow always and cannot use this feature to create standing permission.
+
 The Mac and phone can share the copied address through Apple's Universal Clipboard. If that is not
 enabled, the Connector also displays the address so it can be entered manually; no Terminal lookup
 is needed. Use the complete address exactly as shown, including its HTTPS port when present.

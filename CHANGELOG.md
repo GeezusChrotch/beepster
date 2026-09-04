@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added optional OpenClaw protected-action review as a synthetic watch conversation, with exact
+  pending-ID revalidation and only Allow once or Deny decisions.
+- Added Connector-led OpenClaw setup, a separate scoped device identity stored only on the Mac,
+  watch Settings opt-in, live approval polling, tests, and end-user documentation.
+
 ## 0.11.0 — Privacy-clean invitation beta
 
 - Removed development source maps and absolute local build paths from distributed watch and Mac

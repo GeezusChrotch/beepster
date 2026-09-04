@@ -1080,6 +1080,12 @@ static void send_quick_reply_to_phone(int index, bool create_request_id) {
   dict_write_int32(iterator, MESSAGE_KEY_INDEX, index);
   dict_write_cstring(iterator, MESSAGE_KEY_QUICK_REPLY_TEXT, s_quick_replies[index]);
   dict_write_cstring(iterator, MESSAGE_KEY_REPLY_REQUEST_ID, s_reply_request_id);
+  if (strcmp(s_active_chat_id, "beepster-openclaw-approvals") == 0 && s_message_menu) {
+    MenuIndex selected = menu_layer_get_selected_index(s_message_menu);
+    if (selected.section == 0 && selected.row < s_message_count && s_messages[selected.row].id[0]) {
+      dict_write_cstring(iterator, MESSAGE_KEY_MSG_ID, s_messages[selected.row].id);
+    }
+  }
   result = app_message_outbox_send();
   s_reply_state = result == APP_MSG_OK ? VIEW_REPLY_SENDING : VIEW_REPLY_RETRYABLE;
   if (result == APP_MSG_OK) start_reply_ack_timer();
@@ -1356,6 +1362,10 @@ static void toggle_chat_pin_at_index(MenuIndex *index) {
   if (!index) return;
   int from = chat_index_for_row(index->row);
   if (from < 0) return;
+  if (strcmp(s_chats[from].id, "beepster-openclaw-approvals") == 0) {
+    vibes_short_pulse();
+    return;
+  }
   bool pinned = !s_chats[from].pinned;
   s_chats[from].pinned = pinned;
   copy_text(s_pending_pin_chat_id, sizeof(s_pending_pin_chat_id), s_chats[from].id);
@@ -1631,6 +1641,10 @@ static MenuIndex selected_chat_row(void) {
 
 static void toggle_active_chat_pin(void) {
   if (!s_active_chat_id[0]) return;
+  if (strcmp(s_active_chat_id, "beepster-openclaw-approvals") == 0) {
+    vibes_short_pulse();
+    return;
+  }
   bool pinned = !s_active_chat_pinned;
   if (!request_chat_pin(s_active_chat_id, pinned)) {
     vibes_double_pulse();
@@ -1659,10 +1673,14 @@ static void toggle_active_chat_pin(void) {
 
 static void perform_button_action(ButtonAction action, bool message_view) {
   if (message_view) {
+    bool approval_chat = strcmp(s_active_chat_id, "beepster-openclaw-approvals") == 0;
     switch (action) {
       case BUTTON_ACTION_SCROLL_UP: message_move_selection(-1); break;
       case BUTTON_ACTION_SCROLL_DOWN: message_move_selection(1); break;
-      case BUTTON_ACTION_DICTATE: thread_dictate(NULL, NULL); break;
+      case BUTTON_ACTION_DICTATE:
+        if (approval_chat) thread_quick_replies(NULL, NULL);
+        else thread_dictate(NULL, NULL);
+        break;
       case BUTTON_ACTION_QUICK_REPLY: thread_quick_replies(NULL, NULL); break;
       case BUTTON_ACTION_PIN_TOGGLE: toggle_active_chat_pin(); break;
       case BUTTON_ACTION_JUMP_NEWEST: message_jump_newest(NULL, NULL); break;
@@ -1683,14 +1701,20 @@ static void perform_button_action(ButtonAction action, bool message_view) {
     case BUTTON_ACTION_OPEN_CHAT: open_chat_at_index(&selected); break;
     case BUTTON_ACTION_DICTATE:
       if (chat_index_for_row(selected.row) >= 0) {
+        int selected_index = chat_index_for_row(selected.row);
+        bool approval_chat = selected_index >= 0 &&
+          strcmp(s_chats[selected_index].id, "beepster-openclaw-approvals") == 0;
         open_chat_at_index(&selected);
-        thread_dictate(NULL, NULL);
+        if (!approval_chat) thread_dictate(NULL, NULL);
       }
       break;
     case BUTTON_ACTION_QUICK_REPLY:
       if (chat_index_for_row(selected.row) >= 0) {
+        int selected_index = chat_index_for_row(selected.row);
+        bool approval_chat = selected_index >= 0 &&
+          strcmp(s_chats[selected_index].id, "beepster-openclaw-approvals") == 0;
         open_chat_at_index(&selected);
-        thread_quick_replies(NULL, NULL);
+        if (!approval_chat) thread_quick_replies(NULL, NULL);
       }
       break;
     case BUTTON_ACTION_PIN_TOGGLE: toggle_chat_pin_at_index(&selected); break;
@@ -2349,11 +2373,13 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
 }
 
 static bool reply_is_emoji_section(uint16_t section) {
+  if (strcmp(s_active_chat_id, "beepster-openclaw-approvals") == 0) return false;
   return s_quick_reply_count > 0 ? section == 1 : section == 0;
 }
 
 static uint16_t reply_sections(MenuLayer *menu_layer, void *context) {
-  return s_reply_showing_status ? 1 : (s_quick_reply_count > 0 ? 2 : 1);
+  if (s_reply_showing_status || strcmp(s_active_chat_id, "beepster-openclaw-approvals") == 0) return 1;
+  return s_quick_reply_count > 0 ? 2 : 1;
 }
 
 static uint16_t reply_rows(MenuLayer *menu_layer, uint16_t section, void *context) {
@@ -2378,7 +2404,9 @@ static void draw_reply_header(GContext *ctx, const Layer *cell, uint16_t section
   graphics_context_set_fill_color(ctx, s_theme.background);
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
   graphics_context_set_text_color(ctx, s_theme.muted);
-  graphics_draw_text(ctx, reply_is_emoji_section(section) ? "Emoji replies" : "Quick replies",
+  const char *title = strcmp(s_active_chat_id, "beepster-openclaw-approvals") == 0 ?
+    "Approval action" : (reply_is_emoji_section(section) ? "Emoji replies" : "Quick replies");
+  graphics_draw_text(ctx, title,
     fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD), GRect(8, 1, bounds.size.w - 16, 20),
     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 }
