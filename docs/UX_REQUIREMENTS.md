@@ -41,13 +41,15 @@ review, and information must remain understandable without color.
 
 ## Emoji
 
-- Preserve Pebble's documented native emoji subset in Gothic 18/24 fonts.
-- Never truncate between UTF-16 surrogate halves.
-- Remove presentation selectors and skin-tone modifiers that Pebble cannot render independently.
-- Convert common unsupported emoji to meaningful aliases such as `[thinking]` or `[rocket]`.
-- Use `[emoji]` only when no useful alias exists; never silently delete message content.
-- Show 15 high-frequency emoji beneath saved quick replies using a single compact bitmap atlas; send
-  the corresponding Unicode emoji rather than the display bitmap.
+- Offer all fully qualified Unicode Emoji 17.0 choices in the Mac-hosted Settings picker, using
+  consistently licensed Twemoji artwork.
+- Let users choose and order exactly 15 bitmap emoji beneath saved quick replies; send the original
+  Unicode sequence rather than the display bitmap.
+- Replace emoji in chat text with inline bitmap cells, including variation selectors, skin tones,
+  flags, and zero-width-joiner sequences.
+- Keep the complete catalog off the watch. Generate and transfer only bounded atlases for the chosen
+  reply set and current chat so Pebble RAM and AppMessage traffic remain predictable.
+- Use `[emoji]` when the bounded current-chat cache is exceeded; never silently delete content.
 
 ## Rich message text
 

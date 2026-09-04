@@ -21,12 +21,15 @@ Beepster 0.9.0 keeps the full 0.8.3 feature set and changes where repeated work 
 - **Rolling chat window:** The phone follows Beeper's opaque chat cursors and caches fetched pages,
   while the watch holds at most 30 conversations. This exposes older, Low Priority, and optional
   Archived chats without consuming unbounded Pebble memory or flooding AppMessage.
+- **On-demand emoji atlases:** The Connector stores the full 3,944-entry Unicode/Twemoji catalog,
+  but crops and sends only the 15 chosen reply icons or the bounded set needed by the current chat.
+  Reply bitmaps are released when the chooser closes, keeping them from competing with message media.
 
 ## Current resource envelope
 
-The 0.9.0 Emery build uses about 102 KB of flash resources and 60 KB of static/runtime footprint,
-leaving about 71 KB of reported heap. Most flash usage is the 25 combinations of five fonts and five
-sizes; removing them would directly reduce theming functionality, so they remain.
+The current Emery build uses 104,658 bytes of flash resources and a 65,148-byte static/runtime
+footprint, leaving 65,924 bytes of reported heap. Most flash usage is the 25 combinations of five
+fonts and five sizes; removing them would directly reduce theming functionality, so they remain.
 
 ## Deliberately deferred
 

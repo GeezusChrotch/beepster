@@ -17,6 +17,21 @@ shown as sent until Beeper has accepted it, and a failed reply must remain recov
 See [Performance notes](docs/PERFORMANCE.md) before removing fonts, lowering message limits, or
 changing preview transport; performance work must retain documented functionality.
 
+## Rebuilding emoji assets
+
+The generated catalog and full Connector atlas are committed so release builds do not need network
+access. To refresh them, download Unicode's current `emoji-test.txt` and the Twemoji repository, then
+run:
+
+```sh
+node scripts/build-emoji-assets.mjs /path/to/emoji-test.txt \
+  /path/to/twemoji/assets/72x72 gateway/assets/emoji
+```
+
+Review the reported catalog count, run `npm run check`, and update the Unicode version and
+third-party notice if the upstream release changed. ImageMagick's `magick` command is required only
+for this regeneration step, not for development builds or end-user installation.
+
 For prerelease watch testing, build a personal PBW whose settings page points to your private
 gateway, transfer it to the phone, and open it with the Pebble mobile app:
 

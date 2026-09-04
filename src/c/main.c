@@ -15,6 +15,9 @@
 #define QUICK_REPLY_LEN 96
 #define EMOJI_REPLY_COUNT 15
 #define EMOJI_ICON_SIZE 24
+#define CHAT_EMOJI_COUNT 12
+#define CHAT_EMOJI_SIZE 18
+#define EMOJI_MARKER 0x1d
 #define MARQUEE_STEP_PIXELS 2
 #define MARQUEE_FRAME_MS 80
 #define MARQUEE_PAUSE_MS 900
@@ -100,7 +103,7 @@ typedef struct {
   const char *label;
 } EmojiReply;
 
-static const EmojiReply EMOJI_REPLIES[EMOJI_REPLY_COUNT] = {
+static const EmojiReply DEFAULT_EMOJI_REPLIES[EMOJI_REPLY_COUNT] = {
   {"\U0001F602", "Tears of joy"},
   {"\u2764\uFE0F", "Red heart"},
   {"\U0001F60D", "Heart eyes"},
@@ -201,6 +204,17 @@ static char s_quick_replies[MAX_QUICK_REPLIES][QUICK_REPLY_LEN];
 static int s_quick_reply_count;
 static GBitmap *s_emoji_atlas;
 static GBitmap *s_emoji_icons[EMOJI_REPLY_COUNT];
+static char s_emoji_reply_text[EMOJI_REPLY_COUNT][48];
+static char s_emoji_reply_label[EMOJI_REPLY_COUNT][40];
+static int s_emoji_reply_count = EMOJI_REPLY_COUNT;
+static uint8_t s_emoji_reply_cell_size = EMOJI_ICON_SIZE;
+static size_t s_emoji_reply_total;
+static size_t s_emoji_reply_received;
+static GBitmap *s_chat_emoji_atlas;
+static GBitmap *s_chat_emoji_icons[CHAT_EMOJI_COUNT];
+static uint8_t s_chat_emoji_count;
+static size_t s_chat_emoji_total;
+static size_t s_chat_emoji_received;
 static AppTimer *s_marquee_timer;
 static int16_t s_marquee_offset;
 static int16_t s_marquee_max;
@@ -477,6 +491,64 @@ static void clear_media(void) {
   s_media_height = 0;
 }
 
+static void clear_reply_emoji_atlas(void) {
+  for (int i = 0; i < EMOJI_REPLY_COUNT; i++) {
+    if (s_emoji_icons[i]) gbitmap_destroy(s_emoji_icons[i]);
+    s_emoji_icons[i] = NULL;
+  }
+  if (s_emoji_atlas) gbitmap_destroy(s_emoji_atlas);
+  s_emoji_atlas = NULL;
+  s_emoji_reply_total = 0;
+  s_emoji_reply_received = 0;
+}
+
+static void clear_chat_emoji_atlas(void) {
+  for (int i = 0; i < CHAT_EMOJI_COUNT; i++) {
+    if (s_chat_emoji_icons[i]) gbitmap_destroy(s_chat_emoji_icons[i]);
+    s_chat_emoji_icons[i] = NULL;
+  }
+  if (s_chat_emoji_atlas) gbitmap_destroy(s_chat_emoji_atlas);
+  s_chat_emoji_atlas = NULL;
+  s_chat_emoji_count = 0;
+  s_chat_emoji_total = 0;
+  s_chat_emoji_received = 0;
+}
+
+static bool write_bitmap_chunk(GBitmap *bitmap, int16_t packed_width, size_t total,
+                               size_t start, const Tuple *bytes) {
+  if (!bitmap || !bytes || start + bytes->length > total) return false;
+  uint8_t *bitmap_data = gbitmap_get_data(bitmap);
+  uint16_t stride = gbitmap_get_bytes_per_row(bitmap);
+  size_t source = 0;
+  while (source < bytes->length) {
+    size_t packed_offset = start + source;
+    size_t row = packed_offset / packed_width;
+    size_t column = packed_offset % packed_width;
+    size_t row_remaining = (size_t)packed_width - column;
+    size_t copy_length = bytes->length - source < row_remaining ? bytes->length - source : row_remaining;
+    memcpy(bitmap_data + row * stride + column, bytes->value->data + source, copy_length);
+    source += copy_length;
+  }
+  return true;
+}
+
+static void build_reply_emoji_sub_bitmaps(int16_t cell_size) {
+  if (!s_emoji_atlas || cell_size < 1) return;
+  for (int i = 0; i < s_emoji_reply_count; i++) {
+    s_emoji_icons[i] = gbitmap_create_as_sub_bitmap(s_emoji_atlas,
+      GRect((i % 5) * cell_size, (i / 5) * cell_size, cell_size, cell_size));
+  }
+  s_emoji_reply_cell_size = (uint8_t)cell_size;
+}
+
+static void build_chat_emoji_sub_bitmaps(int16_t cell_size) {
+  if (!s_chat_emoji_atlas || cell_size < 1) return;
+  for (int i = 0; i < s_chat_emoji_count; i++) {
+    s_chat_emoji_icons[i] = gbitmap_create_as_sub_bitmap(s_chat_emoji_atlas,
+      GRect((i % 4) * cell_size, (i / 4) * cell_size, cell_size, cell_size));
+  }
+}
+
 static void cancel_load_watchdog(void) {
   if (s_load_watchdog) {
     app_timer_cancel(s_load_watchdog);
@@ -654,6 +726,122 @@ static bool has_non_ascii(const char *text) {
 
 static GFont font_for_text(const char *text) {
   return has_non_ascii(text) ? gothic_font(false) : theme_font();
+}
+
+static bool has_inline_emoji(const char *text) {
+  return text && strchr(text, 0x1d) != NULL;
+}
+
+static int inline_text_width(const char *text, GFont font, int16_t height) {
+  GSize size = graphics_text_layout_get_content_size(text, font, GRect(0, 0, 1000, height),
+    GTextOverflowModeFill, GTextAlignmentLeft);
+  return size.w;
+}
+
+static int16_t inline_line_height(GFont font) {
+  GSize size = graphics_text_layout_get_content_size("Ag", font, GRect(0, 0, 100, 80),
+    GTextOverflowModeFill, GTextAlignmentLeft);
+  return size.h > CHAT_EMOJI_SIZE + 2 ? size.h : CHAT_EMOJI_SIZE + 2;
+}
+
+static int32_t layout_inline_emoji_text(GContext *ctx, const char *text, GFont font,
+                                        GRect frame, bool draw) {
+  const char *cursor = text && text[0] ? text : "[No text]";
+  int16_t line_height = inline_line_height(font);
+  int16_t x = 0;
+  int32_t y = 0;
+  while (*cursor) {
+    if (draw && y + line_height > frame.size.h) break;
+    if (*cursor == '\n') {
+      x = 0;
+      y += line_height;
+      cursor++;
+      continue;
+    }
+    if ((unsigned char)cursor[0] == EMOJI_MARKER && cursor[1] >= 'A' &&
+        cursor[1] < 'A' + CHAT_EMOJI_COUNT && (unsigned char)cursor[2] == EMOJI_MARKER) {
+      int slot = cursor[1] - 'A';
+      if (x > 0 && x + CHAT_EMOJI_SIZE > frame.size.w) {
+        x = 0;
+        y += line_height;
+      }
+      if (draw && ctx) {
+        GRect icon_frame = GRect(frame.origin.x + x,
+          frame.origin.y + y + (line_height - CHAT_EMOJI_SIZE) / 2,
+          CHAT_EMOJI_SIZE, CHAT_EMOJI_SIZE);
+        if (slot < s_chat_emoji_count && s_chat_emoji_icons[slot]) {
+          graphics_context_set_compositing_mode(ctx, GCompOpSet);
+          graphics_draw_bitmap_in_rect(ctx, s_chat_emoji_icons[slot], icon_frame);
+        } else {
+          graphics_context_set_stroke_color(ctx, s_theme.muted);
+          graphics_draw_round_rect(ctx, icon_frame, 3);
+        }
+      }
+      x += CHAT_EMOJI_SIZE + 2;
+      cursor += 3;
+      continue;
+    }
+    if (*cursor == ' ' || *cursor == '\t') {
+      int space_width = inline_text_width(" ", font, line_height);
+      if (x + space_width > frame.size.w) {
+        x = 0;
+        y += line_height;
+      } else {
+        x += space_width;
+      }
+      cursor++;
+      continue;
+    }
+
+    char token[96];
+    size_t length = 0;
+    const char *token_cursor = cursor;
+    while (*token_cursor && *token_cursor != ' ' && *token_cursor != '\t' && *token_cursor != '\n' &&
+           (unsigned char)*token_cursor != 0x1d && length < sizeof(token) - 5) {
+      unsigned char lead = (unsigned char)*token_cursor;
+      size_t character_length = lead < 0x80 ? 1 : (lead < 0xe0 ? 2 : (lead < 0xf0 ? 3 : 4));
+      if (length + character_length >= sizeof(token)) break;
+      memcpy(token + length, token_cursor, character_length);
+      length += character_length;
+      token_cursor += character_length;
+    }
+    if (length == 0) {
+      cursor++;
+      continue;
+    }
+    token[length] = '\0';
+    int token_width = inline_text_width(token, font, line_height);
+    if (x > 0 && x + token_width > frame.size.w) {
+      x = 0;
+      y += line_height;
+    }
+    if (token_width <= frame.size.w) {
+      if (draw && ctx) graphics_draw_text(ctx, token, font,
+        GRect(frame.origin.x + x, frame.origin.y + y, token_width + 3, line_height),
+        GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+      x += token_width;
+    } else {
+      const char *part = token;
+      while (*part) {
+        unsigned char lead = (unsigned char)*part;
+        size_t character_length = lead < 0x80 ? 1 : (lead < 0xe0 ? 2 : (lead < 0xf0 ? 3 : 4));
+        char character[5] = {0};
+        memcpy(character, part, character_length);
+        int character_width = inline_text_width(character, font, line_height);
+        if (x > 0 && x + character_width > frame.size.w) {
+          x = 0;
+          y += line_height;
+        }
+        if (draw && ctx) graphics_draw_text(ctx, character, font,
+          GRect(frame.origin.x + x, frame.origin.y + y, character_width + 3, line_height),
+          GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+        x += character_width;
+        part += character_length;
+      }
+    }
+    cursor = token_cursor;
+  }
+  return y + line_height;
 }
 
 static void persist_current_theme(void) {
@@ -1225,9 +1413,15 @@ static int32_t message_content_height(MenuLayer *menu_layer, Message *message,
   int16_t width = layer_get_bounds(menu_layer_get_layer(menu_layer)).size.w - 16;
   int32_t text_height = expanded ? s_expanded_text_height : message->cached_text_height;
   if (text_height <= 0) {
-    GSize text_size = graphics_text_layout_get_content_size(text && text[0] ? text : "[No text]",
-      font_for_text(text), GRect(0, 0, width, 30000), GTextOverflowModeWordWrap, GTextAlignmentLeft);
-    text_height = text_size.h > 24 ? text_size.h : 24;
+    if (has_inline_emoji(text)) {
+      text_height = layout_inline_emoji_text(NULL, text, font_for_text(text),
+        GRect(0, 0, width, 30000), false);
+    } else {
+      GSize text_size = graphics_text_layout_get_content_size(text && text[0] ? text : "[No text]",
+        font_for_text(text), GRect(0, 0, width, 30000), GTextOverflowModeWordWrap, GTextAlignmentLeft);
+      text_height = text_size.h;
+    }
+    if (text_height < 24) text_height = 24;
     if (expanded) s_expanded_text_height = text_height;
     else message->cached_text_height = text_height < INT16_MAX ? (int16_t)text_height : INT16_MAX;
   }
@@ -1291,10 +1485,15 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
     GRect(7, 1 - content_scroll + (sender_height - 14) / 2, 14, 14),
     s_active_chat_network, sender_color);
   graphics_context_set_text_color(ctx, s_theme.text);
-  graphics_draw_text(ctx, body && body[0] ? body : "[No text]",
-    font_for_text(body),
-    GRect(8, text_y, bounds.size.w - 16, text_height),
-    GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+  if (has_inline_emoji(body)) {
+    layout_inline_emoji_text(ctx, body, font_for_text(body),
+      GRect(8, text_y, bounds.size.w - 16, text_height), true);
+  } else {
+    graphics_draw_text(ctx, body && body[0] ? body : "[No text]",
+      font_for_text(body),
+      GRect(8, text_y, bounds.size.w - 16, text_height),
+      GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+  }
   if (message->attachment_kind) {
     if (expanded && s_inline_media_state == INLINE_MEDIA_READY && s_media_bitmap) {
       int image_x = (bounds.size.w - s_media_width) / 2;
@@ -1593,6 +1792,125 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
   Tuple *command = dict_find(iterator, MESSAGE_KEY_COMMAND);
   if (!command) return;
 
+  if (strcmp(command->value->cstring, "emoji_reply") == 0) {
+    Tuple *index = dict_find(iterator, MESSAGE_KEY_INDEX);
+    Tuple *text = dict_find(iterator, MESSAGE_KEY_QUICK_REPLY_TEXT);
+    Tuple *label = dict_find(iterator, MESSAGE_KEY_CHAT_NAME);
+    if (!index || !text || !label || index->value->int32 < 0 || index->value->int32 >= EMOJI_REPLY_COUNT) return;
+    int slot = index->value->int32;
+    copy_text(s_emoji_reply_text[slot], sizeof(s_emoji_reply_text[slot]), text->value->cstring);
+    copy_text(s_emoji_reply_label[slot], sizeof(s_emoji_reply_label[slot]), label->value->cstring);
+    return;
+  }
+
+  if (strcmp(command->value->cstring, "emoji_replies_ready") == 0) {
+    Tuple *total = dict_find(iterator, MESSAGE_KEY_TOTAL);
+    int count = total ? total->value->int32 : EMOJI_REPLY_COUNT;
+    s_emoji_reply_count = count < 0 ? 0 : (count > EMOJI_REPLY_COUNT ? EMOJI_REPLY_COUNT : count);
+    if (s_reply_menu) menu_layer_reload_data(s_reply_menu);
+    return;
+  }
+
+  if (strcmp(command->value->cstring, "emoji_replies_defaults") == 0) {
+    clear_reply_emoji_atlas();
+    s_emoji_atlas = gbitmap_create_with_resource(RESOURCE_ID_EMOJI_ATLAS);
+    build_reply_emoji_sub_bitmaps(EMOJI_ICON_SIZE);
+    if (s_reply_menu) layer_mark_dirty(menu_layer_get_layer(s_reply_menu));
+    return;
+  }
+
+  if (strcmp(command->value->cstring, "emoji_replies_start") == 0) {
+    Tuple *width = dict_find(iterator, MESSAGE_KEY_MEDIA_WIDTH);
+    Tuple *height = dict_find(iterator, MESSAGE_KEY_MEDIA_HEIGHT);
+    Tuple *total = dict_find(iterator, MESSAGE_KEY_MEDIA_TOTAL);
+    Tuple *count = dict_find(iterator, MESSAGE_KEY_TOTAL);
+    int16_t atlas_width = width ? width->value->int32 : 0;
+    int16_t atlas_height = height ? height->value->int32 : 0;
+    size_t requested = total ? total->value->uint32 : 0;
+    int requested_count = count ? count->value->int32 : 0;
+    clear_reply_emoji_atlas();
+    if (atlas_width < 5 || atlas_width % 5 != 0 || atlas_height < atlas_width / 5 ||
+        requested != (size_t)atlas_width * atlas_height || requested > 12000 ||
+        requested_count < 1 || requested_count > EMOJI_REPLY_COUNT ||
+        atlas_height < ((requested_count + 4) / 5) * (atlas_width / 5)) return;
+    s_emoji_reply_count = requested_count;
+    s_emoji_reply_cell_size = (uint8_t)(atlas_width / 5);
+    s_emoji_reply_total = requested;
+    s_emoji_atlas = gbitmap_create_blank(GSize(atlas_width, atlas_height), GBitmapFormat8Bit);
+    return;
+  }
+
+  if (strcmp(command->value->cstring, "emoji_replies_chunk") == 0) {
+    Tuple *offset = dict_find(iterator, MESSAGE_KEY_MEDIA_OFFSET);
+    Tuple *bytes = dict_find(iterator, MESSAGE_KEY_MEDIA_BYTES);
+    size_t start = offset ? offset->value->uint32 : s_emoji_reply_total;
+    if (write_bitmap_chunk(s_emoji_atlas, s_emoji_reply_cell_size * 5,
+        s_emoji_reply_total, start, bytes)) s_emoji_reply_received += bytes->length;
+    return;
+  }
+
+  if (strcmp(command->value->cstring, "emoji_replies_end") == 0) {
+    if (s_emoji_atlas && s_emoji_reply_received == s_emoji_reply_total) {
+      build_reply_emoji_sub_bitmaps(s_emoji_reply_cell_size);
+      if (s_reply_menu) layer_mark_dirty(menu_layer_get_layer(s_reply_menu));
+    }
+    return;
+  }
+
+  if (strcmp(command->value->cstring, "chat_emoji_clear") == 0) {
+    clear_chat_emoji_atlas();
+    invalidate_message_layouts();
+    if (s_message_menu) menu_layer_reload_data(s_message_menu);
+    return;
+  }
+
+  if (strcmp(command->value->cstring, "chat_emoji_defaults") == 0) {
+    clear_chat_emoji_atlas();
+    s_chat_emoji_count = CHAT_EMOJI_COUNT;
+    s_chat_emoji_atlas = gbitmap_create_with_resource(RESOURCE_ID_EMOJI_CHAT_DEFAULT);
+    build_chat_emoji_sub_bitmaps(CHAT_EMOJI_SIZE);
+    invalidate_message_layouts();
+    if (s_message_menu) menu_layer_reload_data(s_message_menu);
+    return;
+  }
+
+  if (strcmp(command->value->cstring, "chat_emoji_start") == 0) {
+    Tuple *width = dict_find(iterator, MESSAGE_KEY_MEDIA_WIDTH);
+    Tuple *height = dict_find(iterator, MESSAGE_KEY_MEDIA_HEIGHT);
+    Tuple *total = dict_find(iterator, MESSAGE_KEY_MEDIA_TOTAL);
+    Tuple *count = dict_find(iterator, MESSAGE_KEY_TOTAL);
+    int16_t atlas_width = width ? width->value->int32 : 0;
+    int16_t atlas_height = height ? height->value->int32 : 0;
+    size_t requested = total ? total->value->uint32 : 0;
+    int requested_count = count ? count->value->int32 : 0;
+    clear_chat_emoji_atlas();
+    if (atlas_width != CHAT_EMOJI_SIZE * 4 || atlas_height < CHAT_EMOJI_SIZE ||
+        requested != (size_t)atlas_width * atlas_height || requested > 8000 ||
+        requested_count < 0 || requested_count > CHAT_EMOJI_COUNT) return;
+    s_chat_emoji_count = (uint8_t)requested_count;
+    s_chat_emoji_total = requested;
+    s_chat_emoji_atlas = gbitmap_create_blank(GSize(atlas_width, atlas_height), GBitmapFormat8Bit);
+    return;
+  }
+
+  if (strcmp(command->value->cstring, "chat_emoji_chunk") == 0) {
+    Tuple *offset = dict_find(iterator, MESSAGE_KEY_MEDIA_OFFSET);
+    Tuple *bytes = dict_find(iterator, MESSAGE_KEY_MEDIA_BYTES);
+    size_t start = offset ? offset->value->uint32 : s_chat_emoji_total;
+    if (write_bitmap_chunk(s_chat_emoji_atlas, CHAT_EMOJI_SIZE * 4,
+        s_chat_emoji_total, start, bytes)) s_chat_emoji_received += bytes->length;
+    return;
+  }
+
+  if (strcmp(command->value->cstring, "chat_emoji_end") == 0) {
+    if (s_chat_emoji_atlas && s_chat_emoji_received == s_chat_emoji_total) {
+      build_chat_emoji_sub_bitmaps(CHAT_EMOJI_SIZE);
+      invalidate_message_layouts();
+      if (s_message_menu) menu_layer_reload_data(s_message_menu);
+    }
+    return;
+  }
+
   if (strcmp(command->value->cstring, "button_binding") == 0) {
     Tuple *index = dict_find(iterator, MESSAGE_KEY_INDEX);
     Tuple *action = dict_find(iterator, MESSAGE_KEY_STATE);
@@ -1646,6 +1964,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     s_inline_attachment_id[0] = '\0';
     s_inline_media_state = INLINE_MEDIA_NONE;
     clear_media();
+    clear_chat_emoji_atlas();
     s_message_count = 0;
     memset(s_messages, 0, sizeof(s_messages));
     return;
@@ -2012,7 +2331,7 @@ static uint16_t reply_sections(MenuLayer *menu_layer, void *context) {
 
 static uint16_t reply_rows(MenuLayer *menu_layer, uint16_t section, void *context) {
   if (s_reply_showing_status) return 0;
-  return reply_is_emoji_section(section) ? EMOJI_REPLY_COUNT : (uint16_t)s_quick_reply_count;
+  return reply_is_emoji_section(section) ? (uint16_t)s_emoji_reply_count : (uint16_t)s_quick_reply_count;
 }
 
 static int16_t reply_row_height(MenuLayer *menu_layer, MenuIndex *index, void *context) {
@@ -2032,7 +2351,7 @@ static void draw_reply_header(GContext *ctx, const Layer *cell, uint16_t section
   graphics_context_set_fill_color(ctx, s_theme.background);
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
   graphics_context_set_text_color(ctx, s_theme.muted);
-  graphics_draw_text(ctx, reply_is_emoji_section(section) ? "Popular emoji" : "Quick replies",
+  graphics_draw_text(ctx, reply_is_emoji_section(section) ? "Emoji replies" : "Quick replies",
     fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD), GRect(8, 1, bounds.size.w - 16, 20),
     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 }
@@ -2043,13 +2362,14 @@ static void draw_reply(GContext *ctx, const Layer *cell, MenuIndex *index, void 
   GRect bounds = layer_get_bounds(cell);
   if (reply_is_emoji_section(index->section)) {
     int emoji_index = index->row;
-    if (emoji_index < 0 || emoji_index >= EMOJI_REPLY_COUNT) return;
+    if (emoji_index < 0 || emoji_index >= s_emoji_reply_count) return;
     if (s_emoji_icons[emoji_index]) {
       graphics_context_set_compositing_mode(ctx, GCompOpSet);
       graphics_draw_bitmap_in_rect(ctx, s_emoji_icons[emoji_index],
-        GRect(8, (bounds.size.h - EMOJI_ICON_SIZE) / 2, EMOJI_ICON_SIZE, EMOJI_ICON_SIZE));
+        GRect(8, (bounds.size.h - s_emoji_reply_cell_size) / 2,
+          s_emoji_reply_cell_size, s_emoji_reply_cell_size));
     }
-    draw_marquee_text(ctx, EMOJI_REPLIES[emoji_index].label, theme_font(),
+    draw_marquee_text(ctx, s_emoji_reply_label[emoji_index], theme_font(),
       GRect(42, 3, bounds.size.w - 50, bounds.size.h - 6), selected);
     return;
   }
@@ -2063,9 +2383,9 @@ static void draw_reply(GContext *ctx, const Layer *cell, MenuIndex *index, void 
 static void reply_selected(MenuLayer *menu_layer, MenuIndex *index, void *context) {
   if (reply_is_emoji_section(index->section)) {
     int emoji_index = index->row;
-    if (emoji_index < 0 || emoji_index >= EMOJI_REPLY_COUNT) return;
+    if (emoji_index < 0 || emoji_index >= s_emoji_reply_count) return;
     s_pending_quick_reply_index = -1;
-    copy_text(s_reply_text, sizeof(s_reply_text), EMOJI_REPLIES[emoji_index].text);
+    copy_text(s_reply_text, sizeof(s_reply_text), s_emoji_reply_text[emoji_index]);
     new_reply_request_id();
     send_reply_to_phone();
     return;
@@ -2094,14 +2414,15 @@ static void reply_load(Window *window) {
   menu_layer_set_click_config_onto_window(s_reply_menu, window);
   layer_add_child(root, menu_layer_get_layer(s_reply_menu));
 
-  s_emoji_atlas = gbitmap_create_with_resource(RESOURCE_ID_EMOJI_ATLAS);
-  if (s_emoji_atlas) {
-    for (int i = 0; i < EMOJI_REPLY_COUNT; i++) {
-      s_emoji_icons[i] = gbitmap_create_as_sub_bitmap(s_emoji_atlas,
-        GRect((i % 5) * EMOJI_ICON_SIZE, (i / 5) * EMOJI_ICON_SIZE,
-          EMOJI_ICON_SIZE, EMOJI_ICON_SIZE));
-    }
+  bool using_defaults = s_emoji_reply_count == EMOJI_REPLY_COUNT;
+  for (int i = 0; i < s_emoji_reply_count && using_defaults; i++) {
+    using_defaults = strcmp(s_emoji_reply_text[i], DEFAULT_EMOJI_REPLIES[i].text) == 0;
   }
+  if (using_defaults) {
+    s_emoji_atlas = gbitmap_create_with_resource(RESOURCE_ID_EMOJI_ATLAS);
+    build_reply_emoji_sub_bitmaps(EMOJI_ICON_SIZE);
+  }
+  (void)request_command("load_emoji_replies", NULL);
 
   s_reply_status_layer = text_layer_create(GRect(14, 58, bounds.size.w - 28, 110));
   text_layer_set_background_color(s_reply_status_layer, s_theme.background);
@@ -2115,12 +2436,7 @@ static void reply_load(Window *window) {
 }
 
 static void reply_unload(Window *window) {
-  for (int i = 0; i < EMOJI_REPLY_COUNT; i++) {
-    if (s_emoji_icons[i]) gbitmap_destroy(s_emoji_icons[i]);
-    s_emoji_icons[i] = NULL;
-  }
-  if (s_emoji_atlas) gbitmap_destroy(s_emoji_atlas);
-  s_emoji_atlas = NULL;
+  clear_reply_emoji_atlas();
   menu_layer_destroy(s_reply_menu);
   text_layer_destroy(s_reply_status_layer);
   s_reply_menu = NULL;
@@ -2297,6 +2613,7 @@ static void message_unload(Window *window) {
   s_detail_capacity = 0;
   s_expanded_message_loaded = false;
   clear_media();
+  clear_chat_emoji_atlas();
   menu_layer_destroy(s_message_menu);
   text_layer_destroy(s_message_status_layer);
   s_message_menu = NULL;
@@ -2323,6 +2640,10 @@ static void init(void) {
     if (persist_exists(PERSIST_QUICK_REPLY_BASE + i)) {
       persist_read_string(PERSIST_QUICK_REPLY_BASE + i, s_quick_replies[i], sizeof(s_quick_replies[i]));
     }
+  }
+  for (int i = 0; i < EMOJI_REPLY_COUNT; i++) {
+    copy_text(s_emoji_reply_text[i], sizeof(s_emoji_reply_text[i]), DEFAULT_EMOJI_REPLIES[i].text);
+    copy_text(s_emoji_reply_label[i], sizeof(s_emoji_reply_label[i]), DEFAULT_EMOJI_REPLIES[i].label);
   }
   if (persist_get_size(PERSIST_BUTTON_ACTIONS) == sizeof(s_button_actions)) {
     uint8_t saved_actions[BUTTON_BINDING_COUNT];
@@ -2400,6 +2721,8 @@ static void deinit(void) {
   s_chat_capacity = 0;
   unload_custom_theme_font();
   clear_media();
+  clear_reply_emoji_atlas();
+  clear_chat_emoji_atlas();
   window_destroy(s_media_window);
   window_destroy(s_reply_window);
   window_destroy(s_detail_window);

@@ -28,6 +28,34 @@ test('health is public but chat data requires gateway authentication', async () 
   });
 });
 
+test('emoji catalog is public while compact watch atlases require authentication', async () => {
+  await withServer({ listChats: async () => [] }, async (baseURL) => {
+    const catalogResponse = await fetch(`${baseURL}/emoji/catalog.json`);
+    assert.equal(catalogResponse.status, 200);
+    const catalog = await catalogResponse.json();
+    assert.ok(catalog.entries.length >= 3900);
+
+    const imageResponse = await fetch(`${baseURL}/emoji/atlas.png`);
+    assert.equal(imageResponse.status, 200);
+    assert.equal(imageResponse.headers.get('content-type'), 'image/png');
+    assert.ok((await imageResponse.arrayBuffer()).byteLength > 100000);
+
+    const path = `${baseURL}/v1/emoji/atlas`;
+    assert.equal((await fetch(path, {method:'POST'})).status, 401);
+    const response = await fetch(path, {
+      method:'POST',
+      headers:{Authorization:'Bearer gateway-secret','Content-Type':'application/json'},
+      body:JSON.stringify({keys:['1f602','2764'],size:18,columns:4})
+    });
+    assert.equal(response.status, 200);
+    const atlas = await response.json();
+    assert.equal(atlas.width, 72);
+    assert.equal(atlas.height, 18);
+    assert.deepEqual(atlas.entries.map(entry => entry.key), ['1f602','2764']);
+    assert.equal(Buffer.from(atlas.pixels, 'base64').length, 72 * 18);
+  });
+});
+
 test('configuration page supports editing an existing paired connection', async () => {
   await withServer({ listChats: async () => [] }, async (baseURL) => {
     const html = await (await fetch(`${baseURL}/configure`)).text();
@@ -48,6 +76,11 @@ test('configuration page supports editing an existing paired connection', async 
     }
     assert.match(html, /Add up to eight replies/);
     assert.match(html, /quickReply.*maxLength=240/);
+    assert.match(html, /Choose and order 15 bitmap emoji/);
+    assert.match(html, /emojiSlots/);
+    assert.match(html, /emojiSearch/);
+    assert.match(html, /emoji\/catalog\.json/);
+    assert.match(html, /emojiReplies:emojiReplies/);
     assert.match(html, /Included services/);
     assert.match(html, /Apple Messages/);
     assert.match(html, /Beeper \/ Matrix/);

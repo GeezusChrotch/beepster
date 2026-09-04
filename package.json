@@ -98,6 +98,15 @@
           ]
         },
         {
+          "type": "bitmap",
+          "name": "EMOJI_CHAT_DEFAULT",
+          "file": "images/emoji-chat-default.png",
+          "memoryFormat": "Smallest",
+          "targetPlatforms": [
+            "emery"
+          ]
+        },
+        {
           "type": "font",
           "name": "INTER_14",
           "file": "fonts/Inter-Regular.ttf",

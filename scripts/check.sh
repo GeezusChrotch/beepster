@@ -7,9 +7,11 @@ node --check "$project_dir/src/pkjs/index.js"
 node --check "$project_dir/gateway/src/beeper-client.js"
 node --check "$project_dir/gateway/src/contact-resolver.js"
 node --check "$project_dir/gateway/src/emoji.js"
+node --check "$project_dir/gateway/src/emoji-assets.js"
 node --check "$project_dir/gateway/src/image-preview.js"
 node --check "$project_dir/gateway/src/html-to-text.js"
 node --check "$project_dir/gateway/src/server.js"
+node --check "$project_dir/scripts/build-emoji-assets.mjs"
 if [ "$(uname -s)" = Darwin ]; then
   swiftc -target "$(uname -m)-apple-macosx13.0" -framework AppKit -framework Security -typecheck "$project_dir/mac/BeepsterConnector.swift"
   plutil -lint "$project_dir/mac/BeepsterConnector-Info.plist" "$project_dir/mac/BeepsterContacts-Info.plist" >/dev/null

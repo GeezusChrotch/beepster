@@ -1,4 +1,5 @@
 import { normalizeEmojiForPebble } from './emoji.js';
+import { tokenizeEmojiForWatch } from './emoji-assets.js';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -456,10 +457,14 @@ export class BeeperClient {
     const items = (result.items || []).slice(0, MAX_MESSAGE_PAGE).reverse().map((message) => {
       const attachment = (message.attachments || []).map((item, index) =>
         this.rememberAttachment(message.id, item, index)).find(Boolean) || null;
+      const text = htmlToText(message.text || '');
+      const watch = tokenizeEmojiForWatch(text);
       return {
         id: message.id,
         sender: normalizeEmojiForPebble(this.resolveMessageSender(chatID, message)),
-        text: normalizeEmojiForPebble(htmlToText(message.text || '')),
+        text,
+        watchText: watch.text,
+        emojiKeys: watch.keys,
         time: normalizeTime(message.timestamp),
         timestamp: message.timestamp || '',
         attachment

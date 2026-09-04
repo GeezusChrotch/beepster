@@ -3,7 +3,7 @@
 ![Beepster](assets/store/beepster-header-1000x320.png)
 
 Beepster is a readable, reliable, open-source Beeper client for Pebble Time 2. It brings recent
-chats, complete message text, voice dictation, saved replies, themes, emoji fallbacks, and inline
+chats, complete message text, voice dictation, saved replies, themes, bitmap emoji, and inline
 photo previews to the watch without putting a Beeper credential on the watch or phone.
 
 Version 0.9.0 is the public-release candidate. The self-contained Mac Connector and watch app are
@@ -40,11 +40,11 @@ The Connector window can be closed after setup; its login background service con
 - Complete in-thread message text with configurable one-to-eight-line scrolling
 - Fully configurable press and hold actions for all three buttons in both inbox and chat views
 - Voice dictation with confirmation and delivery tracking
-- Up to eight text-or-emoji quick replies, followed by 15 bitmap-rendered popular emoji
+- Up to eight text-or-emoji quick replies, followed by 15 user-chosen, reorderable bitmap emoji
 - Static photo, GIF-poster, and video-poster previews, including Instagram media
 - HTML cleanup for rich Instagram messages
 - Six presets and saved custom themes using five font families and five sizes
-- Pebble-native emoji where possible, with readable text fallbacks elsewhere
+- Twemoji bitmap rendering in chats, including multi-codepoint families, flags, and skin tones
 - Explicit setup, loading, empty, timeout, offline, and retry states
 - Self-contained, Keychain-backed Mac Connector with one-pass setup, combined phone pairing,
   end-to-end readiness checks, advanced repair controls, and idempotent reply transport

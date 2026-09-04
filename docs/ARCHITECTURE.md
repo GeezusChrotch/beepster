@@ -13,9 +13,15 @@ Beeper Desktop API
 The gateway subscribes to or queries the official Beeper Desktop API and returns a deliberately
 small watch-oriented payload. It is responsible for contact resolution, opaque-cursor pagination,
 reply delivery tracking, bounded stale-data fallback, an eight-entry memory-only preview cache,
-credential protection, and temporary attachment conversion. Attachment
+emoji tokenization and atlas generation, credential protection, and temporary attachment conversion. Attachment
 source URLs never cross the gateway boundary: the phone receives an opaque ID and a bounded stream
 of watch-native pixels.
+
+The Connector bundles the complete Unicode Emoji 17.0 metadata and a quantized Twemoji atlas. Its
+settings page uses the full catalog for visual search and ordering. For watch display, the gateway
+crops only the requested reply or current-chat cells into a compact 8-bit Pebble atlas; the phone
+streams that atlas and maps message tokens to stable local slots. The complete atlas and catalog are
+never loaded into watch memory.
 
 For an Apple message participant that Beeper exposes only as an email address or phone number, the
 gateway can invoke the local `beepster-contacts` helper. The helper scans macOS Contacts locally for

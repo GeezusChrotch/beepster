@@ -70,6 +70,19 @@ test('chat and message requests are bounded and normalized', async () => {
   assert.deepEqual(paths, ['/v1/chats/search?limit=12&type=any&inbox=primary', '/v1/chats/chat-1/messages?limit=12']);
 });
 
+test('messages keep their original emoji while exposing bitmap tokens for the watch', async () => {
+  const fetchImpl = async () => new Response(JSON.stringify({items:[{
+    id:'emoji-message',senderName:'Avery',text:'Nice 😂 👨‍👩‍👧 👍🏽',timestamp:'2026-09-03T18:00:00Z'
+  }]}), {status:200});
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl});
+  const message = (await client.listMessages('emoji-chat', 12)).items[0];
+  assert.equal(message.text, 'Nice 😂 👨‍👩‍👧 👍🏽');
+  assert.equal(message.watchText,
+    'Nice \u001e1f602\u001f \u001e1f468-200d-1f469-200d-1f467\u001f \u001e1f44d-1f3fd\u001f');
+  assert.deepEqual(message.emojiKeys,
+    ['1f602','1f468-200d-1f469-200d-1f467','1f44d-1f3fd']);
+});
+
 test('missing participant names can be filled from the account contact list', async () => {
   const fetchImpl = async (url) => {
     if (url.includes('/contacts/list')) return new Response(JSON.stringify({items:[{id:'person-1',fullName:'Contact Book Name'}]}), {status:200});

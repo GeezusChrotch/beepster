@@ -59,11 +59,14 @@ Hold Top in a thread, then select one of up to eight saved replies. Quick replie
 emoji. Beepster sends the original saved reply even when the watch must display an unsupported emoji
 as a readable fallback.
 
-Below the saved replies, the **Popular emoji** section offers 15 common emoji as crisp bitmap icons.
-Selecting one sends the real emoji character; the image is only used for the watch menu display. This
-section remains available even when no saved replies are configured.
+Below the saved replies, the **Emoji replies** section offers 15 crisp bitmap icons. In Settings,
+select any slot to search or browse the complete emoji catalog, then use the arrow controls to put
+the choices in your preferred order. Selecting one on the watch sends the real Unicode emoji; the
+image is only its watch display. This section remains available even when no saved replies are
+configured.
 
-Edit replies in **Pebble mobile app → Beepster → Settings**. Blank slots are omitted.
+Edit replies and emoji slots in **Pebble mobile app → Beepster → Settings**. Blank quick-reply slots
+are omitted; all 15 emoji slots remain available.
 
 ## Custom button controls
 
@@ -122,8 +125,11 @@ mid-thread color or size change as a bug.
 
 ## Emoji and rich messages
 
-Pebble's font engine has limited emoji coverage. Supported symbols render natively. Unsupported
-emoji become meaningful short labels such as `[thinking]`, `[rocket]`, or `[flag]` so content is not
+The Mac Connector includes the complete Unicode Emoji 17.0 catalog and matching Twemoji artwork.
+Emoji in the active part of a chat are sent as a small Pebble-ready bitmap atlas, so faces, skin
+tones, flags, families, and other joined sequences no longer depend on Pebble's limited fonts. The
+watch keeps a bounded set of current emoji images in memory; if an unusually emoji-heavy loaded
+history exceeds that cache, additional symbols use a visible `[emoji]` fallback rather than being
 silently lost. Instagram-style HTML is converted into readable paragraphs before reaching the watch.
 
 ## Photos, GIFs, and video

@@ -2,8 +2,10 @@
 
 ## Unreleased
 
-- Added a **Popular emoji** section beneath saved quick replies with 15 bitmap-rendered choices that
-  send their corresponding Unicode emoji.
+- Added a complete 3,944-entry Unicode Emoji 17.0/Twemoji library to the Mac Connector, a visual
+  Settings picker for 15 reorderable emoji replies, and compact on-demand watch atlases.
+- Chat messages now replace emoji—including skin tones, flags, and joined family sequences—with
+  inline bitmap artwork instead of relying on Pebble's limited emoji font.
 - Prevented recurring macOS Keychain prompts by allowing authorization requests
   to finish instead of killing the helper after five seconds and restarting it.
 - Fixed **Copy Phone Setup** to include the exact Tailscale Serve HTTPS port assigned to Beepster,

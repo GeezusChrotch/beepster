@@ -81,9 +81,9 @@ pairing code and phone instructions together. On the phone, open **Pebble → Be
 
 1. Paste the copied private setup address when asked.
 2. Enter the six-digit pairing code shown by the Connector.
-3. Choose the services to include, a theme and font size, and up to eight text-or-emoji quick
-   replies. The **Buttons** tab lets you customize all press and hold actions and the number of lines
-   moved by each scroll action.
+3. Choose the services to include, a theme and font size, up to eight text-or-emoji quick replies,
+   and the 15 bitmap emoji you want in the watch reply menu. The **Buttons** tab lets you customize
+   all press and hold actions and the number of lines moved by each scroll action.
 4. Beepster automatically combines Apple email and phone conversations that match the same Mac
    Contacts record. Under **Link Apple conversations**, you can give unmatched destinations the
    same alias as a manual fallback.

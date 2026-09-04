@@ -189,6 +189,8 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Let users choose which messaging services appear without re-pairing
 - [x] Add read-only macOS Contacts enrichment for raw Apple message identifiers
 - [x] Add persistent hold-Center inbox pinning with a visible non-color-only indicator
+- [x] Add a complete Mac-hosted emoji catalog with 15 configurable bitmap replies
+- [x] Render current chat emoji inline from bounded, on-demand watch atlases
 - [ ] Enable and test the public GitHub Pages setup URL in the Pebble mobile webview
 - [x] Capture Store screenshots using synthetic data
 - [ ] Complete a physical-watch release-candidate smoke test

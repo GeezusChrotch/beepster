@@ -2,6 +2,7 @@ import http from 'node:http';
 import { createHash, randomInt } from 'node:crypto';
 import { BeeperClient } from './beeper-client.js';
 import { configurationPage } from './configuration-page.js';
+import { publicEmojiAtlas, publicEmojiCatalog, renderEmojiAtlas } from './emoji-assets.js';
 import { readSecret, writeSecret } from './secret-store.js';
 
 const MAX_BODY_BYTES = 16 * 1024;
@@ -18,6 +19,15 @@ function sendJSON(response, status, body) {
 
 function sendHTML(response, status, body) {
   response.writeHead(status, {'Content-Type':'text/html; charset=utf-8','Content-Length':Buffer.byteLength(body),'Cache-Control':'no-store','Content-Security-Policy':"default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"});
+  response.end(body);
+}
+
+function sendStatic(response, contentType, body) {
+  response.writeHead(200, {
+    'Content-Type': contentType,
+    'Content-Length': body.length,
+    'Cache-Control': 'public, max-age=86400'
+  });
   response.end(body);
 }
 
@@ -97,6 +107,14 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '', rot
         sendHTML(response, 200, configurationPage());
         return;
       }
+      if (url.pathname === '/emoji/catalog.json' && request.method === 'GET') {
+        sendStatic(response, 'application/json; charset=utf-8', publicEmojiCatalog());
+        return;
+      }
+      if (url.pathname === '/emoji/atlas.png' && request.method === 'GET') {
+        sendStatic(response, 'image/png', publicEmojiAtlas());
+        return;
+      }
       if (url.pathname === '/pair' && request.method === 'POST') {
         const body = await readJSON(request);
         if (!pairingAvailable || body.code !== activePairingCode) {
@@ -121,6 +139,18 @@ export function createServer({ beeperClient, gatewayToken, pairingCode = '', rot
       }
       if (!beeperClient) {
         sendJSON(response, 503, { error: 'Beeper Desktop access is not configured on the Mac' });
+        return;
+      }
+
+      if (url.pathname === '/v1/emoji/atlas' && request.method === 'POST') {
+        const body = await readJSON(request);
+        const atlas = renderEmojiAtlas(body.keys, body.size, body.columns);
+        sendJSON(response, 200, {
+          width: atlas.width,
+          height: atlas.height,
+          pixels: atlas.pixels.toString('base64'),
+          entries: atlas.entries
+        });
         return;
       }
 

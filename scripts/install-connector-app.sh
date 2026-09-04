@@ -52,7 +52,7 @@ node_runtime() {
   output_file="$resources/node-$runtime_arch"
   local_node=$(command -v node 2>/dev/null || true)
   if [ -n "$local_node" ] && [ "$(uname -m)" = "$expected_file" ] && file "$local_node" | rg -q "$expected_file"; then
-    cp "$local_node" "$output_file"
+    cp -c "$local_node" "$output_file" 2>/dev/null || cp "$local_node" "$output_file"
     local_license=$(CDPATH= cd -- "$(dirname "$local_node")/.." 2>/dev/null && pwd)/LICENSE
     versioned_license="/usr/local/n/versions/node/$(node -p 'process.versions.node')/LICENSE"
     if [ -f "$local_license" ]; then cp "$local_license" "$resources/Node-LICENSE.txt"
@@ -68,7 +68,9 @@ node_runtime() {
   expected=$(awk -v name="$archive" '$2 == name {print $1}' "$sums_path")
   actual=$(shasum -a 256 "$archive_path" | awk '{print $1}')
   [ -n "$expected" ] && [ "$actual" = "$expected" ] || { echo "Node runtime checksum failed for $archive" >&2; exit 1; }
-  tar -xf "$archive_path" -C "$work_dir"
+  tar -xf "$archive_path" -C "$work_dir" \
+    "node-$node_version-darwin-$runtime_arch/bin/node" \
+    "node-$node_version-darwin-$runtime_arch/LICENSE"
   cp "$work_dir/node-$node_version-darwin-$runtime_arch/bin/node" "$output_file"
   cp "$work_dir/node-$node_version-darwin-$runtime_arch/LICENSE" "$resources/Node-LICENSE.txt"
 }
@@ -95,7 +97,9 @@ codesign --force --deep --options runtime --sign "$sign_identity" "$staged_app" 
 mkdir -p "$(dirname "$app_dir")"
 previous_app="$work_dir/previous-connector.app"
 if [ -e "$app_dir" ]; then mv "$app_dir" "$previous_app"; fi
-if ! cp -R "$staged_app" "$app_dir"; then
+if [ ! -e "$previous_app" ] && mv "$staged_app" "$app_dir"; then
+  :
+elif ! cp -R "$staged_app" "$app_dir"; then
   if [ -e "$previous_app" ]; then
     rm -rf "$app_dir"
     mv "$previous_app" "$app_dir"

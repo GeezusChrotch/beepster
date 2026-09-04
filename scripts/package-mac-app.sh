@@ -4,10 +4,17 @@ set -eu
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 version=$(node -p "require('$project_dir/package.json').version")
 work_dir=$(mktemp -d -t beepster-mac-release)
-trap 'rm -rf "$work_dir"' EXIT
 stage="$work_dir/disk"
 app="$stage/Beepster Connector.app"
+dmg="$project_dir/dist/Beepster-Connector-$version.dmg"
+previous_dmg="$work_dir/previous.dmg"
+cleanup() {
+  if [ -f "$previous_dmg" ] && [ ! -f "$dmg" ]; then mv "$previous_dmg" "$dmg"; fi
+  rm -rf "$work_dir"
+}
+trap cleanup EXIT
 mkdir -p "$stage" "$project_dir/dist"
+if [ -f "$dmg" ]; then mv "$dmg" "$previous_dmg"; fi
 
 BEEPSTER_CONNECTOR_APP_DESTINATION="$app" \
 BEEPSTER_CONNECTOR_ARCHES='arm64 x86_64' \
@@ -20,6 +27,9 @@ test -x "$app/Contents/Resources/node-x64"
 test -f "$app/Contents/Resources/Beepster-LICENSE.txt"
 test -f "$app/Contents/Resources/Node-LICENSE.txt"
 test -f "$app/Contents/Resources/gateway/src/cli.js"
+test -f "$app/Contents/Resources/gateway/assets/emoji/emoji-catalog.json"
+test -f "$app/Contents/Resources/gateway/assets/emoji/emoji-atlas-24.png"
+test -f "$app/Contents/Resources/gateway/assets/emoji/emoji-atlas-24.raw"
 file "$app/Contents/MacOS/beepster-connector" | rg -q 'arm64.*x86_64|x86_64.*arm64'
 file "$app/Contents/Resources/node-arm64" | rg -q 'arm64'
 file "$app/Contents/Resources/node-x64" | rg -q 'x86_64'
@@ -29,8 +39,6 @@ if rg -a -n 'https://[A-Za-z0-9.-]+\.ts\.net' "$app/Contents/Resources/gateway";
 fi
 codesign --verify --deep --strict "$app"
 ln -s /Applications "$stage/Applications"
-dmg="$project_dir/dist/Beepster-Connector-$version.dmg"
-rm -f "$dmg"
 hdiutil create -quiet -volname "Beepster Connector" -srcfolder "$stage" -ov -format UDZO "$dmg"
 
 if [ -n "${BEEPSTER_NOTARY_PROFILE:-}" ]; then

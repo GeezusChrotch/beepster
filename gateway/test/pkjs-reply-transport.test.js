@@ -87,6 +87,74 @@ test('bitmap picker emoji remain Unicode through the reply transport', () => {
   assert.equal(requests[0].body, JSON.stringify({text:'😂',requestID:'emoji-1'}));
 });
 
+test('fifteen configurable emoji replies are sent to the watch and settings', () => {
+  const { eventListeners, appMessages, openedURLs, storage } = replyRuntime();
+  const chosen = Array.from({length:15}, (_, index) => ({
+    key:index === 0 ? '1f680' : '1f602',
+    emoji:index === 0 ? '🚀' : '😂',
+    label:index === 0 ? 'rocket' : 'face with tears of joy',
+    id:index
+  }));
+  storage.set('beepster_emoji_replies', JSON.stringify(chosen));
+  eventListeners.ready();
+  const replies = appMessages.filter(message => message[0] === 'emoji_reply');
+  assert.equal(replies.length, 15);
+  assert.equal(replies[0][32], '🚀');
+  assert.equal(replies[0][6], 'rocket');
+  assert.equal(appMessages.find(message => message[0] === 'emoji_replies_ready')[4], 15);
+
+  eventListeners.showConfiguration();
+  const settings = JSON.parse(decodeURIComponent(openedURLs[0].split('#')[1]));
+  assert.deepEqual(settings.emojiReplies.map(entry => entry.emoji), chosen.map(entry => entry.emoji));
+});
+
+test('opening emoji replies downloads and transfers only the configured bitmap atlas', () => {
+  const { eventListeners, requests, appMessages } = replyRuntime();
+  eventListeners.appmessage({payload:{0:'load_emoji_replies'}});
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].method, 'POST');
+  assert.equal(requests[0].url, 'https://gateway.example/v1/emoji/atlas');
+  const requested = JSON.parse(requests[0].body);
+  assert.equal(requested.keys.length, 15);
+  assert.deepEqual({size:requested.size,columns:requested.columns}, {size:20,columns:5});
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({
+    width:100,height:60,pixels:Buffer.alloc(6000, 0xc0).toString('base64'),
+    entries:requested.keys.map(key => ({key}))
+  });
+  requests[0].onload();
+  assert.equal(appMessages[0][0], 'emoji_replies_start');
+  assert.equal(appMessages[0][25], 100);
+  assert.equal(appMessages[0][26], 60);
+  assert.equal(appMessages.filter(message => message[0] === 'emoji_replies_chunk').length, 12);
+  assert.equal(appMessages.at(-1)[0], 'emoji_replies_end');
+});
+
+test('message emoji tokens become compact inline bitmap slots', () => {
+  const { context, requests, appMessages } = replyRuntime();
+  context.loadMessages('chat-emoji');
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items:[{
+    id:'emoji-1',sender:'Avery',text:'Nice 😂 ❤️',
+    watchText:'Nice \u001e1f602\u001f \u001e2764\u001f',emojiKeys:['1f602','2764']
+  }]});
+  requests[0].onload();
+  const atlasRequest = requests.find(request => request.url.endsWith('/v1/emoji/atlas'));
+  assert.deepEqual(JSON.parse(atlasRequest.body), {keys:['1f602','2764'],size:18,columns:4});
+  const message = appMessages.find(packet => packet[0] === 'message');
+  assert.equal(message[11], 'Nice \x1dA\x1d \x1dB\x1d');
+});
+
+test('saved emoji order persists and is applied immediately', () => {
+  const { eventListeners, appMessages, storage } = replyRuntime();
+  const chosen = Array.from({length:15}, (_, index) => ({
+    key:index === 0 ? '1f525' : '1f602',emoji:index === 0 ? '🔥' : '😂',label:'choice ' + index,id:index
+  }));
+  eventListeners.webviewclosed({response:encodeURIComponent(JSON.stringify({emojiReplies:chosen}))});
+  assert.deepEqual(JSON.parse(storage.get('beepster_emoji_replies')), chosen);
+  assert.equal(appMessages.find(message => message[0] === 'emoji_reply')[32], '🔥');
+});
+
 test('full message detail packets stay tagged to their originating message', () => {
   const { context, appMessages } = replyRuntime();
   context.messageTextByID['message-1'] = 'A'.repeat(900) + ' 👍';

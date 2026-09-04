@@ -77,6 +77,20 @@ var inboxPageLoading = false;
 var MAX_WATCH_CHATS = 30;
 var MAX_WATCH_MESSAGES = 60;
 var DEFAULT_QUICK_REPLIES = ['Yes', 'No', 'On my way', 'Thanks! 👍'];
+var DEFAULT_EMOJI_REPLIES = [
+  {key:'1f602',emoji:'😂',label:'Tears of joy'}, {key:'2764',emoji:'❤️',label:'Red heart'},
+  {key:'1f60d',emoji:'😍',label:'Heart eyes'}, {key:'1f923',emoji:'🤣',label:'Rolling laughing'},
+  {key:'1f60a',emoji:'😊',label:'Smiling'}, {key:'1f64f',emoji:'🙏',label:'Thank you / please'},
+  {key:'1f495',emoji:'💕',label:'Two hearts'}, {key:'1f62d',emoji:'😭',label:'Crying'},
+  {key:'1f618',emoji:'😘',label:'Kiss'}, {key:'1f44d',emoji:'👍',label:'Thumbs up'},
+  {key:'1f605',emoji:'😅',label:'Nervous laugh'}, {key:'1f44f',emoji:'👏',label:'Clapping'},
+  {key:'1f601',emoji:'😁',label:'Big grin'}, {key:'1f525',emoji:'🔥',label:'Fire'},
+  {key:'1f494',emoji:'💔',label:'Broken heart'}
+];
+var MAX_CHAT_EMOJI = 12;
+var chatEmojiKeys = [];
+var replyEmojiAtlasGeneration = 0;
+var chatEmojiAtlasGeneration = 0;
 var INBOX_IDS = ['primary','low-priority','archive'];
 var BUTTON_ACTION_IDS = ['scroll_up','scroll_down','open_chat','dictate','quick_reply','pin_toggle','jump_newest'];
 var DEFAULT_BUTTON_BINDINGS = [
@@ -183,6 +197,22 @@ function configuredQuickReplies() {
     if (saved && Array.isArray(saved)) return saved.map(function(value) { return String(value || '').trim(); }).filter(Boolean).slice(0, 8);
   } catch (error) {}
   return DEFAULT_QUICK_REPLIES.slice();
+}
+
+function configuredEmojiReplies() {
+  var values = null;
+  try { values = JSON.parse(localStorage.getItem('beepster_emoji_replies') || 'null'); } catch (error) {}
+  if (!Array.isArray(values) || values.length !== 15) values = DEFAULT_EMOJI_REPLIES;
+  return values.map(function(value, index) {
+    var fallback = DEFAULT_EMOJI_REPLIES[index];
+    if (!value || typeof value !== 'object' || !/^[0-9a-f-]{1,100}$/i.test(String(value.key || '')) || !value.emoji) return fallback;
+    return {
+      key: String(value.key).toLowerCase(),
+      emoji: String(value.emoji),
+      label: String(value.label || 'Emoji').slice(0, 38),
+      id: Number(value.id)
+    };
+  });
 }
 
 function configuredButtonBindings() {
@@ -447,6 +477,23 @@ function sendQuickReplies() {
   enqueue(complete);
 }
 
+function sendEmojiReplies() {
+  var replies = DEMO_MODE ? DEFAULT_EMOJI_REPLIES : configuredEmojiReplies();
+  for (var i = 0; i < replies.length; i++) {
+    var message = {};
+    message[KEY_COMMAND] = 'emoji_reply';
+    message[KEY_INDEX] = i;
+    message[KEY_TOTAL] = replies.length;
+    message[KEY_QUICK_REPLY_TEXT] = safeSlice(replies[i].emoji, 40);
+    message[KEY_CHAT_NAME] = safeSlice(replies[i].label, 38);
+    enqueue(message);
+  }
+  var complete = {};
+  complete[KEY_COMMAND] = 'emoji_replies_ready';
+  complete[KEY_TOTAL] = replies.length;
+  enqueue(complete);
+}
+
 function pebbleColor(hex) {
   var value = parseInt(String(hex).slice(1),16);
   var r = Math.round(((value>>16)&255)/85), g = Math.round(((value>>8)&255)/85), b = Math.round((value&255)/85);
@@ -579,6 +626,62 @@ function request(path, callback, failure) {
   xhr.onerror = function() { fail('Gateway unavailable'); };
   xhr.ontimeout = function() { fail('Gateway timed out'); };
   xhr.send();
+}
+
+function postJSON(path, body, callback, failure) {
+  var url = gatewayURL(), token = gatewayToken();
+  if (!url || !token) { if (failure) failure('Gateway not configured'); return; }
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', url + path, true);
+  xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+  xhr.setRequestHeader('Content-Type', 'application/json');
+  xhr.timeout = 20000;
+  xhr.onload = function() {
+    if (xhr.status < 200 || xhr.status >= 300) { if (failure) failure('Gateway returned ' + xhr.status); return; }
+    try { callback(JSON.parse(xhr.responseText)); }
+    catch (error) { if (failure) failure('Invalid gateway response'); }
+  };
+  xhr.onerror = function() { if (failure) failure('Gateway unavailable'); };
+  xhr.ontimeout = function() { if (failure) failure('Gateway timed out'); };
+  xhr.send(JSON.stringify(body));
+}
+
+function enqueueEmojiAtlas(prefix, atlas) {
+  var width = Number(atlas.width), height = Number(atlas.height), bytes = base64Bytes(atlas.pixels);
+  if (!width || !height || bytes.length !== width * height || bytes.length > 12000) return false;
+  var start = {};
+  start[KEY_COMMAND] = prefix + '_start';
+  start[KEY_MEDIA_WIDTH] = width;
+  start[KEY_MEDIA_HEIGHT] = height;
+  start[KEY_MEDIA_TOTAL] = bytes.length;
+  start[KEY_TOTAL] = Array.isArray(atlas.entries) ? atlas.entries.length : 0;
+  enqueue(start);
+  for (var offset = 0; offset < bytes.length; offset += 512) {
+    var chunk = {}, chunkBytes = [];
+    for (var position = offset; position < Math.min(offset + 512, bytes.length); position++) chunkBytes.push(bytes[position]);
+    chunk[KEY_COMMAND] = prefix + '_chunk';
+    chunk[KEY_MEDIA_OFFSET] = offset;
+    chunk[KEY_MEDIA_BYTES] = chunkBytes;
+    enqueue(chunk);
+  }
+  var end = {};
+  end[KEY_COMMAND] = prefix + '_end';
+  enqueue(end);
+  return true;
+}
+
+function loadEmojiReplyAtlas() {
+  if (DEMO_MODE) {
+    var defaults = {}; defaults[KEY_COMMAND] = 'emoji_replies_defaults'; enqueue(defaults);
+    return;
+  }
+  var generation = ++replyEmojiAtlasGeneration;
+  var replies = configuredEmojiReplies();
+  postJSON('/v1/emoji/atlas', {keys:replies.map(function(reply) { return reply.key; }),size:20,columns:5}, function(atlas) {
+    if (generation !== replyEmojiAtlasGeneration) return;
+    discardQueuedCommands(['emoji_replies_start','emoji_replies_chunk','emoji_replies_end']);
+    enqueueEmojiAtlas('emoji_replies', atlas);
+  }, function() {});
 }
 
 function sendRequest(path, body, callback) {
@@ -835,15 +938,50 @@ function loadDemoChats() {
   hasLoadedChats = true;
 }
 
+function addChatEmojiKeys(items, reset) {
+  if (reset) chatEmojiKeys = [];
+  for (var itemIndex = items.length - 1; itemIndex >= 0 && chatEmojiKeys.length < MAX_CHAT_EMOJI; itemIndex--) {
+    var keys = Array.isArray(items[itemIndex].emojiKeys) ? items[itemIndex].emojiKeys : [];
+    for (var keyIndex = 0; keyIndex < keys.length && chatEmojiKeys.length < MAX_CHAT_EMOJI; keyIndex++) {
+      var key = String(keys[keyIndex] || '').toLowerCase();
+      if (/^[0-9a-f-]{1,100}$/.test(key) && chatEmojiKeys.indexOf(key) === -1) chatEmojiKeys.push(key);
+    }
+  }
+}
+
+function watchMessageText(item) {
+  var source = String(item.watchText != null ? item.watchText : (item.text || ''));
+  return source.replace(/\x1e([0-9a-f-]+)\x1f/gi, function(match, key) {
+    var slot = chatEmojiKeys.indexOf(String(key).toLowerCase());
+    return slot >= 0 && slot < MAX_CHAT_EMOJI ? '\x1d' + String.fromCharCode(65 + slot) + '\x1d' : '[emoji]';
+  });
+}
+
+function sendChatEmojiAtlas() {
+  var generation = ++chatEmojiAtlasGeneration;
+  var chatID = activeMessageChatID;
+  discardQueuedCommands(['chat_emoji_start','chat_emoji_chunk','chat_emoji_end','chat_emoji_clear']);
+  if (!chatEmojiKeys.length) {
+    var clear = {}; clear[KEY_COMMAND] = 'chat_emoji_clear'; enqueue(clear);
+    return;
+  }
+  postJSON('/v1/emoji/atlas', {keys:chatEmojiKeys,size:18,columns:4}, function(atlas) {
+    if (generation !== chatEmojiAtlasGeneration || chatID !== activeMessageChatID) return;
+    discardQueuedCommands(['chat_emoji_start','chat_emoji_chunk','chat_emoji_end','chat_emoji_clear']);
+    enqueueEmojiAtlas('chat_emoji', atlas);
+  }, function() {});
+}
+
 function queueMessage(item, index, total) {
   var messageID = String(item.id || ('message-' + index));
-  messageTextByID[messageID] = String(item.text || '');
+  var watchText = watchMessageText(item);
+  messageTextByID[messageID] = watchText;
   var message = {};
   message[KEY_COMMAND] = 'message';
   message[KEY_INDEX] = index;
   message[KEY_TOTAL] = total;
   message[KEY_MSG_SENDER] = safeSlice(item.sender || 'Unknown', 44);
-  message[KEY_MSG_TEXT] = safeSlice(item.text, 240);
+  message[KEY_MSG_TEXT] = safeSlice(watchText, 240);
   message[KEY_MSG_TIME] = safeSlice(item.time, 18);
   message[KEY_MSG_ID] = safeSlice(messageID, 120);
   if (item.attachment) {
@@ -871,6 +1009,8 @@ function loadMessages(chatID) {
   discardQueuedCommands(['chat', 'chats_ready', 'messages_start', 'messages_prepend_start', 'message', 'messages_ready', 'message_history_failed', 'message_detail_start', 'message_detail_chunk', 'message_detail_end', 'media_start', 'media_chunk', 'media_end', 'media_failed']);
   activeMessageChatID = chatID;
   messageHistory = [];
+  chatEmojiKeys = [];
+  chatEmojiAtlasGeneration++;
   oldestMessageCursor = '';
   hasOlderMessages = false;
   loadingOlderMessages = false;
@@ -885,6 +1025,8 @@ function loadMessages(chatID) {
     var items = (data.items || []).slice(0, MAX_WATCH_MESSAGES);
     if (items.length === 0) { sendState('empty'); return; }
     messageHistory = items;
+    addChatEmojiKeys(items, true);
+    sendChatEmojiAtlas();
     oldestMessageCursor = data.nextCursor || '';
     hasOlderMessages = Boolean(data.hasMore && oldestMessageCursor && messageHistory.length < MAX_WATCH_MESSAGES);
     var start = {}; start[KEY_COMMAND] = 'messages_start'; start[KEY_TOTAL] = items.length; enqueue(start);
@@ -910,6 +1052,8 @@ function loadMergedMessages(chatID, merged, generation) {
     var items = combined.slice(-MAX_WATCH_MESSAGES);
     if (!items.length) { sendState('empty'); return; }
     messageHistory = items;
+    addChatEmojiKeys(items, true);
+    sendChatEmojiAtlas();
     hasOlderMessages = false;
     var start = {}; start[KEY_COMMAND] = 'messages_start'; start[KEY_TOTAL] = items.length; enqueue(start);
     for (var i = 0; i < items.length; i++) queueMessage(items[i], i, items.length);
@@ -932,11 +1076,14 @@ function loadDemoMessages(chatID) {
   activeMessageChatID = chatID;
   messageTextByID = {};
   messageHistory = [
-    {id:'demo-message-1',sender:'Avery',text:'Morning! The new Beepster icon looks great on the watch.',time:'9:38 AM'},
+    {id:'demo-message-1',sender:'Avery',text:'Morning! The new Beepster icon looks great on the watch. 😂❤️',watchText:'Morning! The new Beepster icon looks great on the watch. \x1e1f602\x1f\x1e2764\x1f',emojiKeys:['1f602','2764'],time:'9:38 AM'},
     {id:'demo-message-2',sender:'Me',text:'Thanks! Complete messages stay in the thread now, with simple two-line scrolling.',time:'9:40 AM'},
     {id:'demo-message-3',sender:'Avery',text:'Perfect. Voice dictation and quick replies make this genuinely useful from the wrist.',time:'9:41 AM'}
   ];
+  addChatEmojiKeys(messageHistory, true);
+  if (!DEMO_MODE) sendChatEmojiAtlas();
   var start = {}; start[KEY_COMMAND] = 'messages_start'; start[KEY_TOTAL] = messageHistory.length; enqueue(start);
+  var emojiDefaults = {}; emojiDefaults[KEY_COMMAND] = 'chat_emoji_defaults'; enqueue(emojiDefaults);
   for (var i = 0; i < messageHistory.length; i++) queueMessage(messageHistory[i], i, messageHistory.length);
   hasOlderMessages = false;
   finishMessageBatch('initial', messageHistory.length - 1);
@@ -958,6 +1105,9 @@ function loadOlderMessages(chatID) {
     var page = (data.items || []).filter(function(item) { return !seen[String(item.id || '')]; }).slice(-remaining);
     oldestMessageCursor = data.nextCursor || '';
     messageHistory = page.concat(messageHistory);
+    var previousEmojiCount = chatEmojiKeys.length;
+    addChatEmojiKeys(page, false);
+    if (chatEmojiKeys.length !== previousEmojiCount) sendChatEmojiAtlas();
     hasOlderMessages = Boolean(data.hasMore && oldestMessageCursor && messageHistory.length < MAX_WATCH_MESSAGES);
     loadingOlderMessages = false;
     if (page.length) {
@@ -1044,6 +1194,7 @@ function loadAttachment(attachmentID) {
 Pebble.addEventListener('ready', function() {
   migrateEmbeddedPrivateGateway();
   sendQuickReplies();
+  sendEmojiReplies();
   sendButtonSettings();
   loadChats();
 });
@@ -1063,6 +1214,7 @@ Pebble.addEventListener('showConfiguration', function() {
     theme: configuredTheme(),
     themes: configuredThemes(),
     quickReplies: configuredQuickReplies(),
+    emojiReplies: configuredEmojiReplies(),
     services: configuredServices(),
     inboxes: configuredInboxes(),
     appleAliases: configuredAppleAliases(),
@@ -1084,6 +1236,7 @@ Pebble.addEventListener('webviewclosed', function(event) {
     if (settings.theme) { localStorage.setItem('beepster_theme_json', JSON.stringify(normalizeTheme(settings.theme))); localStorage.setItem('beepster_theme', normalizeTheme(settings.theme).id); }
     if (settings.themes) localStorage.setItem('beepster_themes', JSON.stringify(settings.themes.slice(0,20)));
     if (settings.quickReplies && Array.isArray(settings.quickReplies)) localStorage.setItem('beepster_quick_replies', JSON.stringify(settings.quickReplies.slice(0,8)));
+    if (Array.isArray(settings.emojiReplies) && settings.emojiReplies.length === 15) localStorage.setItem('beepster_emoji_replies', JSON.stringify(settings.emojiReplies.slice(0,15)));
     if (Array.isArray(settings.services)) localStorage.setItem('beepster_services', JSON.stringify(settings.services.filter(function(value) { return SERVICE_IDS.indexOf(value) !== -1; })));
     if (Array.isArray(settings.inboxes)) localStorage.setItem('beepster_inboxes', JSON.stringify(settings.inboxes.filter(function(value) { return INBOX_IDS.indexOf(value) !== -1; })));
     if (settings.appleAliases && typeof settings.appleAliases === 'object') localStorage.setItem('beepster_apple_aliases', JSON.stringify(settings.appleAliases));
@@ -1093,6 +1246,7 @@ Pebble.addEventListener('webviewclosed', function(event) {
     if (typeof settings.refresh === 'number') localStorage.setItem('beepster_refresh', String(settings.refresh));
     lastThemeSignature = '';
     sendQuickReplies();
+    sendEmojiReplies();
     sendButtonSettings();
     sendTheme();
     loadChats();
@@ -1122,5 +1276,6 @@ Pebble.addEventListener('appmessage', function(event) {
     var attachmentID = payload[KEY_ATTACHMENT_ID] || payload.ATTACHMENT_ID || '';
     if (attachmentID) loadAttachment(attachmentID);
   }
+  if (command === 'load_emoji_replies') loadEmojiReplyAtlas();
   if (command === 'send_quick_reply') sendQuickReply(payload[KEY_CHAT_ID] || payload.CHAT_ID || '', Number(payload[KEY_INDEX] != null ? payload[KEY_INDEX] : payload.INDEX), payload[KEY_REPLY_REQUEST_ID] || payload.REPLY_REQUEST_ID || '', payload[KEY_QUICK_REPLY_TEXT] || payload.QUICK_REPLY_TEXT || '');
 });
