@@ -91,9 +91,38 @@ for icon_size in 16 32 128 256 512; do
 done
 iconutil -c icns "$work_dir/Beepster.iconset" -o "$resources/Beepster.icns"
 
-codesign --force --options runtime --entitlements "$project_dir/mac/BeepsterContacts.entitlements" \
-  --sign "$sign_identity" "$contacts_app" >/dev/null
-codesign --force --deep --options runtime --sign "$sign_identity" "$staged_app" >/dev/null
+sign_runtime() {
+  if [ "$sign_identity" = "-" ]; then
+    codesign --force --options runtime --sign "$sign_identity" "$@" >/dev/null
+  else
+    codesign --force --options runtime --timestamp --sign "$sign_identity" "$@" >/dev/null
+  fi
+}
+
+sign_node_runtime() {
+  if [ "$sign_identity" = "-" ]; then
+    codesign --force --options runtime --entitlements "$project_dir/mac/BeepsterNode.entitlements" \
+      --sign "$sign_identity" "$1" >/dev/null
+  else
+    codesign --force --options runtime --timestamp --entitlements "$project_dir/mac/BeepsterNode.entitlements" \
+      --sign "$sign_identity" "$1" >/dev/null
+  fi
+}
+
+# Sign nested code from the inside out. Relying on --deep leaves standalone
+# Mach-O helpers in Resources without the Developer ID timestamp and hardened
+# runtime that Apple's notarization service requires.
+sign_runtime "$resources/beepster-keychain"
+for node_binary in "$resources"/node-*; do sign_node_runtime "$node_binary"; done
+if [ "$sign_identity" = "-" ]; then
+  codesign --force --options runtime --entitlements "$project_dir/mac/BeepsterContacts.entitlements" \
+    --sign "$sign_identity" "$contacts_app" >/dev/null
+else
+  codesign --force --options runtime --timestamp --entitlements "$project_dir/mac/BeepsterContacts.entitlements" \
+    --sign "$sign_identity" "$contacts_app" >/dev/null
+fi
+sign_runtime "$executable"
+sign_runtime "$staged_app"
 mkdir -p "$(dirname "$app_dir")"
 previous_app="$work_dir/previous-connector.app"
 if [ -e "$app_dir" ]; then mv "$app_dir" "$previous_app"; fi

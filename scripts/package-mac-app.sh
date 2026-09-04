@@ -46,7 +46,7 @@ if [ -n "${BEEPSTER_NOTARY_PROFILE:-}" ]; then
     echo 'BEEPSTER_CODESIGN_IDENTITY is required when notarizing a release.' >&2
     exit 1
   fi
-  codesign --force --sign "$BEEPSTER_CODESIGN_IDENTITY" "$dmg"
+  codesign --force --timestamp --sign "$BEEPSTER_CODESIGN_IDENTITY" "$dmg"
   xcrun notarytool submit "$dmg" --keychain-profile "$BEEPSTER_NOTARY_PROFILE" --wait
   xcrun stapler staple "$dmg"
   xcrun stapler validate "$dmg"
