@@ -78,7 +78,7 @@ a row needs attention, expand **Advanced options** for the individual repair con
 ## 4. Install the watch app
 
 On the phone, open the Pebble mobile app, find **Beepster** in the Pebble Store, and tap **Add to
-Watch**. Confirm that the developer is Joshua Bessom and the listing links to this repository.
+Watch**. Confirm that the developer is Organik Apps and the listing links to this repository.
 
 The Mac Connector cannot silently install software over the phone's Bluetooth connection. This
 single Store action is the intended, supported watch-installation step. It also lets future watch
