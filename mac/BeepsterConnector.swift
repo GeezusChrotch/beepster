@@ -211,6 +211,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let inputPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
+        var environment = ProcessInfo.processInfo.environment
+        // Tailscale's macOS app CLI fails with CLIError 3 when a GUI parent
+        // launches it without TERM, even for noninteractive JSON commands.
+        // LaunchServices normally omits TERM, so provide a neutral value.
+        if environment["TERM"] == nil { environment["TERM"] = "dumb" }
+        process.environment = environment
         process.standardOutput = output
         process.standardError = output
         if input != nil { process.standardInput = inputPipe }
