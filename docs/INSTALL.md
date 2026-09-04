@@ -84,8 +84,9 @@ The Mac Connector cannot silently install software over the phone's Bluetooth co
 single Store action is the intended, supported watch-installation step. It also lets future watch
 updates arrive through the Pebble app.
 
-During the invitation beta, testers receive a private Pebble Store link and use the same **Add to
-Watch** flow. They do not need the Pebble SDK or command line. See [Beta Testing](BETA_TESTING.md).
+During the invitation beta, testers receive a direct `.pbw` package link. Open it on the phone and
+let the Pebble app add Beepster to the watch. Beepster remains hidden from public Store browsing,
+and testers do not need the Pebble SDK or command line. See [Beta Testing](BETA_TESTING.md).
 
 ## 5. Configure and pair once
 

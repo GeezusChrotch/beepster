@@ -3,11 +3,12 @@
 This is the maintainer checklist for beta and public releases. Do not upload the personal PBW from
 `local/`; it contains a private setup URL. The universal artifact is produced in `dist/`.
 
-For a small tester group, follow [the beta release checklist](BETA_RELEASE_CHECKLIST.md). Upload the
-universal PBW using the Pebble developer portal's
-[**Publish Privately** option](https://developer.rebble.io/guides/appstore-publishing/publishing-an-app/)
-and distribute its direct Store link. That retains the normal phone installation flow without
-making the listing discoverable or requiring testers to install developer tools.
+For a small tester group, follow [the beta release checklist](BETA_RELEASE_CHECKLIST.md). Keep the
+new rePebble listing hidden from public browsing and distribute the universal PBW link directly to
+invited testers. Opening the package on a phone hands it to the Pebble app, retaining the normal
+installation flow without requiring developer tools. The legacy portal's **Unlisted** status does
+not currently control visibility in the new rePebble catalog, so verify the live Apps page after
+every beta upload.
 
 ## One-time release infrastructure
 

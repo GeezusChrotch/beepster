@@ -21,18 +21,18 @@ listing discoverable.
 2. Create a GitHub **prerelease** named `Beepster 0.12.0 Beta`; attach the DMG, PBW, and checksum
    files, and link to [Beta Testing](BETA_TESTING.md). The repository and prerelease are public, so
    they must contain no private tester or network information.
-3. In the Pebble developer portal, upload the same PBW and choose **Publish Privately**. Share its
-   direct Store link only with invited testers. This gives testers a normal **Add to Watch** flow
-   without requiring the Pebble SDK or command line.
-4. Send each tester the invitation text below with the private Store link and GitHub prerelease link.
+3. Keep the Beepster Pebble listing hidden from public Store browsing. Send invited testers the
+   direct release PBW link; opening the package on their phone hands it to the Pebble app for the
+   normal **Add to Watch** flow without requiring the Pebble SDK or command line.
+4. Send each tester the invitation text below with the PBW and Connector links.
 
 ## Tester invitation
 
 > Want to beta test Beepster, an open-source Beeper client for Pebble Time 2? Setup takes about
 > 10–15 minutes and requires a Mac running Beeper Desktop plus Tailscale on the Mac and phone. No
 > Terminal or developer tools are required. Start with the Beepster beta guide: [BETA GUIDE LINK].
-> Install the Mac Connector here: [CONNECTOR LINK], then add the watch app here: [PRIVATE PEBBLE
-> STORE LINK]. Please do not share those beta links or include private messages, contacts, tokens,
+> Install the Mac Connector here: [CONNECTOR LINK], then open the watch package on your phone:
+> [WATCH PBW LINK]. Please do not share those beta links or include private messages, contacts, tokens,
 > pairing codes, or Tailscale addresses in feedback.
 
 ## Before inviting anyone
@@ -41,7 +41,7 @@ listing discoverable.
 - [ ] GitHub Pages setup URL opens successfully inside the Pebble mobile app
 - [ ] Test a new Connector install on a Mac or macOS account that has never run Beepster
 - [ ] Test Connector upgrade/repair on the current working installation without losing pairing
-- [ ] Confirm the private Store link installs version 0.12.0 from both iPhone and Android if both
+- [ ] Confirm the direct PBW installs version 0.12.0 from both iPhone and Android if both
       platforms will be invited
 - [ ] Confirm issue forms are enabled and labels exist or can be created automatically
 - [ ] Start with two or three trusted testers, resolve setup blockers, then widen the group

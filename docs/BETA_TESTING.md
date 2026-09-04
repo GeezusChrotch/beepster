@@ -8,7 +8,7 @@ and does not require Terminal, Git, Node.js, or developer tools. Allow about 10�
 - A Pebble Time 2 paired with the current Pebble mobile app
 - A Mac with Beeper Desktop installed, open, and signed in
 - Tailscale installed and connected on both the Mac and phone using the same account
-- The private Beepster Store link and Connector download link supplied with your invitation
+- The Beepster watch-package and Connector download links supplied with your invitation
 
 Beepster uses Beeper Desktop's local API, so the Mac must remain awake and online while you use the
 watch app. Beeper Desktop and Tailscale must remain running. The Beepster Connector window may be
@@ -27,7 +27,9 @@ closed after setup; its small background gateway continues at Mac login.
    email addresses with names where possible.
 5. Make sure Tailscale says connected on both devices. Back in Connector, select **Test Everything**.
    All three status rows should be green.
-6. Open the private Pebble Store link from the invitation on your phone and select **Add to Watch**.
+6. Open the `beepster-0.12.0.pbw` link from the invitation on your phone. Let the Pebble app open
+   the package and confirm **Add to Watch**. Beepster is intentionally hidden from public Store
+   browsing during this beta.
 7. In Connector, select **Connect Phone**. On the phone, open **Pebble → Beepster → Settings**, paste
    the copied private setup address, enter the six-digit pairing code, select **Test connection &
    pair**, and save.
