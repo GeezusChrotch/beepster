@@ -57,7 +57,7 @@ var refreshTimer = null;
 var messageRefreshTimer = null;
 var messageRefreshInFlight = false;
 var newestMessageSignature = '';
-var ACTIVE_CHAT_REFRESH_SECONDS = 15;
+var threadViewVisible = true;
 var lastThemeSignature = '';
 var chatLoadGeneration = 0;
 var messageLoadGeneration = 0;
@@ -72,6 +72,7 @@ var hasOlderMessages = false;
 var loadingOlderMessages = false;
 var mergedChats = {};
 var currentInboxChats = [];
+var lastSentChatPageSignature = '';
 var inboxRawChats = [];
 var inboxPageStart = 0;
 var inboxSources = ['primary'];
@@ -598,14 +599,32 @@ function sendButtonSettings() {
   enqueue(ready);
 }
 
-function scheduleRefresh() {
+function liveRefreshSeconds() {
+  var saved = localStorage.getItem('beepster_refresh');
+  if (localStorage.getItem('beepster_live_refresh_migrated') !== '1') {
+    saved = saved === '0' ? '0' : '15';
+    localStorage.setItem('beepster_refresh', saved);
+    localStorage.setItem('beepster_live_refresh_migrated', '1');
+  }
+  var seconds = Number(saved == null ? '15' : saved);
+  return seconds === 0 ? 0 : ([15, 30, 60].indexOf(seconds) !== -1 ? seconds : 15);
+}
+
+function stopThreadRefresh() {
   if (refreshTimer) clearTimeout(refreshTimer);
-  var seconds = Number(localStorage.getItem('beepster_refresh') || '180');
-  if (seconds > 0) refreshTimer = setTimeout(function() {
-    if (activeMessageChatID) scheduleRefresh();
-    else if (inboxPageStart === 0) loadChats();
+  refreshTimer = null;
+}
+
+function scheduleRefresh() {
+  stopThreadRefresh();
+  var seconds = liveRefreshSeconds();
+  if (!threadViewVisible || activeMessageChatID || seconds === 0) return;
+  refreshTimer = setTimeout(function() {
+    refreshTimer = null;
+    if (!threadViewVisible || activeMessageChatID) return;
+    if (inboxPageStart === 0) loadChats('refresh');
     else scheduleRefresh();
-  }, Math.max(60, seconds) * 1000);
+  }, seconds * 1000);
 }
 
 function messageSignature(items) {
@@ -624,8 +643,9 @@ function stopActiveMessageRefresh() {
 function scheduleActiveMessageRefresh() {
   if (messageRefreshTimer) clearTimeout(messageRefreshTimer);
   messageRefreshTimer = null;
-  if (!activeMessageChatID) return;
-  messageRefreshTimer = setTimeout(refreshActiveMessages, ACTIVE_CHAT_REFRESH_SECONDS * 1000);
+  var seconds = liveRefreshSeconds();
+  if (!activeMessageChatID || seconds === 0) return;
+  messageRefreshTimer = setTimeout(refreshActiveMessages, seconds * 1000);
 }
 
 function applyActiveMessageRefresh(chatID, generation, items, paging) {
@@ -973,14 +993,27 @@ function sendCurrentChatPage(mode) {
     inboxPageStart = Math.max(0, Math.floor((ordered.length - 1) / MAX_WATCH_CHATS) * MAX_WATCH_CHATS);
   }
   var page = ordered.slice(inboxPageStart, inboxPageStart + MAX_WATCH_CHATS);
-  sendChatList(page, {
+  var options = {
     mode: mode || 'initial',
     hasNewer: inboxPageStart > 0,
     hasOlder: inboxPageStart + page.length < ordered.length || inboxHasMoreSources()
+  };
+  var signature = JSON.stringify({
+    page:page.map(function(chat) {
+      return [chat.id || '', chat.name || '', chat.preview || '', chat.network || '', chat.unread || 0, chat.pinned ? 1 : 0];
+    }),
+    hasNewer:options.hasNewer,
+    hasOlder:options.hasOlder
   });
+  if (hasLoadedChats && options.mode === 'refresh' && signature === lastSentChatPageSignature) {
+    console.log('Beepster conversation list unchanged');
+    return;
+  }
+  lastSentChatPageSignature = signature;
+  sendChatList(page, options);
 }
 
-function loadChats() {
+function loadChats(mode) {
   if (DEMO_MODE) { loadDemoChats(); return; }
   var generation = ++chatLoadGeneration;
   inboxRawChats = [];
@@ -994,7 +1027,7 @@ function loadChats() {
   ensureInboxCount(MAX_WATCH_CHATS, generation, function() {
     if (generation !== chatLoadGeneration) { scheduleRefresh(); return; }
     inboxPageLoading = false;
-    sendCurrentChatPage('initial');
+    sendCurrentChatPage(mode || 'initial');
     hasLoadedChats = true;
     scheduleRefresh();
   }, function(error) {
@@ -1336,7 +1369,7 @@ Pebble.addEventListener('showConfiguration', function() {
     buttonBindings: configuredButtonBindings(),
     scrollLines: configuredScrollLines(),
     textSize: configuredTheme().textSize,
-    refresh: Number(localStorage.getItem('beepster_refresh') || '180')
+    refresh: liveRefreshSeconds()
   };
   Pebble.openURL(settingsURL + '#' + encodeURIComponent(JSON.stringify(current)));
 });
@@ -1357,7 +1390,10 @@ Pebble.addEventListener('webviewclosed', function(event) {
     if (Array.isArray(settings.buttonBindings)) localStorage.setItem('beepster_button_bindings', JSON.stringify(settings.buttonBindings.slice(0,12)));
     if (typeof settings.scrollLines === 'number') localStorage.setItem('beepster_scroll_lines', String(Math.max(1, Math.min(8, Math.round(settings.scrollLines)))));
     if (settings.textSize) localStorage.setItem('beepster_text_size', settings.textSize);
-    if (typeof settings.refresh === 'number') localStorage.setItem('beepster_refresh', String(settings.refresh));
+    if (typeof settings.refresh === 'number') {
+      localStorage.setItem('beepster_refresh', String(settings.refresh));
+      localStorage.setItem('beepster_live_refresh_migrated', '1');
+    }
     lastThemeSignature = '';
     sendQuickReplies();
     sendEmojiReplies();
@@ -1373,7 +1409,18 @@ Pebble.addEventListener('appmessage', function(event) {
   var payload = event.payload || {};
   var command = payload[KEY_COMMAND] || payload.COMMAND || payload.command;
   console.log('Beepster watch command=' + String(command || 'missing'));
-  if (command === 'load_chats') { activeMessageChatID = ''; stopActiveMessageRefresh(); loadChats(); }
+  if (command === 'load_chats') { threadViewVisible = true; activeMessageChatID = ''; stopActiveMessageRefresh(); loadChats(); }
+  if (command === 'thread_view_open') {
+    threadViewVisible = true;
+    activeMessageChatID = '';
+    stopActiveMessageRefresh();
+    if (hasLoadedChats) loadChats('refresh');
+    else scheduleRefresh();
+  }
+  if (command === 'thread_view_closed') {
+    threadViewVisible = false;
+    stopThreadRefresh();
+  }
   if (command === 'load_older_chats') loadOlderChats();
   if (command === 'load_newer_chats') loadNewerChats();
   if (command === 'set_chat_pinned') setChatPinned(
@@ -1382,6 +1429,8 @@ Pebble.addEventListener('appmessage', function(event) {
   );
   if (command === 'load_messages') loadMessages(payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || '');
   if (command === 'chat_view_open') {
+    threadViewVisible = false;
+    stopThreadRefresh();
     activeMessageChatID = payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || activeMessageChatID;
     scheduleActiveMessageRefresh();
   }
@@ -1389,7 +1438,6 @@ Pebble.addEventListener('appmessage', function(event) {
     var closedChatID = payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || '';
     if (!closedChatID || closedChatID === activeMessageChatID) activeMessageChatID = '';
     stopActiveMessageRefresh();
-    scheduleRefresh();
   }
   if (command === 'load_older_messages') loadOlderMessages(payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || '');
   if (command === 'send_reply') sendReply(payload[KEY_CHAT_ID] || payload.CHAT_ID || '', payload[KEY_REPLY_TEXT] || payload.REPLY_TEXT || '', payload[KEY_REPLY_REQUEST_ID] || payload.REPLY_REQUEST_ID || '');

@@ -12,9 +12,10 @@ Beepster 0.9.0 keeps the full 0.8.3 feature set and changes where repeated work 
   The phone now sends theme data at startup and only after an actual settings change.
 - **Scoped chat completion:** Background inbox refresh uses a dedicated `chats_ready` packet instead
   of a generic state that could turn an open thread into a loading screen.
-- **Active-chat polling:** While a chat is visible, the phone checks its newest message page every
-  15 seconds. Unchanged results send no AppMessage traffic to the watch, and polling pauses whenever
-  the chat is covered or closed.
+- **Visible-view polling:** While the conversation list or a chat is visible, the phone checks for
+  changes every 15 seconds by default. Unchanged chat and conversation-list results send no packets
+  to the watch, and all polling pauses whenever Beepster is covered or closed. Settings retain
+  30-second, 60-second, and manual alternatives for users who prefer lower battery use.
 - **Stale-response rejection:** A slow response for an abandoned thread or history page is ignored
   after a newer thread request begins.
 - **Queue supersession:** When the selected message changes, unsent detail and image chunks for the
@@ -30,8 +31,8 @@ Beepster 0.9.0 keeps the full 0.8.3 feature set and changes where repeated work 
 
 ## Current resource envelope
 
-The current Emery build uses 104,658 bytes of flash resources and a 65,232-byte static/runtime
-footprint, leaving 65,840 bytes of reported heap. Most flash usage is the 25 combinations of five
+The current Emery build uses 104,658 bytes of flash resources and a 65,312-byte static/runtime
+footprint, leaving 65,760 bytes of reported heap. Most flash usage is the 25 combinations of five
 fonts and five sizes; removing them would directly reduce theming functionality, so they remain.
 
 ## Deliberately deferred

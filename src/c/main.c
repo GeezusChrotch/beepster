@@ -2472,6 +2472,14 @@ static void main_load(Window *window) {
   window_set_click_config_provider(window, main_clicks);
 }
 
+static void main_appear(Window *window) {
+  (void)request_command("thread_view_open", NULL);
+}
+
+static void main_disappear(Window *window) {
+  (void)request_command("thread_view_closed", NULL);
+}
+
 static void main_unload(Window *window) {
   menu_layer_destroy(s_chat_menu);
   text_layer_destroy(s_status_layer);
@@ -2682,6 +2690,8 @@ static void init(void) {
   s_main_window = window_create();
   window_set_window_handlers(s_main_window, (WindowHandlers) {
     .load = main_load,
+    .appear = main_appear,
+    .disappear = main_disappear,
     .unload = main_unload
   });
   s_message_window = window_create();

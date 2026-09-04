@@ -434,7 +434,7 @@ test('Apple email and phone destinations with the same alias become one watch th
     'apple-email':'Jane',
     'apple-phone':'Jane'
   }));
-  context.loadChats();
+  context.loadChats('refresh');
   assert.equal(requests[0].url, 'https://gateway.example/v1/chats?limit=50&inbox=primary');
   requests[0].status = 200;
   requests[0].responseText = JSON.stringify({items:[
@@ -570,6 +570,51 @@ test('active chat polling stops when the watch leaves the chat', () => {
   context.refreshActiveMessages();
   assert.equal(context.activeMessageChatID, '');
   assert.equal(requests.length, 1);
+});
+
+test('the visible conversation list refreshes every fifteen seconds and pauses when hidden', () => {
+  const { context, eventListeners, requests, timers } = replyRuntime();
+  context.scheduleRefresh();
+  const refresh = timers.find(timer => timer.delay === 15000);
+  assert.ok(refresh);
+  refresh.callback();
+  assert.equal(requests.length, 1);
+
+  eventListeners.appmessage({payload:{0:'thread_view_closed'}});
+  const requestCount = requests.length;
+  context.scheduleRefresh();
+  assert.equal(requests.length, requestCount);
+  assert.equal(context.threadViewVisible, false);
+  assert.equal(context.refreshTimer, null);
+});
+
+test('the former three-minute default migrates to fifteen-second live refresh', () => {
+  const { context, storage } = replyRuntime();
+  storage.set('beepster_refresh', '180');
+  assert.equal(context.liveRefreshSeconds(), 15);
+  assert.equal(storage.get('beepster_refresh'), '15');
+});
+
+test('an unchanged live conversation refresh sends no watch packets', () => {
+  const { context, requests, appMessages } = replyRuntime();
+  const response = JSON.stringify({items:[{id:'chat-1',name:'Avery',preview:'Hello',network:'Signal'}]});
+  context.loadChats();
+  requests[0].status = 200;
+  requests[0].responseText = response;
+  requests[0].onload();
+  const initialPacketCount = appMessages.length;
+
+  context.loadChats('refresh');
+  requests[1].status = 200;
+  requests[1].responseText = response;
+  requests[1].onload();
+  assert.equal(appMessages.length, initialPacketCount);
+
+  context.loadChats('refresh');
+  requests[2].status = 200;
+  requests[2].responseText = JSON.stringify({items:[{id:'chat-1',name:'Avery',preview:'New reply',network:'Signal'}]});
+  requests[2].onload();
+  assert.equal(appMessages.filter(packet => packet[0] === 'chat').at(-1)[7], 'New reply');
 });
 
 test('new message detail discards unsent chunks for the previous selection', () => {
