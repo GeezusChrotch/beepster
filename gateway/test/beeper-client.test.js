@@ -404,3 +404,17 @@ test('attachments use opaque IDs and can produce watch-native previews', async (
   assert.ok(convertedInput);
   assert.match(paths[1], /^\/v1\/assets\/serve\?url=mxc%3A%2F%2Fprivate%2Fmedia$/);
 });
+test('conversation archiving and message deletion use the documented Desktop API routes', async () => {
+  const calls = [];
+  const fetchImpl = async (url, options = {}) => {
+    calls.push({url:String(url),method:options.method,body:options.body});
+    return new Response(null, {status:204});
+  };
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl});
+  await client.archiveChat('chat/one');
+  await client.deleteMessage('chat/one', 'message/two', true);
+  assert.deepEqual(calls, [
+    {url:'http://127.0.0.1:23373/v1/chats/chat%2Fone/archive',method:'POST',body:JSON.stringify({archived:true})},
+    {url:'http://127.0.0.1:23373/v1/chats/chat%2Fone/messages/message%2Ftwo?forEveryone=true',method:'DELETE',body:undefined}
+  ]);
+});

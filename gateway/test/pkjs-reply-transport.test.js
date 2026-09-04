@@ -170,6 +170,34 @@ test('older gateways still identify the local sender by the Me label', () => {
   assert.equal(message[36], 1);
 });
 
+test('configured delete actions archive merged conversations together', () => {
+  const { context, eventListeners, requests, appMessages } = replyRuntime();
+  context.mergedChats['merged-one'] = {members:['chat-phone','chat-email'],primary:'chat-phone'};
+  eventListeners.appmessage({payload:{0:'delete_chat',5:'merged-one'}});
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].method, 'POST');
+  assert.equal(requests[0].url, 'https://gateway.example/v1/chats/archive');
+  assert.deepEqual(JSON.parse(requests[0].body), {chatIDs:['chat-phone','chat-email']});
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({archived:true,count:2});
+  requests[0].onload();
+  assert.equal(appMessages.find(packet => packet[0] === 'delete_result')[1], 'success');
+});
+
+test('message deletion preserves the selected scope and underlying merged route', () => {
+  const { context, eventListeners, requests, appMessages } = replyRuntime();
+  context.messageRouteByID['m1-visible'] = {chatID:'chat-email',messageID:'real-message'};
+  context.messageHistory = [{id:'m1-visible',sender:'Me',text:'remove me'}];
+  eventListeners.appmessage({payload:{0:'delete_message',1:'everyone',5:'merged-one',30:'m1-visible'}});
+  assert.equal(requests[0].url, 'https://gateway.example/v1/chats/chat-email/delete-message');
+  assert.deepEqual(JSON.parse(requests[0].body), {messageID:'real-message',forEveryone:true});
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({deleted:true});
+  requests[0].onload();
+  assert.equal(context.messageHistory.length, 0);
+  assert.equal(appMessages.find(packet => packet[0] === 'delete_result')[1], 'success');
+});
+
 test('saved emoji order persists and is applied immediately', () => {
   const { eventListeners, appMessages, storage } = replyRuntime();
   const chosen = Array.from({length:15}, (_, index) => ({
@@ -256,13 +284,13 @@ test('button defaults are sent to the watch and included in settings', () => {
 
 test('custom button mappings persist and are applied immediately', () => {
   const { eventListeners, appMessages, storage } = replyRuntime();
-  const custom = Array(12).fill('jump_newest');
+  const custom = Array(12).fill('delete');
   eventListeners.webviewclosed({response:encodeURIComponent(JSON.stringify({buttonBindings:custom,scrollLines:7}))});
   assert.deepEqual(JSON.parse(storage.get('beepster_button_bindings')), custom);
   assert.equal(storage.get('beepster_scroll_lines'), '7');
   const bindings = appMessages.filter((message) => message[0] === 'button_binding');
   assert.equal(bindings.length, 12);
-  assert.ok(bindings.every((message) => message[1] === 'jump_newest'));
+  assert.ok(bindings.every((message) => message[1] === 'delete'));
   assert.equal(appMessages.find((message) => message[0] === 'button_bindings_ready')[3], 7);
 });
 

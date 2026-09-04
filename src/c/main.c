@@ -60,6 +60,7 @@ typedef enum {
   BUTTON_ACTION_QUICK_REPLY,
   BUTTON_ACTION_PIN_TOGGLE,
   BUTTON_ACTION_JUMP_NEWEST,
+  BUTTON_ACTION_DELETE,
   BUTTON_ACTION_NONE
 } ButtonAction;
 
@@ -189,20 +190,18 @@ static uint8_t s_media_kind;
 static char s_inline_attachment_id[MESSAGE_ATTACHMENT_LEN];
 static InlineMediaState s_inline_media_state = INLINE_MEDIA_NONE;
 static char s_inline_media_error[48];
-static Window *s_detail_window;
-static ScrollLayer *s_detail_scroll;
-static TextLayer *s_detail_sender_layer;
-static TextLayer *s_detail_text_layer;
-static TextLayer *s_detail_hint_layer;
-static TextLayer *s_detail_top_mask;
 static char *s_detail_text;
 static size_t s_detail_length;
 static size_t s_detail_capacity;
-static char s_detail_sender[MESSAGE_SENDER_LEN];
 static Window *s_reply_window;
 static MenuLayer *s_reply_menu;
 static TextLayer *s_reply_status_layer;
 static bool s_reply_showing_status;
+static bool s_delete_message;
+static bool s_delete_armed;
+static AppTimer *s_delete_timer;
+static char s_delete_chat_id[CHAT_ID_LEN];
+static char s_delete_message_id[MESSAGE_ID_LEN];
 static char s_quick_replies[MAX_QUICK_REPLIES][QUICK_REPLY_LEN];
 static int s_quick_reply_count;
 static GBitmap *s_emoji_atlas;
@@ -245,6 +244,7 @@ static void configured_message_click(ClickRecognizerRef recognizer, void *contex
 static void configured_message_long_click(ClickRecognizerRef recognizer, void *context);
 static GFont theme_font(void);
 static GFont font_for_text(const char *text);
+static void expire_delete_confirmation(void *context);
 
 static MenuLayer *active_menu(void) {
   Window *top = window_stack_get_top_window();
@@ -669,22 +669,6 @@ static void apply_theme_to_layers(void) {
     text_layer_set_text_color(s_reply_status_layer, s_theme.text);
     text_layer_set_font(s_reply_status_layer, theme_font());
   }
-  if (s_detail_window) window_set_background_color(s_detail_window, s_theme.background);
-  if (s_detail_sender_layer) {
-    text_layer_set_background_color(s_detail_sender_layer, s_theme.background);
-    text_layer_set_text_color(s_detail_sender_layer, s_theme.text);
-    text_layer_set_font(s_detail_sender_layer, font_for_text(s_detail_sender));
-  }
-  if (s_detail_text_layer) {
-    text_layer_set_background_color(s_detail_text_layer, s_theme.background);
-    text_layer_set_text_color(s_detail_text_layer, s_theme.text);
-    text_layer_set_font(s_detail_text_layer, font_for_text(s_detail_text));
-  }
-  if (s_detail_hint_layer) {
-    text_layer_set_background_color(s_detail_hint_layer, s_theme.accent);
-    text_layer_set_text_color(s_detail_hint_layer, s_theme.accent_text);
-  }
-  if (s_detail_top_mask) text_layer_set_background_color(s_detail_top_mask, s_theme.background);
   if (s_status_layer) text_layer_set_font(s_status_layer, theme_font());
   if (s_message_status_layer) text_layer_set_font(s_message_status_layer, theme_font());
   set_status(s_status_layer, s_chat_state, false);
@@ -910,6 +894,19 @@ static bool request_chat_pin(const char *chat_id, bool pinned) {
   return result == APP_MSG_OK;
 }
 
+static bool request_delete(bool for_everyone) {
+  DictionaryIterator *iterator;
+  AppMessageResult result = app_message_outbox_begin(&iterator);
+  if (result != APP_MSG_OK || !iterator) return false;
+  dict_write_cstring(iterator, MESSAGE_KEY_COMMAND, s_delete_message ? "delete_message" : "delete_chat");
+  dict_write_cstring(iterator, MESSAGE_KEY_CHAT_ID, s_delete_chat_id);
+  if (s_delete_message) {
+    dict_write_cstring(iterator, MESSAGE_KEY_MSG_ID, s_delete_message_id);
+    dict_write_cstring(iterator, MESSAGE_KEY_STATE, for_everyone ? "everyone" : "me");
+  }
+  return app_message_outbox_send() == APP_MSG_OK;
+}
+
 static void request_chats(void) {
   s_chat_state = VIEW_LOADING;
   s_chat_count = 0;
@@ -969,9 +966,6 @@ static void reply_return_to_thread(void *context) {
   if (s_reply_window && window_stack_contains_window(s_reply_window)) {
     window_stack_remove(s_reply_window, false);
   }
-  if (s_detail_window && window_stack_contains_window(s_detail_window)) {
-    window_stack_remove(s_detail_window, true);
-  }
   s_reply_state = VIEW_READY;
   s_reply_text[0] = '\0';
   s_reply_request_id[0] = '\0';
@@ -987,8 +981,6 @@ static void reply_ack_timeout(void *context) {
   s_reply_state = VIEW_REPLY_RETRYABLE;
   if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
     reply_show_status("No delivery confirmation\nPress Select to retry safely");
-  } else if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
-    text_layer_set_text(s_detail_hint_layer, "No delivery confirmation\nHold Select to retry safely");
   } else if (s_message_window && window_stack_get_top_window() == s_message_window && s_message_status_layer) {
     text_layer_set_text(s_message_status_layer, "No delivery confirmation\nPress Select to retry safely");
     layer_set_hidden(text_layer_get_layer(s_message_status_layer), false);
@@ -1037,8 +1029,6 @@ static void send_reply_to_phone(void) {
     s_reply_state = VIEW_REPLY_RETRYABLE;
     if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
       reply_show_status(state_text(s_reply_state, true));
-    } else if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
-      text_layer_set_text(s_detail_hint_layer, "Reply failed\nHold Select to retry");
     } else if (s_message_window && window_stack_get_top_window() == s_message_window && s_message_status_layer) {
       text_layer_set_text(s_message_status_layer, "Reply failed\nPress Select to retry");
       layer_set_hidden(text_layer_get_layer(s_message_status_layer), false);
@@ -1054,8 +1044,6 @@ static void send_reply_to_phone(void) {
   if (result == APP_MSG_OK) start_reply_ack_timer();
   if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
     reply_show_status(state_text(s_reply_state, true));
-  } else if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
-    text_layer_set_text(s_detail_hint_layer, state_text(s_reply_state, true));
   } else if (s_message_window && window_stack_get_top_window() == s_message_window && s_message_status_layer) {
     text_layer_set_text(s_message_status_layer, state_text(s_reply_state, true));
     layer_set_hidden(text_layer_get_layer(s_message_status_layer), false);
@@ -1103,8 +1091,6 @@ static void dictation_callback(DictationSession *session, DictationSessionStatus
     s_reply_state = VIEW_REPLY_RETRYABLE;
     if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
       reply_show_status("Voice reply failed\nPress Select to retry");
-    } else if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
-      text_layer_set_text(s_detail_hint_layer, "Voice reply failed\nHold Select to try again");
     } else if (s_message_window && window_stack_get_top_window() == s_message_window && s_message_status_layer) {
       text_layer_set_text(s_message_status_layer, "Voice reply failed\nPress Select to try again");
       layer_set_hidden(text_layer_get_layer(s_message_status_layer), false);
@@ -1156,49 +1142,6 @@ static void thread_dictate(ClickRecognizerRef recognizer, void *context) {
     text_layer_set_text(s_message_status_layer, "Voice dictation unavailable");
     layer_set_hidden(text_layer_get_layer(s_message_status_layer), false);
   }
-}
-
-static void detail_quick_replies(ClickRecognizerRef recognizer, void *context) {
-  thread_quick_replies(recognizer, context);
-}
-
-static void detail_dictate(ClickRecognizerRef recognizer, void *context) {
-  thread_dictate(recognizer, context);
-}
-
-static void detail_clicks(void *context) {
-  APP_LOG(APP_LOG_LEVEL_INFO, "installing detail click handlers");
-  // A long-click handler disables ScrollLayer's repeating DOWN handler. Make
-  // the single-click behavior explicit so short presses still scroll while a
-  // held DOWN reliably opens quick replies.
-  window_single_click_subscribe(BUTTON_ID_UP, scroll_layer_scroll_up_click_handler);
-  window_single_click_subscribe(BUTTON_ID_DOWN, scroll_layer_scroll_down_click_handler);
-  window_long_click_subscribe(BUTTON_ID_SELECT, 600, detail_dictate, NULL);
-  window_long_click_subscribe(BUTTON_ID_DOWN, 600, detail_quick_replies, NULL);
-}
-
-static void detail_offset_changed(ScrollLayer *scroll_layer, void *context) {
-  if (!s_detail_top_mask) return;
-  GPoint offset = scroll_layer_get_content_offset(scroll_layer);
-  layer_set_hidden(text_layer_get_layer(s_detail_top_mask), offset.y == 0);
-}
-
-static void layout_detail(void) {
-  if (!s_detail_scroll || !s_detail_text_layer || !s_detail_hint_layer || !s_detail_text) return;
-  GRect bounds = layer_get_bounds(scroll_layer_get_layer(s_detail_scroll));
-  int16_t text_y = s_theme_size + 18;
-  GFont detail_font = font_for_text(s_detail_text);
-  text_layer_set_font(s_detail_text_layer, detail_font);
-  text_layer_set_font(s_detail_sender_layer, font_for_text(s_detail_sender));
-  layer_set_frame(text_layer_get_layer(s_detail_sender_layer), GRect(8, 4, bounds.size.w - 16, s_theme_size + 12));
-  GSize text_size = graphics_text_layout_get_content_size(s_detail_text, detail_font,
-    GRect(0, 0, bounds.size.w - 16, 30000), GTextOverflowModeWordWrap, GTextAlignmentLeft);
-  int16_t text_height = text_size.h + 8;
-  if (text_height < 34) text_height = 34;
-  layer_set_frame(text_layer_get_layer(s_detail_text_layer), GRect(8, text_y, bounds.size.w - 16, text_height));
-  scroll_layer_set_content_size(s_detail_scroll, GSize(bounds.size.w, text_y + 32 + text_height));
-  scroll_layer_set_content_offset(s_detail_scroll, GPointZero, false);
-  text_layer_set_text(s_detail_hint_layer, "Up/Down: scroll\nHold Select=voice Down=quick");
 }
 
 static void retry_reply(ClickRecognizerRef recognizer, void *context) {
@@ -1671,7 +1614,60 @@ static void toggle_active_chat_pin(void) {
   vibes_short_pulse();
 }
 
+static void show_delete_confirmation(bool message_view) {
+  TextLayer *status = message_view ? s_message_status_layer : s_status_layer;
+  if (s_delete_armed && s_delete_message == message_view) {
+    s_delete_armed = false;
+    if (s_delete_timer) { app_timer_cancel(s_delete_timer); s_delete_timer = NULL; }
+    text_layer_set_text(status, message_view ? "Deleting message…" : "Archiving conversation…");
+    if (!request_delete(false)) {
+      text_layer_set_text(status, "Could not contact phone");
+      vibes_double_pulse();
+    }
+    return;
+  }
+  s_delete_message = message_view;
+  if (message_view) {
+    if (!s_message_menu || s_message_count < 1 || strcmp(s_active_chat_id, "beepster-openclaw-approvals") == 0) {
+      vibes_short_pulse();
+      return;
+    }
+    MenuIndex selected = menu_layer_get_selected_index(s_message_menu);
+    if (selected.row >= s_message_count) return;
+    copy_text(s_delete_chat_id, sizeof(s_delete_chat_id), s_active_chat_id);
+    copy_text(s_delete_message_id, sizeof(s_delete_message_id), s_messages[selected.row].id);
+  } else {
+    MenuIndex selected = selected_chat_row();
+    int chat_index = chat_index_for_row(selected.row);
+    if (chat_index < 0 || strcmp(s_chats[chat_index].id, "beepster-openclaw-approvals") == 0) {
+      vibes_short_pulse();
+      return;
+    }
+    copy_text(s_delete_chat_id, sizeof(s_delete_chat_id), s_chats[chat_index].id);
+    s_delete_message_id[0] = '\0';
+  }
+  s_delete_armed = true;
+  text_layer_set_text(status, message_view ?
+    "Delete this message?\nUse Delete again to confirm" :
+    "Archive this conversation?\nUse Delete again to confirm");
+  layer_set_hidden(text_layer_get_layer(status), false);
+  vibes_short_pulse();
+  if (s_delete_timer) app_timer_cancel(s_delete_timer);
+  s_delete_timer = app_timer_register(6000, expire_delete_confirmation, NULL);
+}
+
+static void expire_delete_confirmation(void *context) {
+  s_delete_timer = NULL;
+  s_delete_armed = false;
+  set_status(s_delete_message ? s_message_status_layer : s_status_layer, VIEW_READY, s_delete_message);
+}
+
 static void perform_button_action(ButtonAction action, bool message_view) {
+  if (action != BUTTON_ACTION_DELETE && s_delete_armed) {
+    s_delete_armed = false;
+    if (s_delete_timer) { app_timer_cancel(s_delete_timer); s_delete_timer = NULL; }
+    set_status(message_view ? s_message_status_layer : s_status_layer, VIEW_READY, message_view);
+  }
   if (message_view) {
     bool approval_chat = strcmp(s_active_chat_id, "beepster-openclaw-approvals") == 0;
     switch (action) {
@@ -1684,6 +1680,7 @@ static void perform_button_action(ButtonAction action, bool message_view) {
       case BUTTON_ACTION_QUICK_REPLY: thread_quick_replies(NULL, NULL); break;
       case BUTTON_ACTION_PIN_TOGGLE: toggle_active_chat_pin(); break;
       case BUTTON_ACTION_JUMP_NEWEST: message_jump_newest(NULL, NULL); break;
+      case BUTTON_ACTION_DELETE: show_delete_confirmation(true); break;
       case BUTTON_ACTION_OPEN_CHAT:
       case BUTTON_ACTION_NONE: break;
     }
@@ -1723,6 +1720,7 @@ static void perform_button_action(ButtonAction action, bool message_view) {
       // phone resets its cursor and fetches Beeper's actual newest page.
       request_chats();
       break;
+    case BUTTON_ACTION_DELETE: show_delete_confirmation(false); break;
     case BUTTON_ACTION_NONE: break;
   }
 }
@@ -1758,6 +1756,7 @@ static ButtonAction button_action_from_name(const char *name) {
   if (strcmp(name, "quick_reply") == 0) return BUTTON_ACTION_QUICK_REPLY;
   if (strcmp(name, "pin_toggle") == 0) return BUTTON_ACTION_PIN_TOGGLE;
   if (strcmp(name, "jump_newest") == 0) return BUTTON_ACTION_JUMP_NEWEST;
+  if (strcmp(name, "delete") == 0) return BUTTON_ACTION_DELETE;
   return BUTTON_ACTION_NONE;
 }
 
@@ -1786,14 +1785,6 @@ static void apply_state(const char *state, const char *error) {
     }
     if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
       reply_show_status(error && error[0] ? error : state_text(reply_state, true));
-      return;
-    }
-    if (s_detail_window && window_stack_get_top_window() == s_detail_window && s_detail_hint_layer) {
-      const char *feedback = error && error[0] ? error : state_text(reply_state, true);
-      if (reply_state == VIEW_REPLY_RETRYABLE && !(error && error[0])) {
-        feedback = "Reply failed\nPress Select to retry";
-      }
-      text_layer_set_text(s_detail_hint_layer, feedback);
       return;
     }
     if (s_message_window && window_stack_get_top_window() == s_message_window && s_message_status_layer) {
@@ -1840,6 +1831,23 @@ static void apply_state(const char *state, const char *error) {
 static void inbox_received(DictionaryIterator *iterator, void *context) {
   Tuple *command = dict_find(iterator, MESSAGE_KEY_COMMAND);
   if (!command) return;
+
+  if (strcmp(command->value->cstring, "delete_result") == 0) {
+    Tuple *state = dict_find(iterator, MESSAGE_KEY_STATE);
+    Tuple *error = dict_find(iterator, MESSAGE_KEY_ERROR);
+    bool success = state && strcmp(state->value->cstring, "success") == 0;
+    if (s_delete_timer) { app_timer_cancel(s_delete_timer); s_delete_timer = NULL; }
+    TextLayer *status = s_delete_message ? s_message_status_layer : s_status_layer;
+    if (success) {
+      vibes_short_pulse();
+      set_status(status, VIEW_READY, s_delete_message);
+    } else if (status) {
+      text_layer_set_text(status, error ? error->value->cstring : "Deletion was not allowed");
+      layer_set_hidden(text_layer_get_layer(status), false);
+      vibes_double_pulse();
+    }
+    return;
+  }
 
   if (strcmp(command->value->cstring, "emoji_reply") == 0) {
     Tuple *index = dict_find(iterator, MESSAGE_KEY_INDEX);
@@ -2141,7 +2149,6 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
       if (s_chat_menu) menu_layer_reload_data(s_chat_menu);
       if (s_message_menu) menu_layer_reload_data(s_message_menu);
       if (s_reply_menu) menu_layer_reload_data(s_reply_menu);
-      if (s_detail_text && s_detail_scroll) layout_detail();
     }
     if (!theme_only) apply_state(state ? state->value->cstring : "error", error ? error->value->cstring : "");
     return;
@@ -2579,72 +2586,6 @@ static void message_load(Window *window) {
   window_set_click_config_provider(window, message_clicks);
 }
 
-static void detail_load(Window *window) {
-  Layer *root = window_get_root_layer(window);
-  GRect bounds = layer_get_bounds(root);
-  window_set_background_color(window, s_theme.background);
-  s_detail_text = malloc(DETAIL_TEXT_CAPACITY);
-  s_detail_length = 0;
-  if (s_detail_text) s_detail_text[0] = '\0';
-
-  GRect scroll_bounds = GRect(0, 0, bounds.size.w, bounds.size.h - 44);
-  s_detail_scroll = scroll_layer_create(scroll_bounds);
-  scroll_layer_set_content_size(s_detail_scroll, scroll_bounds.size);
-  scroll_layer_set_shadow_hidden(s_detail_scroll, true);
-  scroll_layer_set_callbacks(s_detail_scroll, (ScrollLayerCallbacks) {
-    .click_config_provider = detail_clicks,
-    .content_offset_changed_handler = detail_offset_changed
-  });
-  layer_add_child(root, scroll_layer_get_layer(s_detail_scroll));
-
-  s_detail_sender_layer = text_layer_create(GRect(8, 4, bounds.size.w - 16, s_theme_size + 12));
-  text_layer_set_background_color(s_detail_sender_layer, s_theme.background);
-  text_layer_set_text_color(s_detail_sender_layer, s_theme.text);
-  text_layer_set_font(s_detail_sender_layer, font_for_text(s_detail_sender));
-  text_layer_set_overflow_mode(s_detail_sender_layer, GTextOverflowModeTrailingEllipsis);
-  text_layer_set_text(s_detail_sender_layer, s_detail_sender);
-  scroll_layer_add_child(s_detail_scroll, text_layer_get_layer(s_detail_sender_layer));
-
-  s_detail_text_layer = text_layer_create(GRect(8, s_theme_size + 18, bounds.size.w - 16, 120));
-  text_layer_set_background_color(s_detail_text_layer, s_theme.background);
-  text_layer_set_text_color(s_detail_text_layer, s_theme.text);
-  text_layer_set_font(s_detail_text_layer, font_for_text(s_detail_text));
-  text_layer_set_overflow_mode(s_detail_text_layer, GTextOverflowModeWordWrap);
-  text_layer_set_text(s_detail_text_layer, s_detail_text ? "Loading full message…" : "Not enough memory to open message");
-  scroll_layer_add_child(s_detail_scroll, text_layer_get_layer(s_detail_text_layer));
-
-  s_detail_top_mask = text_layer_create(GRect(0, 0, bounds.size.w, 12));
-  text_layer_set_background_color(s_detail_top_mask, s_theme.background);
-  text_layer_set_text(s_detail_top_mask, "");
-  layer_set_hidden(text_layer_get_layer(s_detail_top_mask), true);
-  layer_add_child(root, text_layer_get_layer(s_detail_top_mask));
-
-  s_detail_hint_layer = text_layer_create(GRect(0, bounds.size.h - 44, bounds.size.w, 44));
-  text_layer_set_background_color(s_detail_hint_layer, s_theme.accent);
-  text_layer_set_text_color(s_detail_hint_layer, s_theme.accent_text);
-  text_layer_set_font(s_detail_hint_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD));
-  text_layer_set_text_alignment(s_detail_hint_layer, GTextAlignmentCenter);
-  text_layer_set_text(s_detail_hint_layer, "Up/Down: scroll\nHold Select=voice Down=quick");
-  layer_add_child(root, text_layer_get_layer(s_detail_hint_layer));
-  scroll_layer_set_click_config_onto_window(s_detail_scroll, window);
-}
-
-static void detail_unload(Window *window) {
-  text_layer_destroy(s_detail_sender_layer);
-  text_layer_destroy(s_detail_text_layer);
-  text_layer_destroy(s_detail_hint_layer);
-  text_layer_destroy(s_detail_top_mask);
-  scroll_layer_destroy(s_detail_scroll);
-  if (s_detail_text) free(s_detail_text);
-  s_detail_sender_layer = NULL;
-  s_detail_text_layer = NULL;
-  s_detail_hint_layer = NULL;
-  s_detail_top_mask = NULL;
-  s_detail_scroll = NULL;
-  s_detail_text = NULL;
-  s_detail_length = 0;
-}
-
 static void media_load(Window *window) {
   Layer *root = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(root);
@@ -2756,11 +2697,6 @@ static void init(void) {
     .disappear = message_disappear,
     .unload = message_unload
   });
-  s_detail_window = window_create();
-  window_set_window_handlers(s_detail_window, (WindowHandlers) {
-    .load = detail_load,
-    .unload = detail_unload
-  });
   s_reply_window = window_create();
   window_set_window_handlers(s_reply_window, (WindowHandlers) {
     .load = reply_load,
@@ -2790,6 +2726,7 @@ static void deinit(void) {
   if (s_marquee_timer) app_timer_cancel(s_marquee_timer);
   if (s_message_request_timer) app_timer_cancel(s_message_request_timer);
   if (s_content_request_timer) app_timer_cancel(s_content_request_timer);
+  if (s_delete_timer) app_timer_cancel(s_delete_timer);
   if (s_dictation_session) dictation_session_destroy(s_dictation_session);
   if (s_chats) free(s_chats);
   s_chats = NULL;
@@ -2800,7 +2737,6 @@ static void deinit(void) {
   clear_chat_emoji_atlas();
   window_destroy(s_media_window);
   window_destroy(s_reply_window);
-  window_destroy(s_detail_window);
   window_destroy(s_message_window);
   window_destroy(s_main_window);
 }

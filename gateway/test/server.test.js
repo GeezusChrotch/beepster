@@ -104,9 +104,49 @@ test('configuration page supports editing an existing paired connection', async 
     assert.match(html, /Dictate reply/);
     assert.match(html, /Pin \/ unpin/);
     assert.match(html, /Jump to newest/);
+    assert.match(html, /Archive conversation/);
+    assert.match(html, /Delete message/);
     assert.match(html, /Lines per scroll/);
     assert.match(html, /buttonBindings:buttonBindings/);
     assert.match(html, /scrollLines:Number/);
+  });
+});
+
+test('authenticated watch deletion routes archive conversations and delete messages with explicit scope', async () => {
+  const archived = [];
+  const deleted = [];
+  const client = {
+    archiveChat: async (chatID) => { archived.push(chatID); return {archived:true}; },
+    deleteMessage: async (chatID, messageID, forEveryone) => {
+      deleted.push({chatID,messageID,forEveryone});
+      return {deleted:true,forEveryone};
+    }
+  };
+  await withServer(client, async (baseURL) => {
+    const headers = {Authorization:'Bearer gateway-secret','Content-Type':'application/json'};
+    const archive = await fetch(`${baseURL}/v1/chats/archive`, {
+      method:'POST',headers,body:JSON.stringify({chatIDs:['chat-one','chat-two']})
+    });
+    assert.equal(archive.status, 200);
+    assert.deepEqual(await archive.json(), {archived:true,count:2});
+    const deletion = await fetch(`${baseURL}/v1/chats/chat-one/delete-message`, {
+      method:'POST',headers,body:JSON.stringify({messageID:'message-one',forEveryone:true})
+    });
+    assert.equal(deletion.status, 200);
+    assert.deepEqual(archived, ['chat-one','chat-two']);
+    assert.deepEqual(deleted, [{chatID:'chat-one',messageID:'message-one',forEveryone:true}]);
+  });
+});
+
+test('watch deletion routes reject missing targets and implicit message scope', async () => {
+  await withServer({archiveChat:async () => {},deleteMessage:async () => {}}, async (baseURL) => {
+    const headers = {Authorization:'Bearer gateway-secret','Content-Type':'application/json'};
+    assert.equal((await fetch(`${baseURL}/v1/chats/archive`, {
+      method:'POST',headers,body:'{}'
+    })).status, 400);
+    assert.equal((await fetch(`${baseURL}/v1/chats/chat-one/delete-message`, {
+      method:'POST',headers,body:JSON.stringify({messageID:'message-one'})
+    })).status, 400);
   });
 });
 

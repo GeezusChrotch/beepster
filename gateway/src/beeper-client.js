@@ -527,6 +527,21 @@ export class BeeperClient {
     };
   }
 
+  async archiveChat(chatID) {
+    await this.request(`/v1/chats/${encodeURIComponent(chatID)}/archive`, {
+      method: 'POST',
+      body: JSON.stringify({ archived: true })
+    });
+    return { archived: true };
+  }
+
+  async deleteMessage(chatID, messageID, forEveryone = false) {
+    await this.request(`/v1/chats/${encodeURIComponent(chatID)}/messages/${encodeURIComponent(messageID)}?forEveryone=${forEveryone ? 'true' : 'false'}`, {
+      method: 'DELETE'
+    });
+    return { deleted: true, forEveryone: Boolean(forEveryone) };
+  }
+
   async getMessageStatus(chatID, messageID) {
     const message = await this.request(`/v1/chats/${encodeURIComponent(chatID)}/messages/${encodeURIComponent(messageID)}`);
     return {

@@ -73,7 +73,11 @@ are omitted; all 15 emoji slots remain available.
 The **Buttons** tab contains 12 independent assignments: press and hold for Top, Center, and Bottom
 in both the Threads list and an open Chat. Available actions are Scroll up, Scroll down, Open
 selected chat, Dictate reply, Quick reply, Pin / unpin, and Jump to newest. Jump to newest works in
-both views. Button choices and the lines-per-scroll value persist on the phone and watch.
+both views. Delete is also available: in Threads it archives the selected conversation, while in
+Chat it deletes the selected message for you. Repeat the configured Delete gesture within six
+seconds to confirm; using another action or waiting cancels it. Message deletion depends on the
+underlying network's Beeper capability and may be refused. Button choices and the lines-per-scroll
+value persist on the phone and watch.
 
 ## Included messaging services
 

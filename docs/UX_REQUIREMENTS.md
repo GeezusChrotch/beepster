@@ -68,7 +68,9 @@ review, and information must remain understandable without color.
 - Ship with Select opening a chat and Hold Select pinning or unpinning it as defaults. Settings must
   expose press and hold for all three buttons independently in Threads and Chat, for 12 bindings.
   Available actions are scroll up, scroll down, open selected chat, dictate, quick reply, pin/unpin,
-  and jump to newest. Jump to newest must work in both views. Pinned chats sort above recent chats,
+  jump to newest, and delete. Delete requires a second matching gesture within six seconds; in
+  Threads it archives the selected Beeper conversation, and in Chat it requests per-user deletion
+  of the selected message. Jump to newest must work in both views. Pinned chats sort above recent chats,
   display a text label rather than relying on color alone, and persist by stable chat ID on the phone.
 - Keep at most 30 chats resident on the watch. Show explicit older/newer navigation rows backed by
   opaque Beeper cursors so all enabled Primary, Low Priority, and Archived chats remain reachable.

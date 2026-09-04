@@ -40,6 +40,7 @@ The Connector window can be closed after setup; its login background service con
 - Chronological history that opens on the newest message and pages up to 60 messages
 - Complete in-thread message text with configurable one-to-eight-line scrolling
 - Fully configurable press and hold actions for all three buttons in both inbox and chat views
+- Confirmed conversation archiving and per-user message deletion as configurable button actions
 - Voice dictation with confirmation and delivery tracking
 - Up to eight text-or-emoji quick replies, followed by 15 user-chosen, reorderable bitmap emoji
 - Static photo, GIF-poster, and video-poster previews, including Instagram media

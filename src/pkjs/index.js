@@ -66,6 +66,7 @@ var messageLoadGeneration = 0;
 var attachmentLoadGeneration = 0;
 var hasLoadedChats = false;
 var messageTextByID = {};
+var messageRouteByID = {};
 var quickReplyCounter = 0;
 var activeMessageChatID = '';
 var messageHistory = [];
@@ -100,7 +101,7 @@ var chatEmojiKeys = [];
 var replyEmojiAtlasGeneration = 0;
 var chatEmojiAtlasGeneration = 0;
 var INBOX_IDS = ['primary','low-priority','archive'];
-var BUTTON_ACTION_IDS = ['scroll_up','scroll_down','open_chat','dictate','quick_reply','pin_toggle','jump_newest'];
+var BUTTON_ACTION_IDS = ['scroll_up','scroll_down','open_chat','dictate','quick_reply','pin_toggle','jump_newest','delete'];
 var DEFAULT_BUTTON_BINDINGS = [
   'scroll_up','scroll_up','open_chat','pin_toggle','scroll_down','scroll_down',
   'scroll_up','quick_reply','dictate','dictate','scroll_down','jump_newest'
@@ -1196,6 +1197,10 @@ function queueMessage(item, index, total) {
   var messageID = String(item.id || ('message-' + index));
   var watchText = watchMessageText(item);
   messageTextByID[messageID] = watchText;
+  messageRouteByID[messageID] = {
+    chatID:String(item.sourceChatID || activeMessageChatID),
+    messageID:String(item.sourceMessageID || item.id || '')
+  };
   var message = {};
   message[KEY_COMMAND] = 'message';
   message[KEY_INDEX] = index;
@@ -1237,6 +1242,7 @@ function loadMessages(chatID) {
   hasOlderMessages = false;
   loadingOlderMessages = false;
   messageTextByID = {};
+  messageRouteByID = {};
   sendState('loading');
   if (chatID === OPENCLAW_CHAT_ID) {
     loadOpenClawApprovals();
@@ -1321,6 +1327,8 @@ function loadMergedMessages(chatID, merged, generation) {
     request('/v1/chats/' + encodeURIComponent(memberID) + '/messages?limit=60', function(data) {
       (data.items || []).forEach(function(item) {
         var copy = Object.assign({}, item);
+        copy.sourceChatID = memberID;
+        copy.sourceMessageID = String(item.id || '');
         copy.id = 'm' + memberIndex + '-' + String(item.id || 'message');
         combined.push(copy);
       });
@@ -1332,6 +1340,7 @@ function loadMergedMessages(chatID, merged, generation) {
 function loadDemoMessages(chatID) {
   activeMessageChatID = chatID;
   messageTextByID = {};
+  messageRouteByID = {};
   messageHistory = [
     {id:'demo-message-1',sender:'Avery',text:'Morning! The new Beepster icon looks great on the watch. 😂❤️',watchText:'Morning! The new Beepster icon looks great on the watch. \x1e1f602\x1f\x1e2764\x1f',emojiKeys:['1f602','2764'],time:'9:38 AM'},
     {id:'demo-message-2',sender:'Me',text:'Thanks! Complete messages stay in the thread now, with simple two-line scrolling.',time:'9:40 AM'},
@@ -1345,6 +1354,48 @@ function loadDemoMessages(chatID) {
   for (var i = 0; i < messageHistory.length; i++) queueMessage(messageHistory[i], i, messageHistory.length);
   hasOlderMessages = false;
   finishMessageBatch('initial', messageHistory.length - 1);
+}
+
+function sendDeleteResult(ok, error) {
+  var packet = {};
+  packet[KEY_COMMAND] = 'delete_result';
+  packet[KEY_STATE] = ok ? 'success' : 'error';
+  if (error) packet[KEY_ERROR] = safeSlice(error, 100);
+  enqueue(packet);
+}
+
+function deleteConversation(chatID) {
+  if (!chatID || chatID === OPENCLAW_CHAT_ID) { sendDeleteResult(false, 'This conversation cannot be archived'); return; }
+  var chatIDs = mergedChats[chatID] && Array.isArray(mergedChats[chatID].members) ?
+    mergedChats[chatID].members.slice() : [chatID];
+  postJSON('/v1/chats/archive', {chatIDs:chatIDs}, function() {
+    var pinned = configuredPinnedChats().filter(function(value) { return value !== chatID; });
+    localStorage.setItem('beepster_pinned_chats', JSON.stringify(pinned));
+    updatePinnedSnapshot(chatID, true);
+    sendDeleteResult(true);
+    loadChats('initial');
+  }, function(error) { sendDeleteResult(false, error || 'Could not archive conversation'); });
+}
+
+function deleteMessage(chatID, messageID, forEveryone) {
+  if (!chatID || chatID === OPENCLAW_CHAT_ID || !messageID) { sendDeleteResult(false, 'This message cannot be deleted'); return; }
+  var route = messageRouteByID[messageID] || {chatID:chatID,messageID:messageID};
+  postJSON('/v1/chats/' + encodeURIComponent(route.chatID) + '/delete-message', {
+    messageID:route.messageID,forEveryone:Boolean(forEveryone)
+  }, function() {
+    var deletedIndex = -1;
+    messageHistory = messageHistory.filter(function(item, index) {
+      if (String(item.id || '') === messageID) { deletedIndex = index; return false; }
+      return true;
+    });
+    delete messageTextByID[messageID];
+    delete messageRouteByID[messageID];
+    sendDeleteResult(true);
+    var start = {}; start[KEY_COMMAND] = 'messages_start'; start[KEY_TOTAL] = messageHistory.length; enqueue(start);
+    for (var i = 0; i < messageHistory.length; i++) queueMessage(messageHistory[i], i, messageHistory.length);
+    if (messageHistory.length) finishMessageBatch('initial', Math.max(0, Math.min(messageHistory.length - 1, deletedIndex)));
+    else sendState('empty');
+  }, function(error) { sendDeleteResult(false, error || 'This network did not allow deletion'); });
 }
 
 function loadOlderMessages(chatID) {
@@ -1539,6 +1590,12 @@ Pebble.addEventListener('appmessage', function(event) {
   if (command === 'set_chat_pinned') setChatPinned(
     payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || '',
     Number((payload[KEY_CHAT_PINNED] != null ? payload[KEY_CHAT_PINNED] : payload.CHAT_PINNED) || 0) !== 0
+  );
+  if (command === 'delete_chat') deleteConversation(payload[KEY_CHAT_ID] || payload.CHAT_ID || '');
+  if (command === 'delete_message') deleteMessage(
+    payload[KEY_CHAT_ID] || payload.CHAT_ID || '',
+    payload[KEY_MSG_ID] || payload.MSG_ID || '',
+    String(payload[KEY_STATE] || payload.STATE || '') === 'everyone'
   );
   if (command === 'load_messages') loadMessages(payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || '');
   if (command === 'chat_view_open') {

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added a configurable Delete action for both views. In Threads it safely archives the selected
+  Beeper conversation; in Chat it deletes the selected message for the current user. Repeating the
+  configured Delete gesture within six seconds confirms the operation.
+- Combined Apple threads archive all of their linked Beeper conversations, while message deletion
+  is routed to the exact underlying conversation and message.
+- Removed the obsolete separate message-reading window; complete messages continue to expand and
+  scroll directly in the chat, freeing enough Pebble executable space for deletion support.
 - Added optional OpenClaw protected-action review as a synthetic watch conversation, with exact
   pending-ID revalidation and only Allow once or Deny decisions.
 - Added Connector-led OpenClaw setup, a separate scoped device identity stored only on the Mac,

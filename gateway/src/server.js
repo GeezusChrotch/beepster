@@ -214,6 +214,35 @@ export function createServer({ beeperClient, openClawClient = null, gatewayToken
         return;
       }
 
+      if (url.pathname === '/v1/chats/archive' && request.method === 'POST') {
+        const body = await readJSON(request);
+        const chatIDs = replyChatIDs('', body.chatIDs);
+        if (!chatIDs.length) {
+          sendJSON(response, 400, { error: 'At least one conversation is required' });
+          return;
+        }
+        await Promise.all(chatIDs.map((chatID) => beeperClient.archiveChat(chatID)));
+        cache.clear();
+        sendJSON(response, 200, { archived: true, count: chatIDs.length });
+        return;
+      }
+
+      const deleteMessageMatch = url.pathname.match(/^\/v1\/chats\/([^/]+)\/delete-message$/);
+      if (deleteMessageMatch && request.method === 'POST') {
+        const chatID = decodeURIComponent(deleteMessageMatch[1]);
+        const body = await readJSON(request);
+        const messageID = String(body.messageID || '').trim();
+        if (!chatID || chatID.length > 500 || !messageID || messageID.length > 500 ||
+            typeof body.forEveryone !== 'boolean') {
+          sendJSON(response, 400, { error: 'Message deletion requires a message ID and deletion scope' });
+          return;
+        }
+        const result = await beeperClient.deleteMessage(chatID, messageID, body.forEveryone);
+        cache.clear();
+        sendJSON(response, 200, result);
+        return;
+      }
+
       const messagesMatch = url.pathname.match(/^\/v1\/chats\/([^/]+)\/messages$/);
       const watchReplyMatch = url.pathname.match(/^\/v1\/chats\/([^/]+)\/reply$/);
       if (messagesMatch && request.method === 'GET') {
