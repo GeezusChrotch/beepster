@@ -104,3 +104,10 @@ owners and are used only to describe compatibility.
 
 The complete watch, phone, gateway, setup page, and artwork source is available under the MIT
 license. Bundled fonts retain their SIL Open Font License texts in `resources/fonts/licenses`.
+
+## Thank you
+
+Thank you to ChatGPT and Codex, especially ChatGPT 5.6 Sol and ChatGPT 6 Astra, and to the people at OpenAI who build these tools, for allowing a nerd with an idea to make cool stuff.
+
+We also thank the developers and communities behind the apps, libraries, fonts and tools we build
+on. [Full acknowledgments](ACKNOWLEDGMENTS.md).
