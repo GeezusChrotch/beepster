@@ -1,5 +1,9 @@
 # Publishing Beepster
 
+For the coordinated unified-connector release, use [current setup](INSTALL.md) and
+[migration](UNIFIED_CONNECTOR.md). Standalone build names and controls below refer to earlier
+releases; their historical artifacts are not the new Mac download.
+
 This is the maintainer checklist for beta and public releases. Do not upload the personal PBW from
 `local/`; it contains a private setup URL. The universal artifact is produced in `dist/`.
 

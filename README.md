@@ -1,5 +1,10 @@
 # Beepster
 
+Use **Organik Apps Pebble Connector** for the coordinated Mac release: one free MIT app for
+Notesy, Beepster, Reminderz and Pome. [Setup and migration](docs/UNIFIED_CONNECTOR.md).
+Existing Beepster watch pairing is retained. Standalone connector details below describe the older
+implementation and remain useful for source builds or rollback.
+
 ![Beepster](assets/store/beepster-header-1000x320.png)
 
 Beepster is a readable, reliable, open-source Beeper client for Pebble Time 2. It brings recent

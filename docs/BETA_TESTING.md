@@ -1,5 +1,9 @@
 # Beepster 0.12.0 Beta Testing
 
+For the coordinated unified-connector release, use [current setup](INSTALL.md) and
+[migration](UNIFIED_CONNECTOR.md). Standalone build names and controls below refer to earlier
+releases; their historical artifacts are not the new Mac download.
+
 > **Beepster is now public.** No invitation is needed. Start with the current
 > [installation guide](INSTALL.md) and [feedback page](FEEDBACK.md).
 > The instructions below are retained only as a historical beta reference.

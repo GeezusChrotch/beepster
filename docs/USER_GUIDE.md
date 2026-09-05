@@ -95,7 +95,7 @@ default. When multiple sections are enabled, Beepster pages through them in that
 
 ## Optional OpenClaw approvals
 
-After enabling and pairing **OpenClaw Approvals** in **Beepster Connector → Advanced options**, turn
+After enabling and pairing **OpenClaw Approvals** in **Organik Apps Pebble Connector → Beepster → Troubleshooting**, turn
 on **Show pending OpenClaw approvals** in phone Settings. When a protected action is pending,
 Beepster correlates it with the approval prompt already delivered in the Telegram conversation with
 your agent. The prompt is labeled **OpenClaw approval** and shows the complete sanitized description
@@ -124,16 +124,14 @@ alias; it never guesses from display names and never changes the source conversa
 
 ## Mac Connector
 
-Open **Beepster Connector** from Applications and select **Set Up Beepster** for the complete guided
-Mac setup. **Connect Phone** puts the private address and pairing code in one place, and **Test
-Everything** verifies Contacts, a live Beeper request, and the private phone route. Individual
-install, token, permission, route, and documentation controls remain under **Advanced options**.
-No Beeper or gateway token is shown or copied, and normal use requires no Terminal commands.
+Open **Organik Apps Pebble Connector → Beepster**. Requirements shows setup status, Connect
+provides guided setup and phone pairing, and Troubleshooting holds individual repairs and optional
+OpenClaw setup. Keep Beeper Desktop running. The Beeper token stays on the Mac; use only the
+provided private setup address and pairing code on your phone.
 
-The Connector window is only for setup, status checks, and repairs; it does not need to stay open.
-Closing its window quits the Connector app without stopping the separate Beepster background
-service. Keep the Mac awake, Beeper Desktop open and signed in, and Tailscale connected while using
-Beepster.
+The connector window can close. Beepster keeps its own background service. Existing users can
+[migrate without resetting pairing](UNIFIED_CONNECTOR.md). The old standalone UI is documented
+in [legacy installation](INSTALL_STANDALONE.md).
 
 ## Themes and accessibility
 
