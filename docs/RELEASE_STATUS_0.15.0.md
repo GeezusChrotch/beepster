@@ -1,7 +1,6 @@
 # 0.15.0 release verification
 
-Status checked September 5, 2026. This records the release operation, not a
-guarantee that the storefront has refreshed since the check.
+Publication verified September 5, 2026 on GitHub and the public Pebble storefront.
 
 ## Verified
 
@@ -22,20 +21,27 @@ guarantee that the storefront has refreshed since the check.
   focus/navigation fix. The final version-stamped artifact has not received a
   new full physical-watch regression run.
 
-## Still pending
+## Public storefront verified
 
-The [public storefront](https://apps.repebble.com/d2ee8ca7db384c6ca9eefa57)
-still displayed 0.14.0 and supplied the older PBW when checked after backend
-publication. Public catalog propagation or release selection remains unresolved;
-do not claim that its download has been verified as 0.15.0. No duplicate release
-was uploaded. The coordinator is arranging existing-account dashboard sign-in
-to inspect this discrepancy and update the older listing description.
+The coordinator confirmed the existing 0.15.0 release was Published in the
+signed-in dashboard. The [public storefront](https://apps.repebble.com/d2ee8ca7db384c6ca9eefa57)
+now displays 0.15.0. Its [watch package](https://appstore-api.repebble.com/api/assets/pbw/d2ee8ca7db384c6ca9eefa57/0.15.0/a978c73b-9032-4ccb-a5d1-39733f16bc34.pbw)
+was independently downloaded: 230,691 bytes, matching the SHA-256 above exactly.
+The initial stale 0.14.0 storefront state is resolved. No duplicate upload or
+release visibility toggle was needed.
+
+The listing description was updated and verified publicly with Hermes/OpenClaw
+hold-center controls, explicit session/chat linking, the guarded OpenClaw
+2026.9.1 text fallback, unified Connector 0.3.0 requirements and download link,
+and the continuing iMessage message-deletion limitation. The public source link
+is correct.
+
+## Separate Connector release
 
 The unified Connector is released separately by its owner. Its final Beepster
 gateway/helper/plugin source input is the commit above; this status document
 does not alter those inputs. Legacy standalone Connector packages are not part
 of this release.
 
-Before closing the storefront item, verify that the public version and download
-both show 0.15.0, download that PBW, and compare it to the SHA-256 above. Retain
-the existing release rather than uploading another copy to force refresh.
+The Beepster storefront publication item is closed. This documentation update
+does not change the tagged source or the verified release package.
