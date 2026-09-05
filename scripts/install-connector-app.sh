@@ -15,7 +15,8 @@ icon_source="$project_dir/assets/brand/beepster-mark-512.png"
 
 mkdir -p "$staged_app/Contents/MacOS" "$resources" "$work_dir/Beepster.iconset"
 cp "$project_dir/mac/BeepsterConnector-Info.plist" "$staged_app/Contents/Info.plist"
-cp -R "$project_dir/gateway" "$resources/gateway"
+mkdir -p "$resources/gateway"
+rsync -a --exclude='__pycache__/' --exclude='*.pyc' "$project_dir/gateway/" "$resources/gateway/"
 cp "$project_dir/LICENSE" "$resources/Beepster-LICENSE.txt"
 
 build_swift() {

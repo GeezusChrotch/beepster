@@ -11,7 +11,7 @@ Beepster is a readable, reliable, open-source Beeper client for Pebble Time 2. I
 chats, complete message text, voice dictation, saved replies, themes, bitmap emoji, and inline
 photo previews to the watch without putting a Beeper credential on the watch or phone.
 
-Version 0.14.0 improves archiving, readability, and error handling. Download the watch app and signed, notarized Mac
+Version 0.15.0 adds clearly highlighted Hermes and OpenClaw approval controls. Download the watch app and signed, notarized Mac
 Connector using the [installation guide](https://geezuschrotch.github.io/beepster/INSTALL).
 Feedback is welcome: [share your experience or report a problem](https://github.com/GeezusChrotch/beepster/issues/new/choose).
 
@@ -31,7 +31,8 @@ The Connector window can be closed after setup; its login background service con
 
 - [Install Beepster](docs/INSTALL.md) — complete Mac, Tailscale, watch, and pairing walkthrough
 - [Feedback and first-run checks](docs/FEEDBACK.md) — help improve Beepster safely
-- [0.14.0 release notes](docs/RELEASE_NOTES_0.14.0.md) — fixes and known limitations
+- [0.15.0 release notes](docs/RELEASE_NOTES_0.15.0.md) — agent controls and known limitations
+- [Hermes and OpenClaw setup](docs/AGENT_APPROVALS.md) — optional integrations and compatibility
 - [Use Beepster](docs/USER_GUIDE.md) — controls, replies, themes, media, and limitations
 - [Troubleshoot](docs/TROUBLESHOOTING.md) — symptom-based fixes and the private health checker
 - [Privacy](PRIVACY.md) and [security model](SECURITY.md)
@@ -58,9 +59,9 @@ The Connector window can be closed after setup; its login background service con
 - Explicit setup, loading, empty, timeout, offline, and retry states
 - Self-contained, Keychain-backed Mac Connector with one-pass setup, combined phone pairing,
   end-to-end readiness checks, advanced repair controls, and idempotent reply transport
-- Optional inline OpenClaw approvals in the matching Telegram agent conversation, with a clear
-  action description and exact one-time Approve or Deny decisions; the separately scoped device
-  credential remains on the Mac and no standing grants are offered
+- Optional Hermes and OpenClaw approval controls in explicitly linked Telegram conversations,
+  with request descriptions, highlighted choices and deliberate hold-center activation.
+  Always approve is shown only when supported and requires additional confirmation.
 
 Animated GIF playback and multiple attachments per message remain planned. See the
 [roadmap](ROADMAP.md) and [UX requirements](docs/UX_REQUIREMENTS.md).

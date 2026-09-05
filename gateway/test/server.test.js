@@ -110,7 +110,7 @@ test('configuration page supports editing an existing paired connection', async 
     assert.match(html, /Low Priority/);
     assert.match(html, /Archived/);
     assert.match(html, /inboxes:inboxes/);
-    assert.match(html, /Show pending OpenClaw approvals/);
+    assert.match(html, /Show pending agent approvals/);
     assert.match(html, /Approve once and Deny/);
     assert.match(html, /openClawApprovals/);
     assert.match(html, /Link Apple conversations/);
@@ -191,7 +191,7 @@ test('missing cached photos are a clear 404 rather than an upstream 502', async 
   });
 });
 
-test('OpenClaw approval routes expose sanitized items and only exact one-time decisions', async () => {
+test('legacy unscoped approval routes require an update and cannot resolve requests', async () => {
   const decisions = [];
   const openClawClient = {
     status: () => ({state:'paired'}),
@@ -202,17 +202,34 @@ test('OpenClaw approval routes expose sanitized items and only exact one-time de
   await withServer({listChats:async () => []}, async (baseURL) => {
     const headers = {Authorization:'Bearer gateway-secret'};
     const listed = await fetch(`${baseURL}/v1/openclaw/approvals`, {headers});
-    assert.deepEqual(await listed.json(), {items:[{id:'approval-1',summary:'exec\n\nUpdate a package',createdAt:123,expiresAt:456}]});
+    assert.equal(listed.status, 410);
     const rejected = await fetch(`${baseURL}/v1/openclaw/approvals/approval-1/decision`, {
       method:'POST', headers:{...headers,'Content-Type':'application/json'}, body:JSON.stringify({decision:'allow-always'})
     });
-    assert.equal(rejected.status, 400);
+    assert.equal(rejected.status, 410);
     const allowed = await fetch(`${baseURL}/v1/openclaw/approvals/approval-1/decision`, {
       method:'POST', headers:{...headers,'Content-Type':'application/json'}, body:JSON.stringify({decision:'allow-once'})
     });
-    assert.equal(allowed.status, 200);
-    assert.deepEqual(decisions, [{id:'approval-1',decision:'allow-once'}]);
+    assert.equal(allowed.status, 410);
+    assert.deepEqual(decisions, []);
   }, {openClawClient});
+});
+
+test('agent route requires authentication, chat binding and a one-use ticket', async () => {
+  const calls = [];
+  const hermesClient = {listApprovals:async()=>[{id:'pending',sessionKey:'agent:main:telegram:dm:1',summary:'Test action',expiresAt:0}],
+    resolveApproval:async(...args)=>{calls.push(args);return {ok:true};}};
+  await withServer({}, async base => {
+    const headers={Authorization:'Bearer gateway-secret','Content-Type':'application/json'};
+    assert.equal((await fetch(base+'/v1/agents/approvals?chatID=chat')).status,401);
+    assert.deepEqual(await (await fetch(base+'/v1/agents/approvals?chatID=other',{headers})).json(),{items:[]});
+    const listed=await (await fetch(base+'/v1/agents/approvals?chatID=chat',{headers})).json();
+    const route=base+'/v1/agents/approvals/'+listed.items[0].id+'/decision';
+    assert.equal((await fetch(route,{method:'POST',headers,body:JSON.stringify({decision:'deny',chatID:'other'})})).status,409);
+    assert.equal((await fetch(route,{method:'POST',headers,body:JSON.stringify({decision:'deny',chatID:'chat'})})).status,200);
+    assert.equal((await fetch(route,{method:'POST',headers,body:JSON.stringify({decision:'deny',chatID:'chat'})})).status,409);
+    assert.deepEqual(calls,[['pending','deny','agent:main:telegram:dm:1']]);
+  },{hermesClient,readLinks:async()=>[{provider:'hermes',sessionKey:'agent:main:telegram:dm:1',chatID:'chat',enabled:true}]});
 });
 
 test('message history pagination forwards the opaque cursor', async () => {

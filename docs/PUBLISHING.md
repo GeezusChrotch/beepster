@@ -4,6 +4,15 @@ For the coordinated unified-connector release, use [current setup](INSTALL.md) a
 [migration](UNIFIED_CONNECTOR.md). Standalone build names and controls below refer to earlier
 releases; their historical artifacts are not the new Mac download.
 
+For 0.15.0 and later, publish only the watch PBW and checksums from this repository.
+The unified Connector release is coordinated separately; do not run the legacy Mac
+packaging section below as part of a new public release. The current catalog is
+published through `pebble publish --non-interactive --is-published --no-gif-all-platforms`
+from the verified release checkout. That command uploads `build/beepster.pbw`;
+verify its SHA-256 equals the packaged `dist/` artifact before publishing and compare
+the downloaded catalog artifact afterward. The legacy Rebble developer portal may
+show stale metadata and is not proof of current rePebble catalog publication.
+
 This is the maintainer checklist for beta and public releases. Do not upload the personal PBW from
 `local/`; it contains a private setup URL. The universal artifact is produced in `dist/`.
 

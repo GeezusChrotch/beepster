@@ -5,6 +5,10 @@ import { configurationPage } from './configuration-page.js';
 import { publicEmojiAtlas, publicEmojiCatalog, renderEmojiAtlas } from './emoji-assets.js';
 import { createOpenClawApprovalClient } from './openclaw-client.js';
 import { readSecret, writeSecret } from './secret-store.js';
+import { createAgentApprovals } from './agent-approvals.js';
+import { readAgentLinks } from './agent-settings.js';
+import { createHermesApprovalClient } from './hermes-client.js';
+import { createOpenClawTelegramClient } from './openclaw-telegram.js';
 
 const MAX_BODY_BYTES = 16 * 1024;
 
@@ -83,13 +87,14 @@ function replyChatIDs(primaryChatID, fallbackChatIDs) {
     value && value.length <= 500 && items.indexOf(value) === index).slice(0, 10);
 }
 
-export function createServer({ beeperClient, openClawClient = null, gatewayToken, pairingCode = '', rotatePairingCode = async () => '', logger = console }) {
+export function createServer({ beeperClient, openClawClient = null, hermesClient = null, telegramApprovals = false, readLinks = async () => [], gatewayToken, pairingCode = '', rotatePairingCode = async () => '', logger = console }) {
   if (!gatewayToken) throw new Error('gatewayToken is required');
   const cache = new Map();
   const replyRequests = new Map();
   const pendingReplies = new Map();
   let activePairingCode = pairingCode;
   let pairingAvailable = Boolean(pairingCode);
+  const agents = createAgentApprovals({clients:{openclaw:telegramApprovals && openClawClient && beeperClient ? createOpenClawTelegramClient({beeper:beeperClient,readLinks}) : openClawClient, hermes:hermesClient}, readLinks});
 
   async function withCache(key, loader) {
     try {
@@ -107,7 +112,7 @@ export function createServer({ beeperClient, openClawClient = null, gatewayToken
     try {
       const url = new URL(request.url, 'http://127.0.0.1');
       if (url.pathname === '/health' && request.method === 'GET') {
-        sendJSON(response, 200, { ok: true, service: 'beepster-gateway', beeperConfigured: Boolean(beeperClient),
+        sendJSON(response, 200, { ok: true, service: 'beepster-gateway', agentProtocol: 1, capabilities: ['agent-approval-tickets', 'explicit-agent-links'], beeperConfigured: Boolean(beeperClient),
           openClawEnabled: Boolean(openClawClient), openClawState: openClawClient?.status?.().state || 'disabled' });
         return;
       }
@@ -146,43 +151,35 @@ export function createServer({ beeperClient, openClawClient = null, gatewayToken
         return;
       }
 
+      if (url.pathname === '/v1/agents/approvals' && request.method === 'GET') {
+        try {
+          sendJSON(response, 200, {items:await agents.list(url.searchParams.get('chatID') || '')});
+        } catch {
+          sendJSON(response, 503, {error:'Agent approvals unavailable. Check the agent link in Beepster Connector.'});
+        }
+        return;
+      }
+      const agentDecision = url.pathname.match(/^\/v1\/agents\/approvals\/([^/]+)\/decision$/);
+      if (agentDecision && request.method === 'POST') {
+        const body = await readJSON(request);
+        try {
+          const result = await agents.resolve(decodeURIComponent(agentDecision[1]), body.chatID, body.decision);
+          if (result.transport === 'telegram') pendingReplies.set(`${result.chatID}:${result.pendingMessageID}`, {chatID:result.chatID,text:result.text,sentAfter:result.sentAfter});
+          const {text, sentAfter, ...publicResult} = result;
+          sendJSON(response, 200, publicResult);
+        } catch {
+          sendJSON(response, 409, {error:'Approval not confirmed. It may have expired, changed, or already been answered. Check the agent before retrying.'});
+        }
+        return;
+      }
+      // Retire the unscoped endpoint: old phone builds must not guess which
+      // Telegram conversation owns an approval from its timestamp or words.
+      if (url.pathname.startsWith('/v1/openclaw/approvals')) {
+        sendJSON(response, 410, {error:'Update the watch app and link your agent conversation in Beepster Connector.'});
+        return;
+      }
       if (url.pathname === '/v1/openclaw/status' && request.method === 'GET') {
         sendJSON(response, 200, {enabled:Boolean(openClawClient), state:openClawClient?.status?.().state || 'disabled'});
-        return;
-      }
-
-      if (url.pathname === '/v1/openclaw/approvals' && request.method === 'GET') {
-        if (!openClawClient) {
-          sendJSON(response, 404, {error:'OpenClaw approvals are not enabled in Beepster Connector'});
-          return;
-        }
-        try {
-          const items = await openClawClient.listApprovals();
-          sendJSON(response, 200, {items});
-        } catch (error) {
-          logger.warn(`OpenClaw approval list unavailable state=${openClawClient.status?.().state || 'unknown'}`);
-          sendJSON(response, 503, {error:'OpenClaw approvals are not connected', state:openClawClient.status?.().state || 'error'});
-        }
-        return;
-      }
-
-      const approvalDecisionMatch = url.pathname.match(/^\/v1\/openclaw\/approvals\/([^/]+)\/decision$/);
-      if (approvalDecisionMatch && request.method === 'POST') {
-        if (!openClawClient) {
-          sendJSON(response, 404, {error:'OpenClaw approvals are not enabled in Beepster Connector'});
-          return;
-        }
-        const id = decodeURIComponent(approvalDecisionMatch[1]);
-        const body = await readJSON(request);
-        if (!id || id.length > 200 || (body.decision !== 'allow-once' && body.decision !== 'deny')) {
-          sendJSON(response, 400, {error:'Only an exact pending approval with allow-once or deny is supported'});
-          return;
-        }
-        try {
-          sendJSON(response, 200, await openClawClient.resolveApproval(id, body.decision));
-        } catch (error) {
-          sendJSON(response, 409, {error:'The exact approval is no longer pending'});
-        }
         return;
       }
 
@@ -398,5 +395,6 @@ export async function createConfiguredServer(environment = process.env) {
   };
   const openClawClient = /^(1|true|yes|enabled)$/i.test(String(openClawSetting || '')) ?
     createOpenClawApprovalClient() : null;
-  return createServer({ beeperClient: client, openClawClient, gatewayToken, pairingCode, rotatePairingCode });
+  return createServer({ beeperClient: client, openClawClient, hermesClient:createHermesApprovalClient(), readLinks:readAgentLinks,
+    gatewayToken, pairingCode, rotatePairingCode, telegramApprovals:true });
 }

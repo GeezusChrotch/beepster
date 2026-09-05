@@ -19,10 +19,13 @@ function approvalSummary(approval) {
   const rawKind = plainText(approval?.approvalKind || approval?.kind || request?.kind || 'protected action', 50).replace(/\n/g, ' ');
   const kind = rawKind === 'system-agent' ? 'OpenClaw approval' :
     (rawKind === 'exec' ? 'Command approval' : (rawKind === 'plugin' ? 'Plugin approval' : rawKind));
-  const detail = approval?.summary || approval?.command || approval?.rawCommand || approval?.description ||
-    request?.summary || request?.command || request?.commandPreview || request?.rawCommand || request?.description || request?.title ||
-    'Your OpenClaw agent wants to perform a protected action.';
-  return plainText(`${kind}\n\n${detail}`);
+  const description = approval?.summary || approval?.description || request?.summary || request?.description || request?.title || '';
+  const command = approval?.rawCommand || approval?.command || request?.rawCommand || request?.command ||
+    request?.systemRunPlan?.commandText || '';
+  // Shell punctuation is meaningful: never strip underscores, stars, backticks,
+  // or truncate the command being approved. Oversized cards are not actionable.
+  const detail = description && command && description !== command ? `${description}\n\nCommand:\n${command}` : description || command;
+  return detail ? `${kind}\n\n${detail}` : '';
 }
 
 function extractApprovals(result) {
@@ -86,7 +89,10 @@ export function createOpenClawBridge(options = {}) {
 
   return {
     async request(method, params, requestOptions) {
-      await ready;
+      let timer;
+      try {
+        await Promise.race([ready, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('OpenClaw connection timed out')), 5000); })]);
+      } finally { clearTimeout(timer); }
       if (stopped || !client) throw new Error('OpenClaw Gateway client is stopped');
       if (connectionStatus.state !== 'paired') throw new Error('OpenClaw Gateway pairing is required');
       return client.request(method, params, requestOptions);
@@ -113,19 +119,33 @@ export function createOpenClawApprovalClient(options = {}) {
           kind:item.approvalKind === 'plugin' || item.kind === 'plugin' ? 'plugin' :
             item.approvalKind === 'system-agent' || item.kind === 'system-agent' ? 'system-agent' : 'exec',
           summary:approvalSummary(item),
+          alwaysScope:(item.allowedDecisions || item.request?.allowedDecisions || []).includes('allow-always') ?
+            'Grant persistent permission in OpenClaw for this request. Future matching actions may run without asking; the command or plugin determines the matching scope.' : undefined,
+          sessionKey:String(item.sessionKey || item.request?.sessionKey || ''),
+          // Never infer a shared-session request's channel from its last delivery.
+          sourceChannel:String(item.turnSourceChannel || item.request?.turnSourceChannel || item.origin?.channel || item.request?.origin?.channel ||
+            item.origin?.provider || item.request?.origin?.provider || '').toLowerCase(),
+          truncated:approvalSummary(item).length > 4000,
           createdAt:Number(item.createdAtMs || item.createdAt || item.ts || 0),
           expiresAt:Number(item.expiresAtMs || item.expiresAt || 0)
         }));
     },
-    async resolveApproval(id, decision) {
-      if (decision !== 'allow-once' && decision !== 'deny') throw new Error('Only allow-once or deny is supported');
+    async resolveApproval(id, decision, sessionKey) {
+      if (!['allow-once', 'deny', 'allow-always'].includes(decision)) throw new Error('Unsupported approval decision');
       const pending = await this.listApprovals();
       if (!pending.some(item => item.id === id)) throw new Error('The exact approval is no longer pending');
       const item = pending.find(item => item.id === id);
+      if (decision === 'allow-always' && !item.alwaysScope) throw new Error('Always approval is unavailable for this request');
+      if (sessionKey && item.sessionKey !== sessionKey) throw new Error('Approval session changed');
+      let result;
       if (item.kind === 'system-agent') {
-        await bridge.request('approval.resolve', {id, kind:item.kind, decision}, {timeoutMs:15000});
+        result = await bridge.request('approval.resolve', {id, kind:item.kind, decision}, {timeoutMs:15000});
+        if (result?.applied !== true || result.approval?.id !== id || result.approval?.decision !== decision) {
+          throw new Error('OpenClaw did not confirm the exact decision');
+        }
       } else {
-        await bridge.request(`${item.kind}.approval.resolve`, {id, decision}, {timeoutMs:15000});
+        result = await bridge.request(`${item.kind}.approval.resolve`, {id, decision}, {timeoutMs:15000});
+        if (result?.ok !== true || result.applied === false) throw new Error('OpenClaw did not confirm the exact decision');
       }
       return {ok:true, decision};
     },

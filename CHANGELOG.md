@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.15.0 — Hermes and OpenClaw approval controls
+
+- Add opt-in Hermes bridge and Connector-led agent/session-to-Telegram-chat linking
+  for Hermes and OpenClaw. Local Mac setup, enablement and unlinking require no Terminal.
+- Replace timestamp/keyword guessing with scoped approval cards inside the chosen chat.
+- Bind one-use, short-lived decisions to the agent, session, conversation and request;
+  reject changed, expired, disabled and duplicate approvals. Retire unscoped endpoints.
+- Freeze the selected approval while its watch menu is open, preserve literal command
+  text, and prevent approval cards from falling back to canned replies or deletion.
+- Add high-contrast selected action rows, one-choice up/down navigation and hold-center
+  activation. Chats open at the request, not a decision; Always requires confirmation.
+- Send exact-ID OpenClaw Telegram reply commands with advertised decisions. Provide
+  a backed-up, version-guarded text fallback installer for OpenClaw 2026.9.1 change cards.
+- Preserve Hermes Telegram confirmation behavior and distinguish command delivery
+  from the agent's final result. Wait for a busy watch outbox before initial submission.
+- Retain the 512-byte reply buffer using heap storage to fit Pebble's static-image limit.
+- Physical watch approval-menu test confirmed; see [setup and limits](docs/AGENT_APPROVALS.md).
+
 ## 0.14.0 — Archiving, readability, and safer deletion
 
 - Archiving keeps the loaded conversation page and selects the next conversation (or previous

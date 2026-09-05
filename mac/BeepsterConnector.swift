@@ -2,6 +2,10 @@ import AppKit
 import Foundation
 import Security
 
+private final class ConnectorDocumentView: NSView {
+    override var isFlipped: Bool { true }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow!
     private var contactStatus: NSTextField!
@@ -25,22 +29,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         let content = NSView()
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 680),
-                          styleMask: [.titled, .closable, .miniaturizable],
+                          styleMask: [.titled, .closable, .miniaturizable, .resizable],
                           backing: .buffered, defer: false)
         window.title = "Beepster Connector"
         window.center()
         window.contentView = content
+        window.contentMinSize = NSSize(width: 560, height: 480)
+
+        let scroll = NSScrollView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = false
+        scroll.drawsBackground = false
+        content.addSubview(scroll)
+        NSLayoutConstraint.activate([
+            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            scroll.topAnchor.constraint(equalTo: content.topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor)
+        ])
+        let document = ConnectorDocumentView()
+        document.translatesAutoresizingMaskIntoConstraints = false
+        scroll.documentView = document
+        document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor).isActive = true
 
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 13
         stack.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(stack)
+        document.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 28),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -28),
-            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 25)
+            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 28),
+            stack.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -28),
+            stack.topAnchor.constraint(equalTo: document.topAnchor, constant: 25),
+            stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -25)
         ])
 
         let title = NSTextField(labelWithString: "Beepster Connector")
@@ -80,7 +103,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             primaryActionRow(connectPhoneButton,
                              description: "Copies the private address and shows the pairing code together with short phone instructions."),
             primaryActionRow(refreshButton,
-                             description: "Checks Contacts, the live Beeper connection, and the private phone route in one pass.")
+                             description: "Checks Contacts, the live Beeper connection, and the private phone route in one pass."),
+            primaryActionRow(button("Agent Links", #selector(openAgentLinks)),
+                             description: "Connect Hermes or OpenClaw to its Telegram conversation. Install the optional Hermes bridge, check connections, or disable a link.")
         ]
         for row in mainActions {
             stack.addArrangedSubview(row)
@@ -224,12 +249,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleAdvanced() {
         let showing = advancedToggle.state == .on
         advancedStack.isHidden = !showing
-        let oldFrame = window.frame
-        let newHeight: CGFloat = showing ? 780 : 610
-        window.setFrame(NSRect(x: oldFrame.origin.x,
-                               y: oldFrame.maxY - newHeight,
-                               width: oldFrame.width,
-                               height: newHeight), display: true, animate: true)
+        advancedToggle.title = showing ? "Hide advanced options" : "Advanced options"
+        window.contentView?.layoutSubtreeIfNeeded()
     }
 
     private func run(_ executable: String, _ arguments: [String], input: String? = nil, timeout: TimeInterval? = 8) -> (Int32, String) {
@@ -577,6 +598,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    @objc private func openAgentLinks() {
+        guard let node = currentNodeResource(), let script = bundledResource("gateway/src/agent-setup.js") else {
+            setWorking(false, message: "Install the updated Connector to configure agent links.")
+            return
+        }
+        setWorking(true, message: "Opening private agent setup…")
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = self.run(node.path, [script.path, "--launch"])
+            DispatchQueue.main.async {
+                if result.0 == 0, let url = URL(string: result.1), url.host == "127.0.0.1" {
+                    NSWorkspace.shared.open(url)
+                    self.setWorking(false, message: "Agent setup opened. No approvals or agent restarts are automatic.")
+                } else {
+                    self.setWorking(false, message: "Could not open agent setup. Install or repair Connector and try again.")
+                }
+            }
+        }
+    }
+
     @objc private func enableOpenClawApprovals() {
         let existing = run(keychainHelperPath(), ["get", "openclaw-enabled"], timeout: nil)
         if existing.0 == 0 && existing.1.trimmingCharacters(in: .whitespacesAndNewlines) == "enabled" {
@@ -631,7 +671,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     alert.informativeText = "Reinstall Beepster Connector, then try again."
                 } else if health.0 == "paired" {
                     alert.messageText = "OpenClaw approvals are ready"
-                    alert.informativeText = "Now turn on Show pending OpenClaw approvals in Beepster Settings on your phone. Protected actions will appear inside the matching Telegram agent conversation with a description and one-time Approve or Deny choices."
+                    alert.informativeText = "Next, open Agent Links in Connector and select the exact Telegram session and Beeper conversation. Then turn on Show pending agent approvals in Beepster Settings on your phone."
                 } else {
                     alert.messageText = "Approve Beepster in OpenClaw"
                     alert.informativeText = "Open the OpenClaw app, review the pending Beepster Connector device with its operator.approvals scope, and approve it. Then select Test Everything. No Terminal command is required."

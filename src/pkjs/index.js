@@ -690,36 +690,30 @@ function chatNetwork(chatID) {
 }
 
 function decorateOpenClawMessages(chatID, items, callback) {
+  console.log('Agent cards: enabled=' + openClawApprovalsEnabled() + ' telegram=' + /telegram/i.test(chatNetwork(chatID)));
   if (!openClawApprovalsEnabled() || !/telegram/i.test(chatNetwork(chatID))) {
     callback(items || []);
     return;
   }
-  request('/v1/openclaw/approvals', function(data) {
-    var approvals = Array.isArray(data.items) ? data.items.slice(0, 20) : [];
+  request('/v1/agents/approvals?chatID=' + encodeURIComponent(chatID), function(data) {
+    var approvals = Array.isArray(data.items) ? data.items.slice(0, 10) : [];
+    console.log('Agent cards: received=' + approvals.length);
     pendingOpenClawApprovals = approvals;
     var decorated = (items || []).map(function(item) { return Object.assign({}, item); });
     approvals.forEach(function(approval) {
-      var createdAt = Number(approval.createdAt || 0);
-      var bestIndex = -1;
-      var bestDistance = Infinity;
-      for (var i = 0; i < decorated.length; i++) {
-        var item = decorated[i];
-        if (item.isSelf || item.approvalID || !/approv|allow|deny|permission|protected|confirm/i.test(String(item.text || ''))) continue;
-        var timestamp = Date.parse(item.timestamp || '');
-        var distance = createdAt && Number.isFinite(timestamp) ? Math.abs(timestamp - createdAt) : Infinity;
-        if (distance <= 120000 && distance < bestDistance) {
-          bestDistance = distance;
-          bestIndex = i;
-        }
-      }
-      if (bestIndex >= 0) {
-        var summary = String(approval.summary || 'OpenClaw approval');
-        decorated[bestIndex].approvalID = String(approval.id || '');
-        decorated[bestIndex].sender = 'OpenClaw approval';
-        decorated[bestIndex].text = summary;
-        decorated[bestIndex].watchText = summary;
-        decorated[bestIndex].emojiKeys = [];
-      }
+      if (!approval.id || !approval.summary) return;
+      var summary = String(approval.summary);
+      decorated.push({id:'agent-' + approval.id, approvalID:String(approval.id),
+        sourceChatID:chatID, sender:approval.provider === 'hermes' ? 'Hermes approval' : 'OpenClaw approval',
+        text:summary, watchText:summary,
+        emojiKeys:[], isSelf:false, time:'Pending'});
+      ['Approve once', 'Deny'].concat(approval.alwaysScope ? ['Always approve'] : []).forEach(function(label, choice) {
+        decorated.push({id:'act' + choice + '-' + approval.id, approvalID:String(approval.id),
+          approvalAction:choice + 2, sourceChatID:chatID, sender:'Approval action',
+          text:label + (choice === 2 ? '\n\n' + approval.alwaysScope : ''),
+          watchText:label + (choice === 2 ? '\n\n' + approval.alwaysScope : ''),
+          emojiKeys:[], isSelf:false, time:'Hold center to choose'});
+      });
     });
     callback(decorated);
   }, function() { callback(items || []); });
@@ -998,15 +992,22 @@ function sendReply(chatID, text, requestID) {
 
 function sendQuickReply(chatID, index, requestID, watchText, messageID) {
   var selectedRoute = messageRouteByID[messageID];
+  if (/^(agent-|act[0-2]-)/.test(String(messageID || '')) && (!selectedRoute || !selectedRoute.approvalID)) {
+    sendState('reply_failed', 'Approval expired. Reopen the chat.'); return;
+  }
   var approvalID = selectedRoute && selectedRoute.approvalID ? selectedRoute.approvalID :
     (chatID === OPENCLAW_CHAT_ID ? messageID : '');
   if (approvalID) {
-    var decision = index === 0 ? 'allow-once' : (index === 1 ? 'deny' : '');
+    var decision = index === 0 ? 'allow-once' : (index === 1 ? 'deny' : (index === 2 ? 'allow-always' : ''));
     if (!decision) { sendState('reply_failed', 'Select an exact pending approval'); return; }
     sendState('reply_sending');
-    postJSON('/v1/openclaw/approvals/' + encodeURIComponent(approvalID) + '/decision', {decision:decision}, function() {
+    postJSON('/v1/agents/approvals/' + encodeURIComponent(approvalID) + '/decision',
+      {decision:decision, chatID:selectedRoute ? selectedRoute.chatID : chatID}, function(result) {
       pendingOpenClawApprovals = pendingOpenClawApprovals.filter(function(item) { return item.id !== approvalID; });
-      sendState('reply_sent');
+      if (result && result.transport === 'telegram' && result.pendingMessageID) {
+        sendState('reply_pending');
+        pollReply(result.chatID, result.pendingMessageID, 0);
+      } else sendState('reply_sent');
       setTimeout(function() {
         if (activeMessageChatID === OPENCLAW_CHAT_ID) loadOpenClawApprovals();
         else if (activeMessageChatID === chatID) refreshActiveMessages();
@@ -1046,14 +1047,9 @@ function rebuildInboxChats() {
 }
 
 function refreshOpenClawApprovals(callback) {
-  if (!openClawApprovalsEnabled()) { pendingOpenClawApprovals = []; callback(); return; }
-  request('/v1/openclaw/approvals', function(data) {
-    pendingOpenClawApprovals = Array.isArray(data.items) ? data.items.slice(0, 20) : [];
-    callback();
-  }, function(error) {
-    console.log('Beepster OpenClaw approval refresh unavailable: ' + error);
-    callback();
-  });
+  // Approvals are now fetched only in the explicitly linked conversation.
+  pendingOpenClawApprovals = [];
+  callback();
 }
 
 function inboxHasMoreSources() {
@@ -1245,7 +1241,7 @@ function queueMessage(item, index, total) {
   message[KEY_MSG_TIME] = safeSlice(item.time, 18);
   message[KEY_MSG_ID] = safeSlice(messageID, 120);
   message[KEY_MSG_IS_SELF] = item.isSelf === true || item.sender === 'Me' ? 1 : 0;
-  message[KEY_MSG_APPROVAL] = item.approvalID ? 1 : 0;
+  message[KEY_MSG_APPROVAL] = item.approvalID ? (item.approvalAction || 1) : 0;
   if (item.attachment) {
     message[KEY_ATTACHMENT_ID] = safeSlice(item.attachment.id, 30);
     message[KEY_ATTACHMENT_KIND] = item.attachment.kind === 'gif' ? 2 : (item.attachment.kind === 'video' ? 3 : 1);
@@ -1254,6 +1250,8 @@ function queueMessage(item, index, total) {
 }
 
 function finishMessageBatch(mode, selectedIndex) {
+  // Never land on an approval choice before its description has been shown.
+  while (selectedIndex > 0 && messageHistory[selectedIndex] && messageHistory[selectedIndex].approvalAction) selectedIndex--;
   var ready = {};
   ready[KEY_COMMAND] = 'messages_ready';
   ready[KEY_STATE] = mode;
@@ -1433,6 +1431,9 @@ function deleteConversation(chatID) {
 function deleteMessage(chatID, messageID, forEveryone) {
   if (!chatID || chatID === OPENCLAW_CHAT_ID || !messageID) { sendDeleteResult(false, 'This message cannot be deleted'); return; }
   var route = messageRouteByID[messageID] || {chatID:chatID,messageID:messageID};
+  if (route.approvalID || String(messageID).indexOf('agent-') === 0) {
+    sendDeleteResult(false, 'Use Deny to answer an approval.'); return;
+  }
   if (/imessage|apple messages/i.test(chatNetwork(chatID)) || /^(imsg##|imessage)/i.test(route.chatID)) {
     sendDeleteResult(false, 'iMessage deletion is temporarily disabled. Thread archiving still works.');
     return;

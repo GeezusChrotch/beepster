@@ -2,6 +2,12 @@
 
 #define MAX_CHATS 30
 #define MAX_MESSAGES 60
+// "agent-" + the gateway's 36-character UUID ticket + NUL.
+static char s_reply_approval_id[43];
+static char s_reply_approval_chat[128];
+static bool s_reply_always;
+static AppTimer *s_quick_wait_timer;
+static uint8_t s_quick_wait_attempts;
 #define SENDER_COLOR_COUNT 7
 #define CHAT_ID_LEN 128
 #define CHAT_NAME_LEN 64
@@ -81,7 +87,7 @@ typedef struct {
   char attachment_id[MESSAGE_ATTACHMENT_LEN];
   uint8_t attachment_kind;
   bool is_self;
-  bool is_approval;
+  uint8_t is_approval;
   int16_t cached_text_height;
 } Message;
 
@@ -164,7 +170,8 @@ static char s_active_chat_name[CHAT_NAME_LEN];
 static char s_active_chat_network[24];
 static bool s_active_chat_pinned;
 static DictationSession *s_dictation_session;
-static char s_reply_text[512];
+#define REPLY_TEXT_CAPACITY 512
+static char *s_reply_text;
 static char s_reply_request_id[48];
 static ViewState s_reply_state = VIEW_READY;
 static AppTimer *s_reply_ack_timer;
@@ -911,13 +918,11 @@ static bool request_command(const char *command, const char *chat_id) {
   DictionaryIterator *iterator;
   AppMessageResult result = app_message_outbox_begin(&iterator);
   if (result != APP_MSG_OK || !iterator) {
-    APP_LOG(APP_LOG_LEVEL_WARNING, "outbox begin failed=%d", result);
     return false;
   }
   dict_write_cstring(iterator, MESSAGE_KEY_COMMAND, command);
   if (chat_id && chat_id[0]) dict_write_cstring(iterator, MESSAGE_KEY_CHAT_ID, chat_id);
   result = app_message_outbox_send();
-  if (result != APP_MSG_OK) APP_LOG(APP_LOG_LEVEL_WARNING, "outbox send failed=%d", result);
   return result == APP_MSG_OK;
 }
 
@@ -925,14 +930,12 @@ static bool request_chat_pin(const char *chat_id, bool pinned) {
   DictionaryIterator *iterator;
   AppMessageResult result = app_message_outbox_begin(&iterator);
   if (result != APP_MSG_OK || !iterator) {
-    APP_LOG(APP_LOG_LEVEL_WARNING, "pin outbox begin failed=%d", result);
     return false;
   }
   dict_write_cstring(iterator, MESSAGE_KEY_COMMAND, "set_chat_pinned");
   dict_write_cstring(iterator, MESSAGE_KEY_CHAT_ID, chat_id);
   dict_write_uint8(iterator, MESSAGE_KEY_CHAT_PINNED, pinned ? 1 : 0);
   result = app_message_outbox_send();
-  if (result != APP_MSG_OK) APP_LOG(APP_LOG_LEVEL_WARNING, "pin outbox send failed=%d", result);
   return result == APP_MSG_OK;
 }
 
@@ -1093,6 +1096,7 @@ static void send_reply_to_phone(void) {
 }
 
 static bool selected_message_is_approval(void) {
+  if (s_reply_window && window_stack_get_top_window() == s_reply_window) return s_reply_approval_id[0] != '\0';
   if (strcmp(s_active_chat_id, "beepster-openclaw-approvals") == 0) return true;
   if (!s_message_menu || s_message_count < 1) return false;
   MenuIndex selected = menu_layer_get_selected_index(s_message_menu);
@@ -1100,9 +1104,17 @@ static bool selected_message_is_approval(void) {
     s_messages[selected.row].is_approval;
 }
 
+static void send_quick_reply_to_phone(int index, bool create_request_id);
+static void quick_outbox_ready(void *context) {
+  s_quick_wait_timer = NULL;
+  send_quick_reply_to_phone(s_pending_quick_reply_index, false);
+}
+
 static void send_quick_reply_to_phone(int index, bool create_request_id) {
+  if (s_quick_wait_timer) return;
+  if (create_request_id) s_quick_wait_attempts = 0;
   bool approval = selected_message_is_approval();
-  int available = approval ? 2 : s_quick_reply_count;
+  int available = approval ? 3 : s_quick_reply_count;
   if (index < 0 || index >= available || !s_active_chat_id[0]) return;
   cancel_reply_ack_timer();
   cancel_reply_return_timer();
@@ -1111,22 +1123,26 @@ static void send_quick_reply_to_phone(int index, bool create_request_id) {
   DictionaryIterator *iterator;
   AppMessageResult result = app_message_outbox_begin(&iterator);
   if (result != APP_MSG_OK || !iterator) {
+    // BUSY means no packet was submitted. Wait for navigation/detail traffic;
+    // never retry after app_message_outbox_send (delivery could be uncertain).
+    if (result == APP_MSG_BUSY && s_quick_wait_attempts++ < 10) {
+      s_reply_state = VIEW_REPLY_SENDING;
+      reply_show_status("Waiting for phone");
+      s_quick_wait_timer = app_timer_register(150, quick_outbox_ready, NULL);
+      return;
+    }
+    APP_LOG(APP_LOG_LEVEL_WARNING, "reply begin=%d", result);
     s_reply_state = VIEW_REPLY_RETRYABLE;
     reply_show_status("Could not send\nPress Select to retry");
     return;
   }
   dict_write_cstring(iterator, MESSAGE_KEY_COMMAND, "send_quick_reply");
-  dict_write_cstring(iterator, MESSAGE_KEY_CHAT_ID, s_active_chat_id);
+  dict_write_cstring(iterator, MESSAGE_KEY_CHAT_ID, approval ? s_reply_approval_chat : s_active_chat_id);
   dict_write_int32(iterator, MESSAGE_KEY_INDEX, index);
   dict_write_cstring(iterator, MESSAGE_KEY_QUICK_REPLY_TEXT,
     approval ? (index == 0 ? "Approve" : "Deny") : s_quick_replies[index]);
   dict_write_cstring(iterator, MESSAGE_KEY_REPLY_REQUEST_ID, s_reply_request_id);
-  if (approval && s_message_menu) {
-    MenuIndex selected = menu_layer_get_selected_index(s_message_menu);
-    if (selected.section == 0 && selected.row < s_message_count && s_messages[selected.row].id[0]) {
-      dict_write_cstring(iterator, MESSAGE_KEY_MSG_ID, s_messages[selected.row].id);
-    }
-  }
+  if (approval) dict_write_cstring(iterator, MESSAGE_KEY_MSG_ID, s_reply_approval_id);
   result = app_message_outbox_send();
   s_reply_state = result == APP_MSG_OK ? VIEW_REPLY_SENDING : VIEW_REPLY_RETRYABLE;
   if (result == APP_MSG_OK) start_reply_ack_timer();
@@ -1136,7 +1152,7 @@ static void send_quick_reply_to_phone(int index, bool create_request_id) {
 static void dictation_callback(DictationSession *session, DictationSessionStatus status,
                                char *transcription, void *context) {
   if (status == DictationSessionStatusSuccess && transcription && transcription[0]) {
-    copy_text(s_reply_text, sizeof(s_reply_text), transcription);
+    copy_text(s_reply_text, REPLY_TEXT_CAPACITY, transcription);
     s_pending_quick_reply_index = -1;
     new_reply_request_id();
     send_reply_to_phone();
@@ -1175,15 +1191,30 @@ static void request_selected_content(void *context) {
 }
 
 static void thread_quick_replies(ClickRecognizerRef recognizer, void *context) {
-  APP_LOG(APP_LOG_LEVEL_INFO, "thread long-up: quick replies");
   if (!s_reply_window) return;
+  s_reply_always = false;
+  s_reply_approval_id[0] = '\0';
+  s_reply_approval_chat[0] = '\0';
+  if (selected_message_is_approval() && s_message_menu) {
+    MenuIndex selected = menu_layer_get_selected_index(s_message_menu);
+    if (selected.row < s_message_count) {
+      s_reply_always = s_messages[selected.row].is_approval == 4;
+      copy_text(s_reply_approval_id, sizeof(s_reply_approval_id), s_messages[selected.row].id);
+      copy_text(s_reply_approval_chat, sizeof(s_reply_approval_chat), s_active_chat_id);
+    }
+  }
   marquee_reset();
   reply_show_menu();
   window_stack_push(s_reply_window, true);
 }
 
 static void thread_dictate(ClickRecognizerRef recognizer, void *context) {
-  APP_LOG(APP_LOG_LEVEL_INFO, "thread select: dictate");
+  if (s_reply_approval_id[0]) {
+    s_reply_approval_id[0] = '\0';
+    s_reply_request_id[0] = '\0';
+    s_pending_quick_reply_index = -1;
+    s_reply_state = VIEW_READY;
+  }
   if (s_reply_state == VIEW_REPLY_RETRYABLE && s_reply_request_id[0]) {
     retry_reply(recognizer, context);
     return;
@@ -1198,6 +1229,10 @@ static void thread_dictate(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void retry_reply(ClickRecognizerRef recognizer, void *context) {
+  if (s_reply_approval_id[0]) {
+    reply_show_status("Check the agent\nfor the result.\nNo automatic retry.");
+    return;
+  }
   if (s_pending_quick_reply_index >= 0) {
     send_quick_reply_to_phone(s_pending_quick_reply_index, false);
   } else {
@@ -1305,7 +1340,6 @@ static void chat_selection_changed(MenuLayer *menu_layer, MenuIndex new_index,
   else if (is_older_chat_row(new_index.row)) command = "load_older_chats";
   if (!command) return;
 
-  APP_LOG(APP_LOG_LEVEL_INFO, "conversation boundary reached: %s", command);
   if (!request_command(command, NULL)) {
     vibes_double_pulse();
     return;
@@ -1378,7 +1412,6 @@ static void toggle_chat_pin_at_index(MenuIndex *index) {
   menu_layer_set_selected_index(s_chat_menu,
     (MenuIndex) {.section = 0, .row = target + (s_has_newer_chats ? 1 : 0)}, MenuRowAlignCenter, true);
   vibes_short_pulse();
-  APP_LOG(APP_LOG_LEVEL_INFO, "chat pin changed pinned=%d", pinned);
 
   if (!request_chat_pin(s_pending_pin_chat_id, pinned)) {
     s_pending_pin_chat_id[0] = '\0';
@@ -1413,6 +1446,16 @@ static void message_selection_changed(MenuLayer *menu_layer, MenuIndex new_index
   marquee_reset();
   if (new_index.section == 0 && new_index.row < s_message_count) {
     Message *message = &s_messages[new_index.row];
+    if (message->is_approval > 1) {
+      // Choices are controls, not expandable message bodies. Fetching their
+      // shared approval ID can reload the prompt over the selected choice.
+      if (s_content_request_timer) {
+        app_timer_cancel(s_content_request_timer);
+        s_content_request_timer = NULL;
+      }
+      layer_mark_dirty(menu_layer_get_layer(menu_layer));
+      return;
+    }
     if (strcmp(s_expanded_message_id, message->id) != 0) {
       if (s_content_request_timer) {
         app_timer_cancel(s_content_request_timer);
@@ -1472,6 +1515,7 @@ static int32_t message_content_height(MenuLayer *menu_layer, Message *message,
 static int16_t message_row_height(MenuLayer *menu_layer, MenuIndex *index, void *context) {
   if (index->row >= s_message_count) return 80;
   Message *message = &s_messages[index->row];
+  if (message->is_approval > 1) return 58;
   bool expanded = index->row == s_expanded_message_index &&
     strcmp(message->id, s_expanded_message_id) == 0;
   const char *text = expanded && s_expanded_message_loaded && s_detail_text ?
@@ -1487,6 +1531,16 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
   Message *message = &s_messages[index->row];
   GRect bounds = layer_get_bounds(cell);
   bool selected = menu_layer_is_index_selected(s_message_menu, index);
+  if (message->is_approval > 1) {
+    // Deliberately high contrast regardless of custom theme colors.
+    graphics_context_set_fill_color(ctx, selected ? GColorBlack : GColorWhite);
+    graphics_fill_rect(ctx, bounds, 0, GCornerNone);
+    graphics_context_set_text_color(ctx, selected ? GColorWhite : GColorBlack);
+    const char *label = message->is_approval == 2 ? "Approve once" :
+      (message->is_approval == 3 ? "Deny" : "Always approve");
+    menu_cell_basic_draw(ctx, cell, label, selected ? "> Hold center to choose" : NULL, NULL);
+    return;
+  }
   bool expanded = index->row == s_expanded_message_index &&
     strcmp(message->id, s_expanded_message_id) == 0;
   const char *body = expanded && s_expanded_message_loaded && s_detail_text ?
@@ -1552,9 +1606,9 @@ static void retry_messages(ClickRecognizerRef recognizer, void *context) {
 
 static void message_jump_newest(ClickRecognizerRef recognizer, void *context) {
   if (!s_message_menu || s_message_count < 1) return;
-  APP_LOG(APP_LOG_LEVEL_INFO, "thread long-down: newest message");
   s_expanded_scroll_offset = 0;
   MenuIndex newest = {.section = 0, .row = s_message_count - 1};
+  while (newest.row > 0 && s_messages[newest.row].is_approval > 1) newest.row--;
   menu_layer_set_selected_index(s_message_menu, newest, MenuRowAlignTop, false);
   layer_mark_dirty(menu_layer_get_layer(s_message_menu));
 }
@@ -1567,6 +1621,15 @@ static void message_move_selection(int delta) {
   if (row >= s_message_count) row = s_message_count - 1;
   MenuIndex current = {.section = 0, .row = row};
   Message *message = &s_messages[row];
+  if (message->is_approval > 1) {
+    int next = row + delta;
+    if (next >= 0 && next < s_message_count) {
+      MenuIndex target = {.section = 0, .row = next};
+      menu_layer_set_selected_index(s_message_menu, target, MenuRowAlignTop, false);
+      layer_mark_dirty(menu_layer_get_layer(s_message_menu));
+    }
+    return;
+  }
   bool expanded = row == s_expanded_message_index &&
     strcmp(message->id, s_expanded_message_id) == 0;
   const char *text = expanded && s_expanded_message_loaded && s_detail_text ?
@@ -1671,6 +1734,7 @@ static void show_delete_confirmation(bool message_view) {
   }
   s_delete_message = message_view;
   if (message_view) {
+    if (selected_message_is_approval()) { vibes_short_pulse(); return; }
     if (!s_message_menu || s_message_count < 1 || strcmp(s_active_chat_id, "beepster-openclaw-approvals") == 0) {
       vibes_short_pulse();
       return;
@@ -1778,6 +1842,20 @@ static void perform_button_action(ButtonAction action, bool message_view) {
 
 static void configured_button_click(ClickRecognizerRef recognizer, bool long_press, bool message_view) {
   ButtonId button = click_recognizer_get_button_id(recognizer);
+  // Approval navigation must never inherit a reply/decision binding.
+  if (message_view && selected_message_is_approval()) {
+    if (button == BUTTON_ID_UP || button == BUTTON_ID_DOWN) {
+      message_move_selection(button == BUTTON_ID_UP ? -1 : 1);
+      return;
+    }
+    if (!long_press) return;
+    MenuIndex selected = menu_layer_get_selected_index(s_message_menu);
+    uint8_t action = s_messages[selected.row].is_approval;
+    if (action < 2) return;
+    thread_quick_replies(NULL, NULL);
+    if (action == 2 || action == 3) send_quick_reply_to_phone(action - 2, true);
+    return;
+  }
   int slot = binding_slot(button, long_press, message_view);
   if (slot >= 0 && slot < BUTTON_BINDING_COUNT) perform_button_action((ButtonAction)s_button_actions[slot], message_view);
 }
@@ -1857,7 +1935,6 @@ static void apply_state(const char *state, const char *error) {
 
   if (s_message_window && window_stack_get_top_window() == s_message_window) {
     if (mapped != VIEW_LOADING) cancel_load_watchdog();
-    APP_LOG(APP_LOG_LEVEL_INFO, "message state=%s count=%d error=%s", state, s_message_count, error ? error : "");
     s_message_state = mapped;
     set_status(s_message_status_layer, mapped, true);
     if (s_message_menu) menu_layer_reload_data(s_message_menu);
@@ -2113,7 +2190,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
         if (row < 0) row = 0;
         if (row >= count) row = count - 1;
         MenuIndex target = { .section = 0, .row = row };
-        MenuRowAlign align = mode && strcmp(mode->value->cstring, "older") == 0 ?
+        MenuRowAlign align = s_messages[row].is_approval || (mode && strcmp(mode->value->cstring, "older") == 0) ?
           MenuRowAlignTop : MenuRowAlignBottom;
         menu_layer_set_selected_index(s_message_menu, target, align, false);
         install_message_clicks();
@@ -2288,14 +2365,13 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     copy_text(s_messages[slot].time, sizeof(s_messages[slot].time), time ? time->value->cstring : "");
     copy_text(s_messages[slot].id, sizeof(s_messages[slot].id), message_id ? message_id->value->cstring : "");
     s_messages[slot].is_self = is_self && is_self->value->int32 != 0;
-    s_messages[slot].is_approval = is_approval && is_approval->value->int32 != 0;
+    s_messages[slot].is_approval = is_approval ? is_approval->value->uint8 : 0;
     Tuple *attachment_id = dict_find(iterator, MESSAGE_KEY_ATTACHMENT_ID);
     Tuple *attachment_kind = dict_find(iterator, MESSAGE_KEY_ATTACHMENT_KIND);
     copy_text(s_messages[slot].attachment_id, sizeof(s_messages[slot].attachment_id), attachment_id ? attachment_id->value->cstring : "");
     s_messages[slot].attachment_kind = attachment_kind ? attachment_kind->value->uint8 : 0;
     s_messages[slot].cached_text_height = 0;
     if (slot + 1 > s_message_count) s_message_count = slot + 1;
-    APP_LOG(APP_LOG_LEVEL_INFO, "message received slot=%d count=%d", slot, s_message_count);
     return;
   }
 
@@ -2468,7 +2544,7 @@ static void draw_reply_header(GContext *ctx, const Layer *cell, uint16_t section
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
   graphics_context_set_text_color(ctx, s_theme.muted);
   const char *title = selected_message_is_approval() ?
-    "OpenClaw approval" : (reply_is_emoji_section(section) ? "Emoji replies" : "Quick replies");
+    "Agent approval" : (reply_is_emoji_section(section) ? "Emoji replies" : "Quick replies");
   graphics_draw_text(ctx, title,
     fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD), GRect(8, 1, bounds.size.w - 16, 20),
     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
@@ -2479,7 +2555,8 @@ static void draw_reply(GContext *ctx, const Layer *cell, MenuIndex *index, void 
   graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.text);
   GRect bounds = layer_get_bounds(cell);
   if (selected_message_is_approval()) {
-    const char *label = index->row == 0 ? "Approve" : "Deny";
+    const char *label = s_reply_always ? (index->row == 0 ? "Confirm always" : "Back") :
+      (index->row == 0 ? "Approve once" : "Deny");
     draw_marquee_text(ctx, label, theme_font(),
       GRect(8, 3, bounds.size.w - 16, bounds.size.h - 6), selected);
     return;
@@ -2505,11 +2582,16 @@ static void draw_reply(GContext *ctx, const Layer *cell, MenuIndex *index, void 
 }
 
 static void reply_selected(MenuLayer *menu_layer, MenuIndex *index, void *context) {
+  if (selected_message_is_approval() && s_reply_always) {
+    if (index->row == 0) send_quick_reply_to_phone(2, true);
+    else window_stack_pop(true);
+    return;
+  }
   if (reply_is_emoji_section(index->section)) {
     int emoji_index = index->row;
     if (emoji_index < 0 || emoji_index >= s_emoji_reply_count) return;
     s_pending_quick_reply_index = -1;
-    copy_text(s_reply_text, sizeof(s_reply_text), s_emoji_reply_text[emoji_index]);
+    copy_text(s_reply_text, REPLY_TEXT_CAPACITY, s_emoji_reply_text[emoji_index]);
     new_reply_request_id();
     send_reply_to_phone();
     return;
@@ -2546,7 +2628,9 @@ static void reply_load(Window *window) {
     s_emoji_atlas = gbitmap_create_with_resource(RESOURCE_ID_EMOJI_ATLAS);
     build_reply_emoji_sub_bitmaps(EMOJI_ICON_SIZE);
   }
-  (void)request_command("load_emoji_replies", NULL);
+  // Opening an inline approval immediately sends its decision. Do not occupy
+  // the single AppMessage outbox with an unrelated emoji request first.
+  if (!s_reply_approval_id[0]) (void)request_command("load_emoji_replies", NULL);
 
   s_reply_status_layer = text_layer_create(GRect(14, 58, bounds.size.w - 28, 110));
   text_layer_set_background_color(s_reply_status_layer, s_theme.background);
@@ -2560,6 +2644,7 @@ static void reply_load(Window *window) {
 }
 
 static void reply_unload(Window *window) {
+  if (s_quick_wait_timer) { app_timer_cancel(s_quick_wait_timer); s_quick_wait_timer = NULL; }
   clear_reply_emoji_atlas();
   menu_layer_destroy(s_reply_menu);
   text_layer_destroy(s_reply_status_layer);
@@ -2772,7 +2857,7 @@ static void init(void) {
 
   app_message_register_inbox_received(inbox_received);
   app_message_open(2048, 1024);
-  s_dictation_session = dictation_session_create(sizeof(s_reply_text), dictation_callback, NULL);
+  s_dictation_session = dictation_session_create(REPLY_TEXT_CAPACITY, dictation_callback, NULL);
   if (s_dictation_session) {
     dictation_session_enable_confirmation(s_dictation_session, true);
     dictation_session_enable_error_dialogs(s_dictation_session, true);
@@ -2805,7 +2890,12 @@ static void deinit(void) {
 }
 
 int main(void) {
+  // Keep the same reply capacity without consuming the 16-bit static image.
+  s_reply_text = calloc(REPLY_TEXT_CAPACITY, 1);
+  if (!s_reply_text) return 1;
   init();
   app_event_loop();
   deinit();
+  free(s_reply_text);
+  return 0;
 }

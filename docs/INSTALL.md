@@ -23,3 +23,7 @@ Existing users should follow [migration instructions](UNIFIED_CONNECTOR.md). No 
 change is required. Older standalone setup details remain in [the legacy guide](INSTALL_STANDALONE.md),
 including their version-specific controls. The unified connector’s current guide takes precedence
 for its setup, repair and permission controls.
+
+For optional Hermes/OpenClaw approval controls, update both the watch app to 0.15.0
+and the unified Connector, then follow [agent setup](AGENT_APPROVALS.md). Ordinary
+messaging does not require either agent. Existing pairing and themes can be retained.

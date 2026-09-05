@@ -93,19 +93,19 @@ Messages—and save without pairing again. Unknown or newly added Beeper network
 Use **Inbox sections** to include Primary, Low Priority, or Archived conversations. Primary is the
 default. When multiple sections are enabled, Beepster pages through them in that order.
 
-## Optional OpenClaw approvals
+## Optional Hermes and OpenClaw approvals
 
-After enabling and pairing **OpenClaw Approvals** in **Organik Apps Pebble Connector → Beepster → Troubleshooting**, turn
-on **Show pending OpenClaw approvals** in phone Settings. When a protected action is pending,
-Beepster correlates it with the approval prompt already delivered in the Telegram conversation with
-your agent. The prompt is labeled **OpenClaw approval** and shows the complete sanitized description
-supplied by the local OpenClaw Gateway; no separate approval thread is added.
+Follow [agent setup](AGENT_APPROVALS.md) in the unified Connector and enable
+**Show pending agent approvals** in phone settings. Link the agent session explicitly
+to the matching Beeper Telegram conversation. Requests and choices appear inside
+that chat; no separate approval thread is required.
 
-Select that approval message and press Center. Its dedicated menu contains only **Approve** and
-**Deny**. Approve means this exact action once: Beepster rechecks the opaque pending ID immediately
-before resolving it and never provides an Allow always choice. Ordinary messages in the same chat
-retain normal dictation and quick replies. The OpenClaw identity and scoped token stay on the Mac;
-the phone and watch receive only the sanitized summary and opaque ID.
+Read the request, then use Up/Down to select **Approve once**, **Deny**, or supported
+**Always approve**. The selected control has a black background and white text.
+Hold Center to activate; scrolling and a short Center press do not approve anything.
+Always requires a second confirmation. You can scroll back to the request at any time.
+Beepster rechecks the exact request before sending a decision. Check the agent's
+response in chat: **Sent** means command delivery, not proof a change was applied.
 
 ## Linking split Apple conversations
 

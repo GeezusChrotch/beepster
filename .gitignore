@@ -12,3 +12,5 @@ gateway/node_modules/
 local/
 backups/
 dist/
+__pycache__/
+*.pyc
