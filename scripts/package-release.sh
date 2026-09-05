@@ -35,6 +35,6 @@ if unzip -p "$artifact" | rg -a -n '/Users/|/home/' >/dev/null; then
   echo 'Release bundle contains an absolute local filesystem path' >&2
   exit 1
 fi
-shasum -a 256 "$artifact" > dist/SHA256SUMS
+(cd dist && shasum -a 256 "beepster-$version.pbw") > dist/SHA256SUMS
 printf '%s\n' "$artifact"
 cat dist/SHA256SUMS

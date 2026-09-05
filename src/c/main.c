@@ -760,6 +760,16 @@ static int16_t inline_line_height(GFont font) {
   return size.h > CHAT_EMOJI_SIZE + 2 ? size.h : CHAT_EMOJI_SIZE + 2;
 }
 
+static int32_t message_preview_height(const char *text) {
+  GFont font = font_for_text(text);
+  if (has_inline_emoji(text)) return 3 * inline_line_height(font);
+  // Theme point sizes are not line heights (especially for fallback fonts).
+  // Reserve three complete lines, using the same font as the message body.
+  GSize size = graphics_text_layout_get_content_size("Ag\nAg\nAg", font,
+    GRect(0, 0, 1000, 30000), GTextOverflowModeWordWrap, GTextAlignmentLeft);
+  return size.h;
+}
+
 static int32_t layout_inline_emoji_text(GContext *ctx, const char *text, GFont font,
                                         GRect frame, bool draw) {
   const char *cursor = text && text[0] ? text : "[No text]";
@@ -781,6 +791,7 @@ static int32_t layout_inline_emoji_text(GContext *ctx, const char *text, GFont f
         x = 0;
         y += line_height;
       }
+      if (draw && y + line_height > frame.size.h) break;
       if (draw && ctx) {
         GRect icon_frame = GRect(frame.origin.x + x,
           frame.origin.y + y + (line_height - CHAT_EMOJI_SIZE) / 2,
@@ -831,6 +842,7 @@ static int32_t layout_inline_emoji_text(GContext *ctx, const char *text, GFont f
       x = 0;
       y += line_height;
     }
+    if (draw && y + line_height > frame.size.h) break;
     if (token_width <= frame.size.w) {
       if (draw && ctx) graphics_draw_text(ctx, token, font,
         GRect(frame.origin.x + x, frame.origin.y + y, token_width + 3, line_height),
@@ -848,6 +860,7 @@ static int32_t layout_inline_emoji_text(GContext *ctx, const char *text, GFont f
           x = 0;
           y += line_height;
         }
+        if (draw && y + line_height > frame.size.h) return y;
         if (draw && ctx) graphics_draw_text(ctx, character, font,
           GRect(frame.origin.x + x, frame.origin.y + y, character_width + 3, line_height),
           GTextOverflowModeFill, GTextAlignmentLeft, NULL);
@@ -1421,7 +1434,7 @@ static int32_t message_content_height(MenuLayer *menu_layer, Message *message,
     if (expanded) s_expanded_text_height = text_height;
     else message->cached_text_height = text_height < INT16_MAX ? (int16_t)text_height : INT16_MAX;
   }
-  int32_t preview_limit = 3 * (s_theme_size + 6);
+  int32_t preview_limit = message_preview_height(text);
   if (!expanded && text_height > preview_limit) text_height = preview_limit;
   int32_t height = 6 + s_theme_size + 9 + text_height + 8 + 22;
   if (message->attachment_kind) {
@@ -1464,7 +1477,7 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
     message_content_height(s_message_menu, message, expanded, body);
     text_height = expanded ? s_expanded_text_height : message->cached_text_height;
   }
-  int preview_limit = 3 * (s_theme_size + 6);
+  int preview_limit = message_preview_height(body);
   if (!expanded && text_height > preview_limit) text_height = preview_limit;
   int content_y = text_y + text_height + 5;
   int32_t natural_height = message_content_height(s_message_menu, message, expanded, body);
@@ -1487,7 +1500,8 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
     graphics_draw_text(ctx, body && body[0] ? body : "[No text]",
       font_for_text(body),
       GRect(8, text_y, bounds.size.w - 16, text_height),
-      GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+      expanded ? GTextOverflowModeWordWrap : GTextOverflowModeTrailingEllipsis,
+      GTextAlignmentLeft, NULL);
   }
   if (message->attachment_kind) {
     if (expanded && s_inline_media_state == INLINE_MEDIA_READY && s_media_bitmap) {

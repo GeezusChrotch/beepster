@@ -1,5 +1,9 @@
 # Beepster 0.12.0 Beta Testing
 
+> **Beepster is now public.** No invitation is needed. Start with the current
+> [installation guide](INSTALL.md) and [feedback page](FEEDBACK.md).
+> The instructions below are retained only as a historical beta reference.
+
 Thanks for helping test Beepster before its public Pebble Store release. The normal setup is guided
 and does not require Terminal, Git, Node.js, or developer tools. Allow about 10–15 minutes.
 

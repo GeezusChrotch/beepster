@@ -18,13 +18,15 @@ You need:
    tailnet.
 4. The Beepster Connector DMG and the Beepster watch app from their official release pages.
 
+The current tested phone setup is iPhone. Android has not yet been validated.
+
 Beepster requires a Mac because it uses Beeper Desktop's local API. It does not need Full Disk
 Access, Accessibility, Screen Recording, direct Messages database access, or a separate iMessage
 bridge.
 
 ## 1. Install Beepster Connector on the Mac
 
-Download `Beepster-Connector.dmg` from the latest Beepster release. Open it, drag **Beepster
+Download [Beepster-Connector-0.13.0.dmg](https://github.com/GeezusChrotch/beepster/releases/download/v0.13.0/Beepster-Connector-0.13.0.dmg). Open it, drag **Beepster
 Connector** to **Applications**, eject the disk image, and open the app.
 
 On first launch, macOS may ask you to confirm that you downloaded the app from the internet. The
@@ -84,9 +86,11 @@ The Mac Connector cannot silently install software over the phone's Bluetooth co
 single Store action is the intended, supported watch-installation step. It also lets future watch
 updates arrive through the Pebble app.
 
-During the invitation beta, testers receive a direct `.pbw` package link. Open it on the phone and
-let the Pebble app add Beepster to the watch. Beepster remains hidden from public Store browsing,
-and testers do not need the Pebble SDK or command line. See [Beta Testing](BETA_TESTING.md).
+Alternatively, open the [official watch package](https://github.com/GeezusChrotch/beepster/releases/download/v0.13.0/beepster-0.13.0.pbw)
+on your phone and let the Pebble app add Beepster to the watch. No Pebble SDK or command line is needed.
+
+After setup, try the [first-run checks and share feedback](FEEDBACK.md). Bug reports, suggestions,
+and reports of successful setups are all welcome.
 
 ## 5. Configure and pair once
 

@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.13.0 — First public release
+
+- Published Beepster for everyone, with a guided installation page and open feedback forms.
+
+- Measure inactive message previews using the actual font so the last line is not
+  sliced off above the next sender. Keep wrapped emoji and text inside the body
+  when a word or emoji crosses the final visible line.
 
 ## 0.12.0 — Archive actions and inline OpenClaw approvals
 

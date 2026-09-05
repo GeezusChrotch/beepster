@@ -3,7 +3,11 @@
 This is the maintainer checklist for beta and public releases. Do not upload the personal PBW from
 `local/`; it contains a private setup URL. The universal artifact is produced in `dist/`.
 
-For a small tester group, follow [the beta release checklist](BETA_RELEASE_CHECKLIST.md). Keep the
+Beepster 0.13.0 is the first public release. Publish the matching watch package and notarized
+Connector, then make the rePebble catalog listing visible. Link its website to the public install
+guide and invite feedback through GitHub issues.
+
+For future invitation-only builds, follow [the beta release checklist](BETA_RELEASE_CHECKLIST.md). Keep the
 new rePebble listing hidden from public browsing and distribute the universal PBW link directly to
 invited testers. Opening the package on a phone hands it to the Pebble app, retaining the normal
 installation flow without requiring developer tools. The legacy portal's **Unlisted** status does
@@ -35,7 +39,7 @@ development source maps, scans the PBW for credentials, private tailnet addresse
 local paths, and creates:
 
 ```text
-dist/beepster-0.12.0.pbw
+dist/beepster-0.13.0.pbw
 dist/SHA256SUMS
 ```
 
@@ -56,7 +60,7 @@ BEEPSTER_NOTARY_PROFILE='beepster-notary' \
 ./scripts/package-mac-app.sh
 ```
 
-This produces `dist/Beepster-Connector-0.12.0.dmg` and a SHA-256 sidecar. The script refuses to
+This produces `dist/Beepster-Connector-0.13.0.dmg` and a SHA-256 sidecar. The script refuses to
 notarize without a signing identity, waits for Apple's result, staples the ticket, and validates it.
 A run without those variables is an ad-hoc development package and must never be published.
 
