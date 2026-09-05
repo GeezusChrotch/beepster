@@ -1,7 +1,7 @@
 {
   "name": "beepster",
   "displayName": "Beepster",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "A readable, reliable, open-source Beeper client for Pebble",
   "author": "Organik Apps",
   "license": "MIT",

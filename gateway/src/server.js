@@ -237,7 +237,20 @@ export function createServer({ beeperClient, openClawClient = null, gatewayToken
           sendJSON(response, 400, { error: 'Message deletion requires a message ID and deletion scope' });
           return;
         }
-        const result = await beeperClient.deleteMessage(chatID, messageID, body.forEveryone);
+        let result;
+        try {
+          result = await beeperClient.deleteMessage(chatID, messageID, body.forEveryone);
+        } catch (error) {
+          if (error.code === 'IMESSAGE_DELETE_DISABLED') {
+            sendJSON(response, 409, {error:'iMessage deletion is temporarily disabled. Thread archiving still works.',code:'IMESSAGE_DELETE_DISABLED'});
+            return;
+          }
+          sendJSON(response, 502, {
+            error: 'Beeper could not confirm deletion. Check Beeper before retrying.',
+            code: 'BEEPER_DELETE_FAILED'
+          });
+          return;
+        }
         cache.clear();
         sendJSON(response, 200, result);
         return;
@@ -359,6 +372,10 @@ export function createServer({ beeperClient, openClawClient = null, gatewayToken
 
       sendJSON(response, 404, { error: 'Not found' });
     } catch (error) {
+      if (error.code === 'BEEPSTER_MEDIA_MISSING') {
+        sendJSON(response, 404, { error: 'Photo unavailable in Beeper. Open it in Beeper or the original app.', code: 'MEDIA_MISSING' });
+        return;
+      }
       sendJSON(response, 502, { error: 'Upstream request failed' });
     }
   }).on('close', () => openClawClient?.stop?.());

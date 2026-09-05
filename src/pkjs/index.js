@@ -342,7 +342,9 @@ function sendChatList(items, options) {
   var ready = {}; ready[KEY_COMMAND] = 'chats_ready'; ready[KEY_TOTAL] = items.length;
   ready[KEY_HAS_MORE] = (options.hasOlder ? 1 : 0) | (options.hasNewer ? 2 : 0);
   ready[KEY_STATE] = options.mode || 'initial';
-  ready[KEY_INDEX] = options.mode === 'newer' ? Math.max(0, items.length - 1) : 0;
+  ready[KEY_INDEX] = typeof options.selectedIndex === 'number' ?
+    Math.max(0, Math.min(items.length - 1, options.selectedIndex)) :
+    (options.mode === 'newer' ? Math.max(0, items.length - 1) : 0);
   enqueue(ready);
 }
 
@@ -828,7 +830,12 @@ function postJSON(path, body, callback, failure) {
   xhr.setRequestHeader('Content-Type', 'application/json');
   xhr.timeout = 20000;
   xhr.onload = function() {
-    if (xhr.status < 200 || xhr.status >= 300) { if (failure) failure('Gateway returned ' + xhr.status); return; }
+    if (xhr.status < 200 || xhr.status >= 300) {
+      var message = 'Gateway returned ' + xhr.status;
+      try { var problem = JSON.parse(xhr.responseText); if (typeof problem.error === 'string') message = safeSlice(problem.error, 100); } catch (_) {}
+      if (failure) failure(message);
+      return;
+    }
     try { callback(JSON.parse(xhr.responseText)); }
     catch (error) { if (failure) failure('Invalid gateway response'); }
   };
@@ -1092,7 +1099,7 @@ function ensureInboxCount(targetCount, generation, success, failure, remainingBa
   }, failure);
 }
 
-function sendCurrentChatPage(mode) {
+function sendCurrentChatPage(mode, selectedIndex) {
   var ordered = applyPinnedChats(currentInboxChats);
   if (inboxPageStart >= ordered.length && inboxPageStart > 0) {
     inboxPageStart = Math.max(0, Math.floor((ordered.length - 1) / MAX_WATCH_CHATS) * MAX_WATCH_CHATS);
@@ -1100,6 +1107,7 @@ function sendCurrentChatPage(mode) {
   var page = ordered.slice(inboxPageStart, inboxPageStart + MAX_WATCH_CHATS);
   var options = {
     mode: mode || 'initial',
+    selectedIndex: selectedIndex,
     hasNewer: inboxPageStart > 0,
     hasOlder: inboxPageStart + page.length < ordered.length || inboxHasMoreSources()
   };
@@ -1390,7 +1398,9 @@ function sendDeleteResult(ok, error) {
   packet[KEY_COMMAND] = 'delete_result';
   packet[KEY_STATE] = ok ? 'success' : 'error';
   if (error) packet[KEY_ERROR] = safeSlice(error, 100);
-  enqueue(packet);
+  // Put action acknowledgements ahead of queued text/photo transfers.
+  queue.splice(sending && queue.length ? 1 : 0, 0, {message:packet,retries:0});
+  drain();
 }
 
 function deleteConversation(chatID) {
@@ -1398,20 +1408,42 @@ function deleteConversation(chatID) {
   var chatIDs = mergedChats[chatID] && Array.isArray(mergedChats[chatID].members) ?
     mergedChats[chatID].members.slice() : [chatID];
   postJSON('/v1/chats/archive', {chatIDs:chatIDs}, function() {
+    var ordered = applyPinnedChats(currentInboxChats);
+    var archivedIndex = ordered.findIndex(function(chat) { return chat.id === chatID; });
     var pinned = configuredPinnedChats().filter(function(value) { return value !== chatID; });
     localStorage.setItem('beepster_pinned_chats', JSON.stringify(pinned));
     updatePinnedSnapshot(chatID, true);
+    // Keep the loaded history and pagination cursors instead of restarting at
+    // the newest page. Drop every underlying member of a combined conversation.
+    inboxRawChats = inboxRawChats.filter(function(chat) {
+      return chat.id !== chatID && chatIDs.indexOf(chat.id) === -1;
+    });
+    currentInboxChats = currentInboxChats.filter(function(chat) {
+      return chat.id !== chatID && chatIDs.indexOf(chat.id) === -1;
+    });
+    var remaining = applyPinnedChats(currentInboxChats);
+    var target = Math.max(0, Math.min(remaining.length - 1, archivedIndex));
+    if (target < inboxPageStart) inboxPageStart = Math.floor(target / MAX_WATCH_CHATS) * MAX_WATCH_CHATS;
     sendDeleteResult(true);
-    loadChats('initial');
+    sendCurrentChatPage('archive', target - inboxPageStart);
+    scheduleRefresh();
   }, function(error) { sendDeleteResult(false, error || 'Could not archive conversation'); });
 }
 
 function deleteMessage(chatID, messageID, forEveryone) {
   if (!chatID || chatID === OPENCLAW_CHAT_ID || !messageID) { sendDeleteResult(false, 'This message cannot be deleted'); return; }
   var route = messageRouteByID[messageID] || {chatID:chatID,messageID:messageID};
+  if (/imessage|apple messages/i.test(chatNetwork(chatID)) || /^(imsg##|imessage)/i.test(route.chatID)) {
+    sendDeleteResult(false, 'iMessage deletion is temporarily disabled. Thread archiving still works.');
+    return;
+  }
+  stopActiveMessageRefresh();
+  var generation = ++messageLoadGeneration;
   postJSON('/v1/chats/' + encodeURIComponent(route.chatID) + '/delete-message', {
     messageID:route.messageID,forEveryone:Boolean(forEveryone)
   }, function() {
+    sendDeleteResult(true);
+    if (generation !== messageLoadGeneration || chatID !== activeMessageChatID) return;
     var deletedIndex = -1;
     messageHistory = messageHistory.filter(function(item, index) {
       if (String(item.id || '') === messageID) { deletedIndex = index; return false; }
@@ -1419,12 +1451,19 @@ function deleteMessage(chatID, messageID, forEveryone) {
     });
     delete messageTextByID[messageID];
     delete messageRouteByID[messageID];
-    sendDeleteResult(true);
+    discardQueuedCommands(['messages_start','messages_prepend_start','message','messages_ready',
+      'message_detail_start','message_detail_chunk','message_detail_end','media_start','media_chunk','media_end','media_failed']);
+    newestMessageSignature = messageSignature(messageHistory);
     var start = {}; start[KEY_COMMAND] = 'messages_start'; start[KEY_TOTAL] = messageHistory.length; enqueue(start);
     for (var i = 0; i < messageHistory.length; i++) queueMessage(messageHistory[i], i, messageHistory.length);
     if (messageHistory.length) finishMessageBatch('initial', Math.max(0, Math.min(messageHistory.length - 1, deletedIndex)));
     else sendState('empty');
-  }, function(error) { sendDeleteResult(false, error || 'This network did not allow deletion'); });
+    sendChatEmojiAtlas();
+    scheduleActiveMessageRefresh();
+  }, function(error) {
+    sendDeleteResult(false, error || 'This network did not allow deletion');
+    if (generation === messageLoadGeneration && chatID === activeMessageChatID) scheduleActiveMessageRefresh();
+  });
 }
 
 function loadOlderMessages(chatID) {
@@ -1505,7 +1544,12 @@ function loadAttachment(attachmentID) {
   xhr.timeout = 30000;
   xhr.onload = function() {
     if (generation !== attachmentLoadGeneration) return;
-    if (xhr.status < 200 || xhr.status >= 300 || !xhr.responseText) { fail('Preview failed with ' + xhr.status); return; }
+    if (xhr.status < 200 || xhr.status >= 300 || !xhr.responseText) {
+      var message = 'Preview failed with ' + xhr.status;
+      try { var problem = JSON.parse(xhr.responseText); if (typeof problem.error === 'string') message = safeSlice(problem.error, 100); } catch (_) {}
+      fail(message);
+      return;
+    }
     var preview;
     try { preview = JSON.parse(xhr.responseText); }
     catch (error) { fail('Invalid preview response'); return; }

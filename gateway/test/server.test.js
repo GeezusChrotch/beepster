@@ -2,6 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createServer } from '../src/server.js';
+import { BeeperClient } from '../src/beeper-client.js';
+
+for (const status of [200, 204]) {
+  test(`archive and delete accept empty upstream HTTP ${status} responses`, async () => {
+    const client = new BeeperClient({baseURL:'http://beeper.invalid',accessToken:'test',
+      fetchImpl:async () => new Response(null, {status})});
+    client.chatContexts.set('synthetic-chat',{network:'Signal'});
+    await withServer(client, async (baseURL) => {
+      const headers = {Authorization:'Bearer gateway-secret','Content-Type':'application/json'};
+      const archived = await fetch(`${baseURL}/v1/chats/archive`, {
+        method:'POST',headers,body:JSON.stringify({chatIDs:['synthetic-chat']})});
+      assert.equal(archived.status, 200);
+      assert.deepEqual(await archived.json(), {archived:true,count:1});
+      const deleted = await fetch(`${baseURL}/v1/chats/synthetic-chat/delete-message`, {
+        method:'POST',headers,body:JSON.stringify({messageID:'synthetic-message',forEveryone:false})});
+      assert.equal(deleted.status, 200);
+      assert.deepEqual(await deleted.json(), {deleted:true,forEveryone:false});
+    });
+  });
+}
 
 async function withServer(client, callback, options = {}) {
   const server = createServer({ beeperClient: client, gatewayToken: 'gateway-secret', ...options });
@@ -147,6 +167,27 @@ test('watch deletion routes reject missing targets and implicit message scope', 
     assert.equal((await fetch(`${baseURL}/v1/chats/chat-one/delete-message`, {
       method:'POST',headers,body:JSON.stringify({messageID:'message-one'})
     })).status, 400);
+  });
+});
+
+test('Beeper deletion failures report uncertainty without leaking upstream details', async () => {
+  await withServer({deleteMessage:async () => {throw new Error('private chat data');}}, async (baseURL) => {
+    const response = await fetch(`${baseURL}/v1/chats/synthetic/delete-message`, {
+      method:'POST',headers:{Authorization:'Bearer gateway-secret','Content-Type':'application/json'},
+      body:JSON.stringify({messageID:'synthetic',forEveryone:false})});
+    assert.equal(response.status,502);
+    const body=await response.json();
+    assert.equal(body.code,'BEEPER_DELETE_FAILED');
+    assert.match(body.error,/Check Beeper before retrying/);
+    assert.doesNotMatch(body.error,/private chat/);
+  });
+});
+
+test('missing cached photos are a clear 404 rather than an upstream 502', async () => {
+  await withServer({getAttachmentPreview:async () => {throw Object.assign(new Error('private file path'),{code:'BEEPSTER_MEDIA_MISSING'});}}, async (baseURL) => {
+    const response=await fetch(`${baseURL}/v1/attachments/${'a'.repeat(24)}/preview`,{headers:{Authorization:'Bearer gateway-secret'}});
+    assert.equal(response.status,404);
+    assert.equal((await response.json()).code,'MEDIA_MISSING');
   });
 });
 

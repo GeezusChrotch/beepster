@@ -184,9 +184,34 @@ test('configured delete actions archive merged conversations together', () => {
   assert.equal(appMessages.find(packet => packet[0] === 'delete_result')[1], 'success');
 });
 
+for (const [count, pageStart, archived, expectedStart, expectedIndex] of [
+  [70,30,42,30,12], [70,60,69,60,8], [31,30,30,0,29], [1,0,0,0,0]
+]) {
+  test(`archive keeps position for ${count} chats at page ${pageStart}, row ${archived}`, () => {
+    const {context,requests,appMessages}=replyRuntime();
+    const chats=Array.from({length:count},(_,i)=>({id:'chat-'+i,name:'Chat '+i,network:'Signal'}));
+    context.inboxRawChats=chats.slice();
+    context.currentInboxChats=chats.slice();
+    context.inboxPageStart=pageStart;
+    context.inboxNextCursor='opaque-cursor';
+    context.deleteConversation('chat-'+archived);
+    requests[0].status=200;
+    requests[0].responseText='{"archived":true}';
+    requests[0].onload();
+    assert.equal(requests.length,1,'must not reload newest conversations');
+    assert.equal(context.inboxPageStart,expectedStart);
+    assert.equal(context.inboxNextCursor,'opaque-cursor');
+    assert.equal(context.currentInboxChats.length,count-1);
+    const ready=appMessages.find(p=>p[0]==='chats_ready');
+    assert.equal(ready[1],'archive');
+    assert.equal(ready[3] || 0,expectedIndex);
+  });
+}
+
 test('message deletion preserves the selected scope and underlying merged route', () => {
   const { context, eventListeners, requests, appMessages } = replyRuntime();
   context.messageRouteByID['m1-visible'] = {chatID:'chat-email',messageID:'real-message'};
+  context.activeMessageChatID = 'merged-one';
   context.messageHistory = [{id:'m1-visible',sender:'Me',text:'remove me'}];
   eventListeners.appmessage({payload:{0:'delete_message',1:'everyone',5:'merged-one',30:'m1-visible'}});
   assert.equal(requests[0].url, 'https://gateway.example/v1/chats/chat-email/delete-message');
@@ -196,6 +221,67 @@ test('message deletion preserves the selected scope and underlying merged route'
   requests[0].onload();
   assert.equal(context.messageHistory.length, 0);
   assert.equal(appMessages.find(packet => packet[0] === 'delete_result')[1], 'success');
+});
+
+test('delete acknowledgements bypass queued content transfers', () => {
+  const {context, appMessages} = replyRuntime({autoAck:false});
+  context.enqueue({0:'media_chunk'});
+  context.enqueue({0:'message_detail_chunk'});
+  context.sendDeleteResult(true);
+  assert.equal(appMessages.length, 1);
+  assert.equal(context.queue[1].message[0], 'delete_result');
+  assert.equal(context.queue[2].message[0], 'message_detail_chunk');
+});
+
+test('phone blocks iMessage message deletion without blocking conversation archiving', () => {
+  const {context,requests,appMessages}=replyRuntime();
+  context.deleteMessage('imsg##synthetic','message',false);
+  assert.equal(requests.length,0);
+  assert.match(appMessages[0][2],/temporarily disabled/);
+  context.deleteConversation('imsg##synthetic');
+  assert.equal(requests[0].url,'https://gateway.example/v1/chats/archive');
+});
+
+test('delete and media errors display the gateway explanation instead of just HTTP status', () => {
+  const {context, requests, appMessages}=replyRuntime();
+  context.deleteMessage('chat','message',false);
+  requests[0].status=502;
+  requests[0].responseText=JSON.stringify({error:'Beeper could not confirm deletion. Check Beeper before retrying.'});
+  requests[0].onload();
+  assert.match(appMessages.find(p=>p[0]==='delete_result')[2],/Check Beeper/);
+  context.loadAttachment('a'.repeat(24));
+  requests[1].status=404;
+  requests[1].responseText=JSON.stringify({error:'Photo unavailable in Beeper.'});
+  requests[1].onload();
+  assert.equal(appMessages.find(p=>p[0]==='media_failed')[2],'Photo unavailable in Beeper.');
+});
+
+test('deleting a message cancels stale refreshes and preserves remaining history', () => {
+  const {context, requests, appMessages} = replyRuntime();
+  context.activeMessageChatID = 'chat-one';
+  context.messageHistory = [{id:'one',text:'keep'}, {id:'two',text:'remove'}];
+  const oldGeneration = context.messageLoadGeneration;
+  context.deleteMessage('chat-one', 'two', false);
+  context.applyActiveMessageRefresh('chat-one', oldGeneration, [{id:'stale',text:'stale'}], {});
+  assert.equal(context.messageHistory.length, 2);
+  requests[0].status = 200;
+  requests[0].responseText = '{"deleted":true}';
+  requests[0].onload();
+  assert.deepEqual(Array.from(context.messageHistory, item => item.id), ['one']);
+  assert.equal(appMessages.find(packet => packet[0] === 'messages_ready')[4], 1);
+});
+
+test('delete completion cannot replace a different open conversation', () => {
+  const {context, requests, appMessages} = replyRuntime();
+  context.activeMessageChatID = 'old';
+  context.deleteMessage('old', 'message', false);
+  context.activeMessageChatID = 'new';
+  context.messageHistory = [{id:'other',text:'keep'}];
+  requests[0].status = 200;
+  requests[0].responseText = '{"deleted":true}';
+  requests[0].onload();
+  assert.equal(context.messageHistory[0].id, 'other');
+  assert.equal(appMessages.filter(packet => packet[0] === 'messages_start').length, 0);
 });
 
 test('saved emoji order persists and is applied immediately', () => {

@@ -37,6 +37,12 @@ static int s_chat_emoji_count = 1;
 static void *s_chat_emoji_icons[15] = {(void *)1};
 static int font_height = 23, draws, bottom_limit;
 static GFont font_for_text(const char *text) { return font_height; }
+static GFont theme_font(void) { return font_height; }
+static GFont gothic_font(bool bold) { return font_height + 1; }
+static bool has_non_ascii(const char *text) {
+  for (; *text; text++) if ((unsigned char)*text >= 128) return true;
+  return false;
+}
 static bool has_inline_emoji(const char *text) { return strchr(text, 0x1d) != 0; }
 static GSize graphics_text_layout_get_content_size(const char *text, GFont font,
     GRect rect, int mode, int align) {
@@ -52,7 +58,10 @@ static void record(GRect rect) {
   draws++;
 }
 static void graphics_draw_text(GContext *ctx, const char *text, GFont font,
-    GRect rect, int mode, int align, void *attrs) { record(rect); }
+    GRect rect, int mode, int align, void *attrs) {
+  assert(font == (has_non_ascii(text) ? gothic_font(false) : theme_font()));
+  record(rect);
+}
 static void graphics_draw_bitmap_in_rect(GContext *ctx, void *bitmap, GRect rect) { record(rect); }
 static void graphics_draw_round_rect(GContext *ctx, GRect rect, int radius) { record(rect); }
 static void graphics_context_set_compositing_mode(GContext *ctx, int mode) {}
@@ -67,8 +76,9 @@ static void check(const char *text, int width, int height, int origin, int expec
   assert(layout_inline_emoji_text(0, text, font_height, GRect(0,0,width,30000), false) > height);
 }
 int main(void) {
+  GContext ctx = 0;
   for (font_height = 14; font_height <= 38; font_height += 4) {
-    assert(message_preview_height("body") == 3 * font_height);
+    assert(message_preview_height("body") == 3 * inline_line_height(font_height));
     assert(message_preview_height("\\035A\\035") == 3 * inline_line_height(font_height));
     int h = inline_line_height(font_height);
     // Word, emoji, and overlong-word wraps all cross the last visible line.
@@ -78,6 +88,10 @@ int main(void) {
     // Three-line preview and negative origin used when scrolling a long body.
     check("aaaa\\ncccc\\neeee ffff", 25, 3*h, 0, 3);
     check("aaaa bbbb", 25, h, -h/2, 1);
+    bottom_limit = h;
+    draws = 0;
+    draw_inline_token(&ctx, "don’t", theme_font(), GRect(0, 0, 100, h));
+    assert(draws == 5);
   }
   return 0;
 }

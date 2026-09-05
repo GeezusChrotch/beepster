@@ -2,7 +2,7 @@ import { normalizeEmojiForPebble } from './emoji.js';
 import { tokenizeEmojiForWatch } from './emoji-assets.js';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createWatchPreview } from './image-preview.js';
@@ -333,6 +333,7 @@ export class BeeperClient {
       this.chatContexts.delete(chat.id);
       this.chatContexts.set(chat.id, {
         accountID: chat.accountID || '',
+        network: chat.network || '',
         type: chat.type || '',
         name,
         participants: chat?.participants?.items || [],
@@ -502,6 +503,16 @@ export class BeeperClient {
     const outputPath = join(directory, 'preview.bmp');
     try {
       if (attachment.sourceURL.startsWith('file://')) {
+        try {
+          await access(fileURLToPath(attachment.sourceURL));
+        } catch (error) {
+          if (error.code === 'ENOENT') {
+            const missing = new Error('Photo unavailable in Beeper. Open it in Beeper or the original app.');
+            missing.code = 'BEEPSTER_MEDIA_MISSING';
+            throw missing;
+          }
+          throw error;
+        }
         const preview = await this.previewCreator(fileURLToPath(attachment.sourceURL), outputPath);
         return { ...preview, kind: attachment.kind };
       }
@@ -528,7 +539,8 @@ export class BeeperClient {
   }
 
   async archiveChat(chatID) {
-    await this.request(`/v1/chats/${encodeURIComponent(chatID)}/archive`, {
+    // These void endpoints may return HTTP 200 with no JSON, not only 204.
+    await this.response(`/v1/chats/${encodeURIComponent(chatID)}/archive`, {
       method: 'POST',
       body: JSON.stringify({ archived: true })
     });
@@ -536,7 +548,23 @@ export class BeeperClient {
   }
 
   async deleteMessage(chatID, messageID, forEveryone = false) {
-    await this.request(`/v1/chats/${encodeURIComponent(chatID)}/messages/${encodeURIComponent(messageID)}?forEveryone=${forEveryone ? 'true' : 'false'}`, {
+    let context = this.chatContexts.get(chatID);
+    const appleID = /^(imsg##|imessage)/i.test(chatID);
+    if (!appleID && !context?.network && !context?.accountID) {
+      context = await this.request(`/v1/chats/${encodeURIComponent(chatID)}`);
+      if (!context?.network && !context?.accountID) {
+        throw new Error('Cannot verify the messaging service for deletion');
+      }
+    }
+    if (appleID || /imessage|apple messages/i.test(`${context?.network || ''} ${context?.accountID || ''}`)) {
+      throw Object.assign(new Error('iMessage deletion is temporarily disabled. Thread archiving still works.'),
+        {code:'IMESSAGE_DELETE_DISABLED'});
+    }
+    // Beeper's installed REST schema uses Boolean(value): the string "false"
+    // becomes true (unsend). An explicitly empty value coerces to false. Never
+    // omit it: the upstream default is true. A stricter future API can reject
+    // this encoding safely; do not retry with a broader deletion scope.
+    await this.response(`/v1/chats/${encodeURIComponent(chatID)}/messages/${encodeURIComponent(messageID)}?forEveryone=${forEveryone ? 'true' : ''}`, {
       method: 'DELETE'
     });
     return { deleted: true, forEveryone: Boolean(forEveryone) };

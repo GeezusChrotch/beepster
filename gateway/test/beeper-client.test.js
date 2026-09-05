@@ -412,9 +412,41 @@ test('conversation archiving and message deletion use the documented Desktop API
   };
   const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'secret',fetchImpl});
   await client.archiveChat('chat/one');
+  client.chatContexts.set('chat/one', {network:'Signal'});
   await client.deleteMessage('chat/one', 'message/two', true);
   assert.deepEqual(calls, [
     {url:'http://127.0.0.1:23373/v1/chats/chat%2Fone/archive',method:'POST',body:JSON.stringify({archived:true})},
     {url:'http://127.0.0.1:23373/v1/chats/chat%2Fone/messages/message%2Ftwo?forEveryone=true',method:'DELETE',body:undefined}
   ]);
+});
+
+test('delete-for-me stays false under Beeper REST boolean coercion', async () => {
+  const scopes = [];
+  const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:'test',
+    fetchImpl:async (url) => {
+      const query = new URL(url).searchParams;
+      assert.equal(query.has('forEveryone'), true);
+      // Mirrors the installed n.coerce.boolean().optional().default(true).
+      scopes.push(Boolean(query.get('forEveryone')));
+      return new Response(null,{status:204});
+    }});
+  client.chatContexts.set('synthetic-chat', {network:'Signal'});
+  await client.deleteMessage('synthetic-chat','synthetic-message');
+  await client.deleteMessage('synthetic-chat','synthetic-message',false);
+  await client.deleteMessage('synthetic-chat','synthetic-message',true);
+  assert.deepEqual(scopes,[false,false,true]);
+});
+
+test('iMessage deletion is blocked for native, cached and freshly resolved IDs without a DELETE', async () => {
+  const methods=[];
+  const client=new BeeperClient({baseURL:'http://beeper.invalid',accessToken:'test',fetchImpl:async (url,options={})=>{
+    methods.push(options.method || 'GET');
+    return Response.json({network:'iMessage',accountID:'imessage_synthetic'});
+  }});
+  client.chatContexts.set('cached',{accountID:'imessage_synthetic'});
+  for(const id of ['imsg##synthetic','cached','opaque']) {
+    await assert.rejects(client.deleteMessage(id,'synthetic',false),{code:'IMESSAGE_DELETE_DISABLED'});
+    await assert.rejects(client.deleteMessage(id,'synthetic',true),{code:'IMESSAGE_DELETE_DISABLED'});
+  }
+  assert.ok(methods.every(method=>method==='GET'));
 });

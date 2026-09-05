@@ -26,7 +26,7 @@ bridge.
 
 ## 1. Install Beepster Connector on the Mac
 
-Download [Beepster-Connector-0.13.0.dmg](https://github.com/GeezusChrotch/beepster/releases/download/v0.13.0/Beepster-Connector-0.13.0.dmg). Open it, drag **Beepster
+Download [Beepster-Connector-0.14.0.dmg](https://github.com/GeezusChrotch/beepster/releases/download/v0.14.0/Beepster-Connector-0.14.0.dmg). Open it, drag **Beepster
 Connector** to **Applications**, eject the disk image, and open the app.
 
 On first launch, macOS may ask you to confirm that you downloaded the app from the internet. The
@@ -86,7 +86,7 @@ The Mac Connector cannot silently install software over the phone's Bluetooth co
 single Store action is the intended, supported watch-installation step. It also lets future watch
 updates arrive through the Pebble app.
 
-Alternatively, open the [official watch package](https://github.com/GeezusChrotch/beepster/releases/download/v0.13.0/beepster-0.13.0.pbw)
+Alternatively, open the [official watch package](https://github.com/GeezusChrotch/beepster/releases/download/v0.14.0/beepster-0.14.0.pbw)
 on your phone and let the Pebble app add Beepster to the watch. No Pebble SDK or command line is needed.
 
 After setup, try the [first-run checks and share feedback](FEEDBACK.md). Bug reports, suggestions,

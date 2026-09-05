@@ -79,6 +79,10 @@ seconds to confirm; using another action or waiting cancels it. Message deletion
 underlying network's Beeper capability and may be refused. Button choices and the lines-per-scroll
 value persist on the phone and watch.
 
+**iMessage message deletion is temporarily disabled** because Beeper's Apple Messages automation
+has failed to verify its deletion target reliably. Delete in the Threads view still archives the
+conversation. No messages are silently hidden or deleted for everyone as a substitute.
+
 ## Included messaging services
 
 Open Beepster Settings and use **Included services** to choose which networks appear in the watch

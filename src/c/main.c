@@ -201,6 +201,7 @@ static bool s_reply_showing_status;
 static bool s_delete_message;
 static bool s_delete_armed;
 static AppTimer *s_delete_timer;
+static AppTimer *s_delete_result_timer;
 static char s_delete_chat_id[CHAT_ID_LEN];
 static char s_delete_message_id[MESSAGE_ID_LEN];
 static char s_quick_replies[MAX_QUICK_REPLIES][QUICK_REPLY_LEN];
@@ -246,6 +247,7 @@ static void configured_message_long_click(ClickRecognizerRef recognizer, void *c
 static GFont theme_font(void);
 static GFont font_for_text(const char *text);
 static void expire_delete_confirmation(void *context);
+static void delete_result_timeout(void *context);
 
 static MenuLayer *active_menu(void) {
   Window *top = window_stack_get_top_window();
@@ -744,11 +746,22 @@ static GFont font_for_text(const char *text) {
   return has_non_ascii(text) ? gothic_font(false) : theme_font();
 }
 
-static bool has_inline_emoji(const char *text) {
-  return text && strchr(text, 0x1d) != NULL;
-}
-
 static int inline_text_width(const char *text, GFont font, int16_t height) {
+  if (has_non_ascii(text)) {
+    int width = 0;
+    while (*text) {
+      unsigned char lead = (unsigned char)*text;
+      size_t length = lead < 0x80 ? 1 : (lead < 0xe0 ? 2 : (lead < 0xf0 ? 3 : 4));
+      char character[5] = {0};
+      memcpy(character, text, length);
+      GSize size = graphics_text_layout_get_content_size(character,
+        lead < 0x80 ? font : gothic_font(false), GRect(0, 0, 1000, height),
+        GTextOverflowModeFill, GTextAlignmentLeft);
+      width += size.w;
+      text += length;
+    }
+    return width;
+  }
   GSize size = graphics_text_layout_get_content_size(text, font, GRect(0, 0, 1000, height),
     GTextOverflowModeFill, GTextAlignmentLeft);
   return size.w;
@@ -757,17 +770,34 @@ static int inline_text_width(const char *text, GFont font, int16_t height) {
 static int16_t inline_line_height(GFont font) {
   GSize size = graphics_text_layout_get_content_size("Ag", font, GRect(0, 0, 100, 80),
     GTextOverflowModeFill, GTextAlignmentLeft);
+  GSize fallback = graphics_text_layout_get_content_size("Ag", gothic_font(false),
+    GRect(0, 0, 100, 80), GTextOverflowModeFill, GTextAlignmentLeft);
+  if (fallback.h > size.h) size.h = fallback.h;
   return size.h > CHAT_EMOJI_SIZE + 2 ? size.h : CHAT_EMOJI_SIZE + 2;
 }
 
 static int32_t message_preview_height(const char *text) {
-  GFont font = font_for_text(text);
-  if (has_inline_emoji(text)) return 3 * inline_line_height(font);
-  // Theme point sizes are not line heights (especially for fallback fonts).
-  // Reserve three complete lines, using the same font as the message body.
-  GSize size = graphics_text_layout_get_content_size("Ag\nAg\nAg", font,
-    GRect(0, 0, 1000, 30000), GTextOverflowModeWordWrap, GTextAlignmentLeft);
-  return size.h;
+  return 3 * inline_line_height(theme_font());
+}
+
+static void draw_inline_token(GContext *ctx, const char *text, GFont font, GRect frame) {
+  if (!has_non_ascii(text)) {
+    graphics_draw_text(ctx, text, font, frame, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+    return;
+  }
+  // A Unicode glyph must not change the font of the entire message.
+  while (*text) {
+    unsigned char lead = (unsigned char)*text;
+    size_t length = lead < 0x80 ? 1 : (lead < 0xe0 ? 2 : (lead < 0xf0 ? 3 : 4));
+    char character[5] = {0};
+    memcpy(character, text, length);
+    int width = inline_text_width(character, font, frame.size.h);
+    graphics_draw_text(ctx, character, lead < 0x80 ? font : gothic_font(false),
+      GRect(frame.origin.x, frame.origin.y, width + 3, frame.size.h),
+      GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+    frame.origin.x += width;
+    text += length;
+  }
 }
 
 static int32_t layout_inline_emoji_text(GContext *ctx, const char *text, GFont font,
@@ -844,9 +874,8 @@ static int32_t layout_inline_emoji_text(GContext *ctx, const char *text, GFont f
     }
     if (draw && y + line_height > frame.size.h) break;
     if (token_width <= frame.size.w) {
-      if (draw && ctx) graphics_draw_text(ctx, token, font,
-        GRect(frame.origin.x + x, frame.origin.y + y, token_width + 3, line_height),
-        GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+      if (draw && ctx) draw_inline_token(ctx, token, font,
+        GRect(frame.origin.x + x, frame.origin.y + y, token_width + 3, line_height));
       x += token_width;
     } else {
       const char *part = token;
@@ -861,9 +890,8 @@ static int32_t layout_inline_emoji_text(GContext *ctx, const char *text, GFont f
           y += line_height;
         }
         if (draw && y + line_height > frame.size.h) return y;
-        if (draw && ctx) graphics_draw_text(ctx, character, font,
-          GRect(frame.origin.x + x, frame.origin.y + y, character_width + 3, line_height),
-          GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+        if (draw && ctx) draw_inline_token(ctx, character, font,
+          GRect(frame.origin.x + x, frame.origin.y + y, character_width + 3, line_height));
         x += character_width;
         part += character_length;
       }
@@ -1422,14 +1450,8 @@ static int32_t message_content_height(MenuLayer *menu_layer, Message *message,
   int16_t width = layer_get_bounds(menu_layer_get_layer(menu_layer)).size.w - 16;
   int32_t text_height = expanded ? s_expanded_text_height : message->cached_text_height;
   if (text_height <= 0) {
-    if (has_inline_emoji(text)) {
-      text_height = layout_inline_emoji_text(NULL, text, font_for_text(text),
-        GRect(0, 0, width, 30000), false);
-    } else {
-      GSize text_size = graphics_text_layout_get_content_size(text && text[0] ? text : "[No text]",
-        font_for_text(text), GRect(0, 0, width, 30000), GTextOverflowModeWordWrap, GTextAlignmentLeft);
-      text_height = text_size.h;
-    }
+    text_height = layout_inline_emoji_text(NULL, text, theme_font(),
+      GRect(0, 0, width, 30000), false);
     if (text_height < 24) text_height = 24;
     if (expanded) s_expanded_text_height = text_height;
     else message->cached_text_height = text_height < INT16_MAX ? (int16_t)text_height : INT16_MAX;
@@ -1493,16 +1515,8 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
     GRect(7, 1 - content_scroll + (sender_height - 14) / 2, 14, 14),
     s_active_chat_network, participant_color);
   graphics_context_set_text_color(ctx, s_theme.text);
-  if (has_inline_emoji(body)) {
-    layout_inline_emoji_text(ctx, body, font_for_text(body),
-      GRect(8, text_y, bounds.size.w - 16, text_height), true);
-  } else {
-    graphics_draw_text(ctx, body && body[0] ? body : "[No text]",
-      font_for_text(body),
-      GRect(8, text_y, bounds.size.w - 16, text_height),
-      expanded ? GTextOverflowModeWordWrap : GTextOverflowModeTrailingEllipsis,
-      GTextAlignmentLeft, NULL);
-  }
+  layout_inline_emoji_text(ctx, body, theme_font(),
+    GRect(8, text_y, bounds.size.w - 16, text_height), true);
   if (message->attachment_kind) {
     if (expanded && s_inline_media_state == INLINE_MEDIA_READY && s_media_bitmap) {
       int image_x = (bounds.size.w - s_media_width) / 2;
@@ -1560,7 +1574,7 @@ static void message_move_selection(int delta) {
   int32_t visible_height = message_row_height(s_message_menu, &current, NULL);
   int32_t content_height = message_content_height(s_message_menu, message, expanded, text);
   int32_t max_scroll = content_height > visible_height ? content_height - visible_height : 0;
-  int32_t step = s_scroll_lines * (s_theme_size + 6);
+  int32_t step = s_scroll_lines * inline_line_height(theme_font());
 
   if (delta > 0 && expanded && s_expanded_scroll_offset < max_scroll) {
     s_expanded_scroll_offset += step;
@@ -1641,6 +1655,7 @@ static void toggle_active_chat_pin(void) {
 }
 
 static void show_delete_confirmation(bool message_view) {
+  if (s_delete_result_timer) return;
   TextLayer *status = message_view ? s_message_status_layer : s_status_layer;
   if (s_delete_armed && s_delete_message == message_view) {
     s_delete_armed = false;
@@ -1649,6 +1664,8 @@ static void show_delete_confirmation(bool message_view) {
     if (!request_delete(false)) {
       text_layer_set_text(status, "Could not contact phone");
       vibes_double_pulse();
+    } else {
+      s_delete_result_timer = app_timer_register(30000, delete_result_timeout, NULL);
     }
     return;
   }
@@ -1686,6 +1703,14 @@ static void expire_delete_confirmation(void *context) {
   s_delete_timer = NULL;
   s_delete_armed = false;
   set_status(s_delete_message ? s_message_status_layer : s_status_layer, VIEW_READY, s_delete_message);
+}
+
+static void delete_result_timeout(void *context) {
+  s_delete_result_timer = NULL;
+  TextLayer *status = s_delete_message ? s_message_status_layer : s_status_layer;
+  if (!status) return;
+  text_layer_set_text(status, "No confirmation. Check Beeper before retrying.");
+  layer_set_hidden(text_layer_get_layer(status), false);
 }
 
 static void perform_button_action(ButtonAction action, bool message_view) {
@@ -1859,6 +1884,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
   if (!command) return;
 
   if (strcmp(command->value->cstring, "delete_result") == 0) {
+    if (s_delete_result_timer) { app_timer_cancel(s_delete_result_timer); s_delete_result_timer = NULL; }
     Tuple *state = dict_find(iterator, MESSAGE_KEY_STATE);
     Tuple *error = dict_find(iterator, MESSAGE_KEY_ERROR);
     bool success = state && strcmp(state->value->cstring, "success") == 0;
@@ -2213,6 +2239,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
           int watch_row = chat_index + (s_has_newer_chats ? 1 : 0);
           MenuRowAlign align = mode && strcmp(mode->value->cstring, "newer") == 0 ?
             MenuRowAlignBottom : MenuRowAlignTop;
+          if (mode && strcmp(mode->value->cstring, "archive") == 0) align = MenuRowAlignNone;
           menu_layer_set_selected_index(s_chat_menu,
             (MenuIndex) {.section = 0, .row = watch_row}, align, false);
         }
@@ -2762,6 +2789,7 @@ static void deinit(void) {
   if (s_message_request_timer) app_timer_cancel(s_message_request_timer);
   if (s_content_request_timer) app_timer_cancel(s_content_request_timer);
   if (s_delete_timer) app_timer_cancel(s_delete_timer);
+  if (s_delete_result_timer) app_timer_cancel(s_delete_result_timer);
   if (s_dictation_session) dictation_session_destroy(s_dictation_session);
   if (s_chats) free(s_chats);
   s_chats = NULL;

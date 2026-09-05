@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.14.0 — Archiving, readability, and safer deletion
+
+- Archiving keeps the loaded conversation page and selects the next conversation (or previous
+  when archiving the last one), instead of jumping to the newest inbox page.
+
+- Temporarily block iMessage message deletion in the phone and gateway while retaining thread
+  archiving. Other services retain deletion support; unidentified services fail closed.
+
+- Encode delete-for-me explicitly as an empty query value to avoid Beeper's REST
+  boolean coercion interpreting the string "false" as delete-for-everyone.
+
+- Accept empty successful Beeper responses for archive and delete instead of reporting a false 502.
+- Explain missing cached photos and unconfirmed deletions instead of showing only HTTP error codes.
+- Prioritize deletion confirmations over queued media, ignore stale refresh responses after deletion,
+  preserve remaining history, and time out the watch's pending-action screen without automatic retries.
+- Keep the chosen font throughout message bodies, fall back only for individual Unicode glyphs,
+  and use consistent measured line spacing for layout and scrolling.
+
 ## 0.13.0 — First public release
 
 - Published Beepster for everyone, with a guided installation page and open feedback forms.

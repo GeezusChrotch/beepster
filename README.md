@@ -6,7 +6,7 @@ Beepster is a readable, reliable, open-source Beeper client for Pebble Time 2. I
 chats, complete message text, voice dictation, saved replies, themes, bitmap emoji, and inline
 photo previews to the watch without putting a Beeper credential on the watch or phone.
 
-Version 0.13.0 is the first public release. Download the watch app and signed, notarized Mac
+Version 0.14.0 improves archiving, readability, and error handling. Download the watch app and signed, notarized Mac
 Connector using the [installation guide](https://geezuschrotch.github.io/beepster/INSTALL).
 Feedback is welcome: [share your experience or report a problem](https://github.com/GeezusChrotch/beepster/issues/new/choose).
 
@@ -26,7 +26,7 @@ The Connector window can be closed after setup; its login background service con
 
 - [Install Beepster](docs/INSTALL.md) — complete Mac, Tailscale, watch, and pairing walkthrough
 - [Feedback and first-run checks](docs/FEEDBACK.md) — help improve Beepster safely
-- [0.13.0 release notes](docs/RELEASE_NOTES_0.13.0.md) — first public release and known limitations
+- [0.14.0 release notes](docs/RELEASE_NOTES_0.14.0.md) — fixes and known limitations
 - [Use Beepster](docs/USER_GUIDE.md) — controls, replies, themes, media, and limitations
 - [Troubleshoot](docs/TROUBLESHOOTING.md) — symptom-based fixes and the private health checker
 - [Privacy](PRIVACY.md) and [security model](SECURITY.md)
@@ -43,6 +43,7 @@ The Connector window can be closed after setup; its login background service con
 - Complete in-thread message text with configurable one-to-eight-line scrolling
 - Fully configurable press and hold actions for all three buttons in both inbox and chat views
 - Confirmed conversation archiving and per-user message deletion as configurable button actions
+  (iMessage message deletion is temporarily disabled; iMessage conversation archiving still works)
 - Voice dictation with confirmation and delivery tracking
 - Up to eight text-or-emoji quick replies, followed by 15 user-chosen, reorderable bitmap emoji
 - Static photo, GIF-poster, and video-poster previews, including Instagram media

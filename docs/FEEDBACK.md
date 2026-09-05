@@ -36,3 +36,6 @@ instead of posting sensitive details in an issue.
 - Contact names and available media depend on what Beeper Desktop and the messaging network expose.
 - The Threads Delete action archives conversations; Chat Delete removes a message for your user,
   not necessarily for everyone. Both require confirmation.
+- iMessage message deletion is temporarily disabled while Beeper's Apple Messages automation
+  is investigated. Thread archiving remains available. Missing cached photos cannot be displayed
+  until their files are available again in Beeper.
