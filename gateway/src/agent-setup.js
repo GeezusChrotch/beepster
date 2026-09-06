@@ -12,10 +12,11 @@ import { readSecret } from './secret-store.js';
 import { BeeperClient } from './beeper-client.js';
 import { createOpenClawApprovalClient } from './openclaw-client.js';
 import { createHermesApprovalClient } from './hermes-client.js';
+import { promptViews, saveThreadPrompt } from './thread-prompts.js';
 import { telegramCompatibility } from './openclaw-telegram-compat.js';
 import { readAgentLinks, saveAgentLink } from './agent-settings.js';
 import { isTelegramSession } from './agent-approvals.js';
-import { discoverOpenClawSessions, discoverHermesSessions, validSetupPost, setupForms } from './agent-setup-support.js';
+import { discoverOpenClawSessions, discoverHermesSessions, openClawExecutable, validSetupPost, setupForms } from './agent-setup-support.js';
 
 const exec = promisify(execFile);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -100,6 +101,17 @@ if (process.argv.includes('--launch')) {
     try { await exec(executable, ['plugins','enable','beepster'], {timeout:30000, maxBuffer:128000, env:{...process.env,HERMES_HOME:home}}); }
     catch { throw new Error('HERMES_ENABLE_FAILED'); }
   }
+  async function installOpenClawPrompts() {
+    const executable = await openClawExecutable();
+    const bundle = fileURLToPath(new URL('../integrations/openclaw/organik-thread-prompts',import.meta.url));
+    const destination = path.join(os.homedir(),'.openclaw','extensions','organik-thread-prompts');
+    try { await access(destination); await cp(destination,destination+'.backup-'+Date.now(),{recursive:true}); }
+    catch(e) { if(e.code!=='ENOENT') throw e; }
+    await exec(executable,['plugins','install',bundle,'--force','--accept-capabilities'],{timeout:60000,maxBuffer:128000});
+    for(const key of ['allowConversationAccess','allowPromptInjection']) {
+      await exec(executable,['config','set','plugins.entries.organik-thread-prompts.hooks.'+key,'true','--strict-json'],{timeout:15000,maxBuffer:128000});
+    }
+  }
   function page(states, links, note = '') {
     return setupForms(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Beepster Agent Links</title><style>body{font:17px system-ui;max-width:760px;margin:40px auto;padding:0 20px;color:#eee;background:#18212a}select,button{font:inherit;padding:10px;max-width:100%;margin:8px 0}select{width:100%}label{display:block;margin-top:16px}p{line-height:1.5}li{margin:10px 0}section{padding:18px;border:1px solid #536879;border-radius:12px;margin:20px 0}a{color:#9edcff}</style>
 <h1>Agent approvals</h1><p>Optional, Mac-only setup for Hermes and OpenClaw. Beepster grants only <b>Approve once</b> or <b>Deny</b>, never standing permission.</p>
@@ -126,10 +138,12 @@ ${cursor ? '<form method="post"><input type="hidden" name="action" value="more">
       if (input.action === 'install-openclaw-fallback') note = telegramCompatibilityState.detail;
       // Pagination is bounded and requested explicitly by the native picker.
       for (let i = 1; i < Math.min(20, Number(input.pages) || 1) && cursor; i++) await moreChats();
-      if (input.action === 'install') { await installHermes(); hermesEnabled = true; note = 'Hermes bridge installed and enabled. Restart Hermes when idle, then request an approval in Telegram.'; }
+      if (input.action === 'save-prompt') { await saveThreadPrompt(input); note = 'Thread prompt saved. It applies only to this enabled link after prompt support is installed and the agent restarted. Later edits apply on the next message.'; }
+      else if (input.action === 'install-openclaw-prompts') { await installOpenClawPrompts(); note = 'OpenClaw prompt support installed. Restart OpenClaw when idle to activate it.'; }
+      else if (input.action === 'install') { await installHermes(); hermesEnabled = true; note = 'Hermes bridge installed and enabled. Restart Hermes when idle, then request an approval in Telegram.'; }
       else if (input.action === 'link') {
         const choice = choices.find(c => c.provider === input.provider && c.sessionKey === input.sessionKey);
-        if (!choice || !chats.some(c => c.id === input.chatID)) throw new Error('Unavailable session or conversation');
+        if (!choice || choice.linkable === false || !chats.some(c => c.id === input.chatID)) throw new Error('Unavailable session or conversation');
         await saveAgentLink({...choice,chatID:input.chatID,enabled:true}); note = 'Link saved. No approval was sent.';
       } else if (input.action === 'disable') {
         const link = (await readAgentLinks()).find(l => l.provider === input.provider && l.sessionKey === input.sessionKey && l.chatID === input.chatID);
@@ -137,9 +151,9 @@ ${cursor ? '<form method="post"><input type="hidden" name="action" value="more">
         await saveAgentLink({...link,enabled:false}); note = 'Link disabled.';
       } else if (input.action && !['status','health','install-openclaw-fallback'].includes(input.action)) throw new Error('Unsupported action');
       process.stdout.write(JSON.stringify({ok:true,note,states,hermesEnabled,bridgeHealth,telegramCompatibility:telegramCompatibilityState,choices,
-        chats:chats.map(c => ({id:c.id,name:c.name || c.title || c.id})),hasMore:!!cursor,links:await readAgentLinks()}));
+        chats:chats.map(c => ({id:c.id,name:c.name || c.title || c.id})),hasMore:!!cursor,links:await readAgentLinks(),threadPrompts:await promptViews(await readAgentLinks())}));
     } catch (error) {
-      const note = error.message === 'HERMES_NOT_FOUND' ? 'Default Hermes installation not found. No plugin was installed.' : error.message === 'HERMES_ENABLE_FAILED' ? 'Bridge files were copied, but Hermes could not enable the plugin. Check Hermes plugin support and retry.' : 'Setup could not complete. Refresh connections and reselect the session and chat. No approval was sent.';
+      const note = error.message === 'PROMPT_BUSY' ? 'Another prompt save is in progress. Retry after it finishes.' : error.message === 'PROMPT_CHANGED' ? 'This prompt changed elsewhere. Reload it before saving again.' : error.message === 'PROMPT_LINK_CHANGED' ? 'The link changed or is disabled. Reload connections before editing its prompt.' : error.message === 'PROMPT_INVALID' ? 'Use a prompt of at most 12,000 characters.' : error.message === 'HERMES_NOT_FOUND' ? 'Default Hermes installation not found. No plugin was installed.' : error.message === 'HERMES_ENABLE_FAILED' ? 'Bridge files were copied, but Hermes could not enable the plugin. Check Hermes plugin support and retry.' : 'Setup could not complete. Refresh connections and reselect the session and chat. No approval was sent.';
       process.stdout.write(JSON.stringify({ok:false,note}));
     } finally { openclaw?.stop(); }
     process.exit(0);

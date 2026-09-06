@@ -50,3 +50,14 @@ test('OpenClaw session discovery supports legacy and SQLite indexes without pend
     assert.ok(rows.every(r => r.provider === 'openclaw'));
   } finally { await rm(root, {recursive:true,force:true}); }
 });
+
+test('renamed SQLite labels override old display names and legacy snapshots', async()=>{
+ const root=await mkdtemp(path.join(os.tmpdir(),'organik-rename-'));
+ try {
+ await mkdir(path.join(root,'one','sessions'),{recursive:true});
+ await mkdir(path.join(root,'one','agent'),{recursive:true});
+ await writeFile(path.join(root,'one','sessions','sessions.json'),JSON.stringify({'agent:one:telegram:direct:123':{displayName:'Old'}}));
+ execFileSync('/usr/bin/sqlite3',[path.join(root,'one','agent','openclaw-agent.sqlite'),"CREATE TABLE session_nodes(session_key TEXT,display_name TEXT,label TEXT,archived_at INTEGER,updated_at INTEGER); INSERT INTO session_nodes VALUES ('agent:one:telegram:direct:123','Old','Pebble!',NULL,1);"]);
+ const rows=await discoverOpenClawSessions(root);assert.equal(rows.length,1);assert.match(rows[0].label,/Pebble!/);
+ } finally {await rm(root,{recursive:true,force:true});}
+});

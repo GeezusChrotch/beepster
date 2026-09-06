@@ -6,6 +6,13 @@ import os from 'node:os';
 import { isTelegramSession } from './agent-approvals.js';
 const exec = promisify(execFile);
 
+export async function openClawExecutable() {
+  for (const candidate of [path.join(os.homedir(),'.local','bin','openclaw'),'/opt/homebrew/bin/openclaw','/usr/local/bin/openclaw']) {
+    try { await access(candidate); return candidate; } catch { }
+  }
+  throw new Error('OPENCLAW_NOT_FOUND');
+}
+
 // Local index metadata only: no transcript reads and no broader Gateway scopes.
 export async function discoverOpenClawSessions(root = path.join(os.homedir(), '.openclaw', 'agents')) {
   const result = [];
@@ -15,22 +22,36 @@ export async function discoverOpenClawSessions(root = path.join(os.homedir(), '.
     let entries = [];
     try {
       const old = JSON.parse(await readFile(path.join(folder, 'sessions', 'sessions.json'), 'utf8'));
-      entries = Object.entries(old).map(([sessionKey, item]) => ({sessionKey, label:item.displayName || item.label || ''}));
+      entries = Object.entries(old).map(([sessionKey, item]) => ({sessionKey, label:item.label || item.displayName || item.title || ''}));
     } catch { /* Recent OpenClaw uses the agent SQLite index instead. */ }
     const db = path.join(folder, 'agent', 'openclaw-agent.sqlite');
     try {
       await access(db);
       const {stdout} = await exec('/usr/bin/sqlite3', ['-readonly', '-json', db,
-        "SELECT session_key AS sessionKey, COALESCE(display_name,label,'') AS label FROM session_nodes WHERE session_key LIKE '%:telegram:%' AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 200"], {timeout:3000,maxBuffer:256000});
-      entries.push(...JSON.parse(stdout || '[]'));
+        "SELECT session_key AS sessionKey, COALESCE(NULLIF(label,''),NULLIF(display_name,''),'') AS label FROM session_nodes WHERE session_key LIKE '%:telegram:%' AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 200"], {timeout:3000,maxBuffer:256000});
+      entries.unshift(...JSON.parse(stdout || '[]'));
       // Newer OpenClaw may share agent:main:main across messaging channels.
       const shared = await exec('/usr/bin/sqlite3', ['-readonly','-json',db,
-        "SELECT DISTINCT n.session_key AS sessionKey, COALESCE(n.display_name,n.label,'') AS label FROM session_nodes n JOIN session_conversations sc ON sc.session_id=n.current_session_id JOIN conversations c USING(conversation_id) WHERE c.channel='telegram' AND n.archived_at IS NULL ORDER BY n.updated_at DESC LIMIT 200"], {timeout:3000,maxBuffer:256000}).catch(() => ({stdout:'[]'}));
+        "SELECT DISTINCT n.session_key AS sessionKey, COALESCE(NULLIF(n.label,''),NULLIF(n.display_name,''),'') AS label FROM session_nodes n JOIN session_conversations sc ON sc.session_id=n.current_session_id JOIN conversations c USING(conversation_id) WHERE c.channel='telegram' AND n.archived_at IS NULL ORDER BY n.updated_at DESC LIMIT 200"], {timeout:3000,maxBuffer:256000}).catch(() => ({stdout:'[]'}));
       entries.push(...JSON.parse(shared.stdout || '[]').map(item => ({...item,telegramMetadata:true})));
     } catch { /* Missing/unsupported index remains discoverable from pending requests. */ }
     for (const item of entries) if ((isTelegramSession(item.sessionKey) || (item.telegramMetadata && /^agent:[^:]+:[^:]+$/.test(item.sessionKey))) && !result.some(r => r.sessionKey === item.sessionKey)) {
       result.push({provider:'openclaw', sessionKey:item.sessionKey, requiresTelegramRoute:!isTelegramSession(item.sessionKey), label:`${agent.name}${item.label ? ' — '+item.label : ''}${!isTelegramSession(item.sessionKey) ? ' — shared session (Telegram)' : ''}`});
     }
+  }
+  // Ask the local runtime for the same title projection used by its sidebar.
+  // Non-Telegram chats are visible but cannot be linked to unrelated chat routes.
+  if (root === path.join(os.homedir(), '.openclaw', 'agents')) {
+    try {
+      const {stdout} = await exec(await openClawExecutable(), ['gateway','call','sessions.list','--params',JSON.stringify({includeDerivedTitles:true,limit:200}),'--json'], {timeout:12000,maxBuffer:2000000});
+      for(const row of JSON.parse(stdout).sessions || []) {
+        if(typeof row.key!=='string' || row.archivedAt) continue;
+        const title=row.label || row.displayName || row.derivedTitle || row.key;
+        const existing=result.find(r=>r.sessionKey===row.key);
+        if(existing) existing.label=title;
+        else result.push({provider:'openclaw',sessionKey:row.key,label:title,linkable:false});
+      }
+    } catch { /* Offline local index remains useful; no transcript file scanning. */ }
   }
   return result;
 }

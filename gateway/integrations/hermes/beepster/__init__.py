@@ -14,6 +14,19 @@ import time
 import asyncio
 
 
+def thread_prompt(session, directory=None):
+    directory = Path(directory or Path.home() / 'Library' / 'Application Support' / 'Beepster')
+    try:
+        links = json.loads((directory / 'agent-links.json').read_text())['links']
+        rows = json.loads((directory / 'thread-prompts.json').read_text())['prompts']
+        link = next((l for l in links if l.get('enabled') and l.get('provider') == 'hermes' and l.get('sessionKey') == session), None)
+        row = next((r for r in rows if link and r.get('provider') == 'hermes' and r.get('sessionKey') == session and r.get('chatID') == link.get('chatID')), None)
+        text = row.get('text') if row else None
+        return text if isinstance(text, str) and len(text) <= 12000 else ''
+    except (OSError, ValueError, KeyError, TypeError):
+        return ''
+
+
 class ApprovalBridge:
     def __init__(self, list_pending, resolve_pending, directory):
         self.list_pending = list_pending
@@ -36,6 +49,11 @@ class ApprovalBridge:
         session = gateway._session_key_for_source(source)
         if ':telegram:' not in session:
             return
+        # Add only this linked session's instructions to Hermes' per-turn
+        # system context. No global prompt or persisted conversation is changed.
+        prompt = thread_prompt(session)
+        if prompt.strip():
+            event.channel_prompt = ((getattr(event, 'channel_prompt', None) or '') + '\n\nUser instructions for this connected thread:\n' + prompt).strip()
         self.loop = asyncio.get_running_loop()
         self.observe(session_key=session, surface='gateway')
         adapter = gateway.adapters.get(platform)

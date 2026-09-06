@@ -16,6 +16,18 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 class BridgeTest(unittest.TestCase):
+    def test_scoped_system_prompt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            link = dict(provider='hermes',sessionKey='agent:telegram:dm:123',chatID='a',enabled=True)
+            (root/'agent-links.json').write_text(json.dumps(dict(links=[link])))
+            (root/'thread-prompts.json').write_text(json.dumps(dict(prompts=[dict(link,text='Keep replies brief') ])))
+            self.assertEqual(module.thread_prompt(link['sessionKey'],root),'Keep replies brief')
+            self.assertEqual(module.thread_prompt('agent:telegram:dm:999',root),'')
+            link['enabled']=False
+            (root/'agent-links.json').write_text(json.dumps(dict(links=[link])))
+            self.assertEqual(module.thread_prompt(link['sessionKey'],root),'')
+
     def test_slash_cancel_exact_and_expired(self):
         session = 'agent:main:telegram:dm:123'
         decisions = []

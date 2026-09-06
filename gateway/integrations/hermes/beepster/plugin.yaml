@@ -1,5 +1,5 @@
 name: beepster
-version: 0.3.1
+version: 0.4.0
 description: Optional local Beepster scoped approval bridge for Telegram sessions
 author: Organik Apps
 kind: standalone
