@@ -5,6 +5,11 @@ Connector 0.3.0 or newer** with native Agent Links and Telegram compatibility se
 included in the older standalone Connector. Update both components. Do not
 reset Beeper access, phone pairing, or themes.
 
+For the current two-step touch and shared settings release, use Beepster 0.16.0
+with unified Connector 0.5.0 or newer. Approval requests and choices ignore
+touch activation even when highlighted, including the Always confirmation menu.
+Use the physical buttons for decisions; ordinary messages support tap-to-dictate.
+
 ## Setup — no Terminal required
 
 1. Open **Organik Apps Pebble Connector → Beepster → Optional: Hermes and OpenClaw approvals** on the Mac running your agent. Setup is native to Connector; no browser is required. Use **Check agent connections** to refresh status.

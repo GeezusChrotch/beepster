@@ -57,7 +57,7 @@ if (process.argv.includes('--launch')) {
     const states = [];
     const links = await readAgentLinks();
     if (!healthOnly) choices = [...await discoverOpenClawSessions(), ...await discoverHermesSessions()];
-    for (const link of links) if (!choices.some(c => c.provider === link.provider && c.sessionKey === link.sessionKey)) choices.push(link);
+    // Saved links stay manageable separately; they are not evidence of a current route.
     for (const provider of ['hermes','openclaw']) {
       const enabled = (provider === 'hermes' ? hermesEnabled : !!openclaw) || links.some(l => l.provider === provider && l.enabled);
       const health = {provider, enabled, ready:false, detail:'Bridge unavailable. Open Agent Links to check setup.'};

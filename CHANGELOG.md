@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.16.0 — Two-step touch and consistent settings
+
+- Tap a different menu row to highlight it and read its scrolling title; tap the
+  highlighted row again to activate. This is not a timed double-tap gesture.
+- Tap a highlighted ordinary message to dictate a reply, with dictation confirmation.
+- Keep approval requests and choices tap-inert, including Always confirmation;
+  physical-button decisions remain available. Preserve swipe scrolling and button bindings.
+- Unify phone settings into Setup, Themes, Shortcuts and Replies with palette and
+  preview controls, preserving existing saved themes, pairing and save payloads.
+- Include Connector-owned Telegram discovery and per-linked-thread prompt setup updates.
+- Retain emoji-label capacity using heap storage to fit the watch's static-size limit.
+
 ## 0.15.0 — Hermes and OpenClaw approval controls
 
 - Add opt-in Hermes bridge and Connector-led agent/session-to-Telegram-chat linking

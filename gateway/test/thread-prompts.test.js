@@ -32,3 +32,22 @@ test('thread prompts preserve other links, reject stale writes, disable/relink s
  await assert.rejects(saveThreadPrompt({...a,text:'x'.repeat(12001),revision:revision('')},{file,linksFile}),/PROMPT_INVALID/);
  }finally{await rm(dir,{recursive:true,force:true});}
 });
+
+test('Pebble defaults are persisted for each agent without overwriting edits or an intentionally empty prompt',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'organik-default-prompts-'));
+ try {
+ const file=path.join(dir,'thread-prompts.json'),linksFile=path.join(dir,'agent-links.json');
+ const links=['openclaw','hermes'].map(provider=>({provider,sessionKey:`${provider}:telegram:123`,chatID:provider,enabled:true}));
+ await writeFile(linksFile,JSON.stringify({links}));
+ let views=await promptViews(links,file,linksFile);
+ assert.equal(views.length,2);
+ for(const view of views) {assert.match(view.text,/Pebble watch/);assert.equal(view.text,view.defaultText);}
+ assert.match(views[0].text,/OpenClaw/);assert.match(views[1].text,/Hermes/);
+ assert.equal(promptForSession(links[0].sessionKey,dir),views[0].text);
+ await saveThreadPrompt({...links[0],text:'My custom instructions',revision:views[0].revision},{file,linksFile});
+ await saveThreadPrompt({...links[1],text:'',revision:views[1].revision},{file,linksFile});
+ views=await promptViews(links,file,linksFile);
+ assert.equal(views[0].text,'My custom instructions');assert.equal(views[1].text,'');
+ assert.equal((await readFile(file,'utf8')).includes('My custom instructions'),true);
+ } finally {await rm(dir,{recursive:true,force:true});}
+});

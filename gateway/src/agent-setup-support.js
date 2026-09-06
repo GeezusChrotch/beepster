@@ -40,7 +40,7 @@ export async function discoverOpenClawSessions(root = path.join(os.homedir(), '.
     }
   }
   // Ask the local runtime for the same title projection used by its sidebar.
-  // Non-Telegram chats are visible but cannot be linked to unrelated chat routes.
+  // Only enrich sessions already known to have a Telegram route.
   if (root === path.join(os.homedir(), '.openclaw', 'agents')) {
     try {
       const {stdout} = await exec(await openClawExecutable(), ['gateway','call','sessions.list','--params',JSON.stringify({includeDerivedTitles:true,limit:200}),'--json'], {timeout:12000,maxBuffer:2000000});
@@ -49,7 +49,6 @@ export async function discoverOpenClawSessions(root = path.join(os.homedir(), '.
         const title=row.label || row.displayName || row.derivedTitle || row.key;
         const existing=result.find(r=>r.sessionKey===row.key);
         if(existing) existing.label=title;
-        else result.push({provider:'openclaw',sessionKey:row.key,label:title,linkable:false});
       }
     } catch { /* Offline local index remains useful; no transcript file scanning. */ }
   }

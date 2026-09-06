@@ -95,6 +95,17 @@ default. When multiple sections are enabled, Beepster pages through them in that
 
 ## Optional Hermes and OpenClaw approvals
 
+### Touch dictation (0.16.0)
+
+With touch enabled, tap a different ordinary message in an open chat to highlight
+it. Tap the highlighted message again to dictate a reply to that conversation.
+There is no need to tap quickly. Review the dictation confirmation before sending.
+Swipe to scroll as usual. Taps on approval requests or decision controls do not
+dictate or approve anything; leave approval selection before starting a reply.
+Taps also do not retry a failed send or interrupt an in-progress send. This local
+feature requires watch version 0.16.0. Approval requests and decisions remain
+tap-inert even when highlighted; use the physical buttons for approval actions.
+
 Follow [agent setup](AGENT_APPROVALS.md) in the unified Connector and enable
 **Show pending agent approvals** in phone settings. Link the agent session explicitly
 to the matching Beeper Telegram conversation. Requests and choices appear inside

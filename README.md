@@ -11,7 +11,7 @@ Beepster is a readable, reliable, open-source Beeper client for Pebble Time 2. I
 chats, complete message text, voice dictation, saved replies, themes, bitmap emoji, and inline
 photo previews to the watch without putting a Beeper credential on the watch or phone.
 
-Version 0.15.0 adds clearly highlighted Hermes and OpenClaw approval controls. Download the watch app and signed, notarized Mac
+Version 0.16.0 adds two-step touch menus, tap-to-dictate, and consistent phone settings. Download the watch app and signed, notarized Mac
 Connector using the [installation guide](https://geezuschrotch.github.io/beepster/INSTALL).
 Feedback is welcome: [share your experience or report a problem](https://github.com/GeezusChrotch/beepster/issues/new/choose).
 
@@ -31,7 +31,7 @@ The Connector window can be closed after setup; its login background service con
 
 - [Install Beepster](docs/INSTALL.md) — complete Mac, Tailscale, watch, and pairing walkthrough
 - [Feedback and first-run checks](docs/FEEDBACK.md) — help improve Beepster safely
-- [0.15.0 release notes](docs/RELEASE_NOTES_0.15.0.md) — agent controls and known limitations
+- [0.16.0 release notes](docs/RELEASE_NOTES_0.16.0.md) — touch controls, settings and known limitations
 - [Hermes and OpenClaw setup](docs/AGENT_APPROVALS.md) — optional integrations and compatibility
 - [Use Beepster](docs/USER_GUIDE.md) — controls, replies, themes, media, and limitations
 - [Troubleshoot](docs/TROUBLESHOOTING.md) — symptom-based fixes and the private health checker
@@ -112,3 +112,12 @@ Thank you to ChatGPT and Codex, especially ChatGPT 5.6 Sol and ChatGPT 6 Astra, 
 
 We also thank the developers and communities behind the apps, libraries, fonts and tools we build
 on. [Full acknowledgments](ACKNOWLEDGMENTS.md).
+
+## Consistent phone settings
+
+The Pome-style tabbed settings and theme editor are described in [Phone settings](docs/SETTINGS.md).
+
+## Touch menu selection
+
+On a touch-capable watch, tap a different menu item to highlight it and read its scrolling title. Tap the highlighted item again to open or activate it; there is no need to tap quickly. Physical Select still activates the highlighted item.
+Approval and denial controls ignore taps, including when highlighted. Use the physical buttons for those decisions.

@@ -1,4 +1,5 @@
 #include <pebble.h>
+#include "touch_menu.h"
 
 #define MAX_CHATS 30
 #define MAX_MESSAGES 60
@@ -216,7 +217,7 @@ static int s_quick_reply_count;
 static GBitmap *s_emoji_atlas;
 static GBitmap *s_emoji_icons[EMOJI_REPLY_COUNT];
 static char s_emoji_reply_text[EMOJI_REPLY_COUNT][48];
-static char s_emoji_reply_label[EMOJI_REPLY_COUNT][40];
+static char (*s_emoji_reply_label)[40];
 static int s_emoji_reply_count = EMOJI_REPLY_COUNT;
 static uint8_t s_emoji_reply_cell_size = EMOJI_ICON_SIZE;
 static size_t s_emoji_reply_total;
@@ -1773,7 +1774,7 @@ static void delete_result_timeout(void *context) {
   s_delete_result_timer = NULL;
   TextLayer *status = s_delete_message ? s_message_status_layer : s_status_layer;
   if (!status) return;
-  text_layer_set_text(status, "No confirmation. Check Beeper before retrying.");
+  text_layer_set_text(status, "No confirmation. Check Beeper.");
   layer_set_hidden(text_layer_get_layer(status), false);
 }
 
@@ -2599,12 +2600,27 @@ static void reply_selected(MenuLayer *menu_layer, MenuIndex *index, void *contex
   send_quick_reply_to_phone(index->row, true);
 }
 
+// Widget taps may activate select_click even with the window bridge disabled.
+static void reply_touch_selected(MenuLayer *menu,MenuIndex *index,void *context) {
+  if(s_reply_approval_id[0]||selected_message_is_approval())return;
+  reply_selected(menu,index,context);
+}
+static ClickConfigProvider s_reply_menu_click_provider;
+static void reply_button_selected(ClickRecognizerRef recognizer,void *context) {
+  if(!s_reply_menu)return;
+  MenuIndex index=menu_layer_get_selected_index(s_reply_menu);
+  reply_selected(s_reply_menu,&index,NULL);
+}
+static void reply_clicks(void *context) {
+  s_reply_menu_click_provider(context);
+  window_single_click_subscribe(BUTTON_ID_SELECT,reply_button_selected);
+}
 static void reply_load(Window *window) {
   Layer *root = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(root);
   window_set_background_color(window, s_theme.background);
 
-  s_reply_menu = menu_layer_create(bounds);
+  s_reply_menu = organik_menu_create(bounds);
   menu_layer_set_normal_colors(s_reply_menu, s_theme.background, s_theme.text);
   menu_layer_set_highlight_colors(s_reply_menu, s_theme.accent, s_theme.accent_text);
   menu_layer_set_callbacks(s_reply_menu, NULL, (MenuLayerCallbacks) {
@@ -2614,10 +2630,12 @@ static void reply_load(Window *window) {
     .get_header_height = reply_header_height,
     .draw_row = draw_reply,
     .draw_header = draw_reply_header,
-    .select_click = reply_selected,
+    .select_click = reply_touch_selected,
     .selection_changed = marquee_selection_changed
   });
   menu_layer_set_click_config_onto_window(s_reply_menu, window);
+  s_reply_menu_click_provider=window_get_click_config_provider(window);
+  window_set_click_config_provider_with_context(window,reply_clicks,window_get_click_config_context(window));
   layer_add_child(root, menu_layer_get_layer(s_reply_menu));
 
   bool using_defaults = s_emoji_reply_count == EMOJI_REPLY_COUNT;
@@ -2653,18 +2671,36 @@ static void reply_unload(Window *window) {
   s_reply_showing_status = false;
 }
 
+static void message_touch_selected(MenuLayer *menu,MenuIndex *index,void *context) {
+  if(s_message_state!=VIEW_READY||s_reply_state!=VIEW_READY||!s_active_chat_id[0]||
+     index->section||index->row>=s_message_count||s_messages[index->row].is_approval||
+     selected_message_is_approval())return;
+  thread_dictate(NULL,NULL);
+}
+#if defined(PBL_TOUCH)
+static void message_touch_swipe(const Recognizer *recognizer, RecognizerEvent event) {
+  if(event!=RecognizerEvent_Completed||!touch_service_is_enabled())return;
+  // Moving focus never activates an approval or a custom button shortcut.
+  message_move_selection(swipe_recognizer_get_direction(recognizer)==SwipeDirection_Up?1:-1);
+}
+#endif
+static void chat_touch_select(MenuLayer *menu, MenuIndex *index, void *context) {
+  if(s_chat_state!=VIEW_READY)return;
+  open_chat_at_index(index);
+}
 static void main_load(Window *window) {
   Layer *root = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(root);
   window_set_background_color(window, s_theme.background);
 
-  s_chat_menu = menu_layer_create(bounds);
+  s_chat_menu = organik_menu_create(bounds);
   menu_layer_set_normal_colors(s_chat_menu, s_theme.background, s_theme.text);
   menu_layer_set_highlight_colors(s_chat_menu, s_theme.accent, s_theme.accent_text);
   menu_layer_set_callbacks(s_chat_menu, NULL, (MenuLayerCallbacks) {
     .get_num_rows = chat_rows,
     .get_cell_height = chat_row_height,
     .draw_row = draw_chat,
+    .select_click = chat_touch_select,
     .selection_changed = chat_selection_changed
   });
   window_set_click_config_provider(window, main_clicks);
@@ -2705,18 +2741,22 @@ static void message_disappear(Window *window) {
 }
 
 static void message_load(Window *window) {
+#if defined(PBL_TOUCH)
+  window_set_touch_bridge_disabled(window,true);
+  window_attach_recognizer(window,swipe_recognizer_create(message_touch_swipe,NULL,SwipeDirection_Up|SwipeDirection_Down));
+#endif
   Layer *root = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(root);
   window_set_background_color(window, s_theme.background);
 
-  s_message_menu = menu_layer_create(bounds);
+  s_message_menu = organik_menu_create(bounds);
   menu_layer_set_normal_colors(s_message_menu, s_theme.background, s_theme.text);
   menu_layer_set_highlight_colors(s_message_menu, s_theme.background, s_theme.text);
   menu_layer_set_callbacks(s_message_menu, NULL, (MenuLayerCallbacks) {
     .get_num_rows = message_rows,
     .get_cell_height = message_row_height,
     .draw_row = draw_message,
-    .select_click = NULL,
+    .select_click = message_touch_selected,
     .selection_changed = message_selection_changed
   });
   install_message_clicks();
@@ -2780,6 +2820,9 @@ static void message_unload(Window *window) {
 }
 
 static void init(void) {
+#if defined(PBL_TOUCH)
+  app_touch_navigation_enable(true);
+#endif
   s_chats = calloc(MAX_CHATS, sizeof(Chat));
   s_chat_capacity = s_chats ? MAX_CHATS : 0;
   if (!s_chats) {
@@ -2845,6 +2888,9 @@ static void init(void) {
     .unload = message_unload
   });
   s_reply_window = window_create();
+#if defined(PBL_TOUCH)
+  window_set_touch_bridge_disabled(s_reply_window,true);
+#endif
   window_set_window_handlers(s_reply_window, (WindowHandlers) {
     .load = reply_load,
     .unload = reply_unload
@@ -2893,9 +2939,12 @@ int main(void) {
   // Keep the same reply capacity without consuming the 16-bit static image.
   s_reply_text = calloc(REPLY_TEXT_CAPACITY, 1);
   if (!s_reply_text) return 1;
+  s_emoji_reply_label = calloc(EMOJI_REPLY_COUNT, sizeof(*s_emoji_reply_label));
+  if (!s_emoji_reply_label) { free(s_reply_text); return 1; }
   init();
   app_event_loop();
   deinit();
   free(s_reply_text);
+  free(s_emoji_reply_label);
   return 0;
 }
