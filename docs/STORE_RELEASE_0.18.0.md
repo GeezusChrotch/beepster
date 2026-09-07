@@ -7,7 +7,8 @@ message keeps your older conversation page. Links now show readable labels, with
 an optional Hide links setting. Improved message-transfer and reply-status handling.
 
 Update Organik Apps Pebble Connector to 0.8.0 or newer for matching photo/link
-settings. Requires Pebble Time 2, a Mac with Beeper Desktop, and Tailscale on Mac
+settings, then choose Beepster → Set up service and reopen phone settings to update
+the background gateway. Requires Pebble Time 2, a Mac with Beeper Desktop, and Tailscale on Mac
 and phone. GIF previews are static; iMessage message deletion remains unavailable.
 
 Feedback is welcome: https://github.com/GeezusChrotch/beepster/issues/new/choose

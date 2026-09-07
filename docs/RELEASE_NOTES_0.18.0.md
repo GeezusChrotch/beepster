@@ -23,7 +23,9 @@
 
 Update [Organik Apps Pebble Connector to 0.8.0 or newer](https://github.com/GeezusChrotch/organik-pebble-connector/releases/latest)
 on the Mac, then install Beepster 0.18.0 on the watch. Both are required for the new
-image modes and link settings. Pairing, custom buttons, themes and saved replies
+image modes and link settings. **After updating the Connector, select Beepster →
+Set up service**, then reopen Beepster's phone settings. Replacing the Mac app
+alone does not refresh an existing managed gateway. Pairing, custom buttons, themes and saved replies
 are preserved. Choose Photo appearance in Beepster's phone settings, then reopen
 the chat to reload its photos. No terminal setup is required for normal installation.
 

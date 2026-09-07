@@ -5,6 +5,9 @@ Use the free **Organik Apps Pebble Connector** on macOS 14 or newer.
 For Beepster **0.18.0**, update to **Connector 0.8.0 or newer** first. The Connector
 delivers the matching photo conversion and link-display settings; updating only
 the watch app does not update the Mac gateway. Existing pairing and settings are retained.
+After updating the Connector, existing users must select **Beepster → Set up
+service** to refresh the managed gateway, then reopen Beepster's phone settings.
+Replacing the Mac app alone does not update an existing background service.
 
 1. Download the [unified connector](https://github.com/GeezusChrotch/organik-pebble-connector/releases/latest), drag it into Applications and open it.
 2. Install Tailscale on the Mac and paired phone and sign both into the same private network.

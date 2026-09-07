@@ -52,6 +52,8 @@ old defaults migrate; custom assignments are preserved.
 
 Photo appearance and link-display options require Beepster 0.18.0 and unified
 Organik Apps Pebble Connector 0.8.0 or newer.
+After updating the Connector, choose **Beepster → Set up service**, then reopen
+phone settings. This refreshes the managed gateway without resetting pairing.
 
 Choose **Natural**, **High contrast**, or **Original** in phone settings. Natural
 uses display-aware colors and light photo dithering; High contrast emphasizes
