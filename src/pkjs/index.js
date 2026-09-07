@@ -102,10 +102,10 @@ var chatEmojiKeys = [];
 var replyEmojiAtlasGeneration = 0;
 var chatEmojiAtlasGeneration = 0;
 var INBOX_IDS = ['primary','low-priority','archive'];
-var BUTTON_ACTION_IDS = ['scroll_up','scroll_down','open_chat','dictate','quick_reply','pin_toggle','jump_newest','delete'];
+var BUTTON_ACTION_IDS = ['scroll_up','scroll_down','open_chat','dictate','quick_reply','pin_toggle','jump_newest','delete','none','main_top'];
 var DEFAULT_BUTTON_BINDINGS = [
-  'scroll_up','scroll_up','open_chat','pin_toggle','scroll_down','scroll_down',
-  'scroll_up','quick_reply','dictate','dictate','scroll_down','jump_newest'
+  'scroll_up','quick_reply','open_chat','dictate','scroll_down','delete',
+  'scroll_up','quick_reply','none','dictate','scroll_down','delete','main_top','main_top'
 ];
 
 function gatewayURL() {
@@ -233,14 +233,17 @@ function configuredButtonBindings() {
   var bindings = null;
   try { bindings = JSON.parse(localStorage.getItem('beepster_button_bindings') || 'null'); } catch (error) {}
   if (!Array.isArray(bindings)) bindings = [];
+  var oldDefaults = ['scroll_up','scroll_up','open_chat','pin_toggle','scroll_down','scroll_down',
+    'scroll_up','quick_reply','dictate','dictate','scroll_down','jump_newest','none','none'];
+  if ((bindings.length === 12 || bindings.length === 14) && bindings.every(function(value, index) {
+    return value === oldDefaults[index];
+  })) {
+    bindings = DEFAULT_BUTTON_BINDINGS.slice();
+    localStorage.setItem('beepster_button_bindings', JSON.stringify(bindings));
+  }
   return DEFAULT_BUTTON_BINDINGS.map(function(fallback, index) {
     return BUTTON_ACTION_IDS.indexOf(bindings[index]) !== -1 ? bindings[index] : fallback;
   });
-}
-
-function configuredScrollLines() {
-  var lines = Number(localStorage.getItem('beepster_scroll_lines') || '2');
-  return Math.max(1, Math.min(8, isFinite(lines) ? Math.round(lines) : 2));
 }
 
 function configuredServices() {
@@ -606,7 +609,7 @@ function sendButtonSettings() {
   var ready = {};
   ready[KEY_COMMAND] = 'button_bindings_ready';
   ready[KEY_TOTAL] = bindings.length;
-  ready[KEY_INDEX] = configuredScrollLines();
+  ready[KEY_INDEX] = 1; // Fixed one-line scrolling, including older watch builds.
   enqueue(ready);
 }
 
@@ -639,7 +642,9 @@ function scheduleRefresh() {
 }
 
 function messageSignature(items) {
-  return (items || []).slice(-12).map(function(item) {
+  // Approval cards/actions are appended after messages. Comparing only the last
+  // twelve rows can hide every real message behind unchanged approval actions.
+  return (items || []).slice(-MAX_WATCH_MESSAGES).map(function(item) {
     var attachmentID = item.attachment && item.attachment.id ? item.attachment.id : '';
     return [item.id || '', item.timestamp || '', item.text || '', attachmentID].join('\x1f');
   }).join('\x1e');
@@ -1603,7 +1608,6 @@ Pebble.addEventListener('showConfiguration', function() {
     appleAliases: configuredAppleAliases(),
     appleCandidates: configuredAppleCandidates(),
     buttonBindings: configuredButtonBindings(),
-    scrollLines: configuredScrollLines(),
     textSize: configuredTheme().textSize,
     refresh: liveRefreshSeconds(),
     openClawApprovals: openClawApprovalsEnabled()
@@ -1624,8 +1628,7 @@ Pebble.addEventListener('webviewclosed', function(event) {
     if (Array.isArray(settings.services)) localStorage.setItem('beepster_services', JSON.stringify(settings.services.filter(function(value) { return SERVICE_IDS.indexOf(value) !== -1; })));
     if (Array.isArray(settings.inboxes)) localStorage.setItem('beepster_inboxes', JSON.stringify(settings.inboxes.filter(function(value) { return INBOX_IDS.indexOf(value) !== -1; })));
     if (settings.appleAliases && typeof settings.appleAliases === 'object') localStorage.setItem('beepster_apple_aliases', JSON.stringify(settings.appleAliases));
-    if (Array.isArray(settings.buttonBindings)) localStorage.setItem('beepster_button_bindings', JSON.stringify(settings.buttonBindings.slice(0,12)));
-    if (typeof settings.scrollLines === 'number') localStorage.setItem('beepster_scroll_lines', String(Math.max(1, Math.min(8, Math.round(settings.scrollLines)))));
+    if (Array.isArray(settings.buttonBindings)) localStorage.setItem('beepster_button_bindings', JSON.stringify(settings.buttonBindings.slice(0,14)));
     if (settings.textSize) localStorage.setItem('beepster_text_size', settings.textSize);
     if (typeof settings.refresh === 'number') {
       localStorage.setItem('beepster_refresh', String(settings.refresh));
@@ -1683,6 +1686,12 @@ Pebble.addEventListener('appmessage', function(event) {
     if (!closedChatID || closedChatID === activeMessageChatID) activeMessageChatID = '';
     stopActiveMessageRefresh();
     if (closedChatID === OPENCLAW_CHAT_ID) { sendQuickReplies(); sendEmojiReplies(); }
+  }
+  if (command === 'views_closed') {
+    threadViewVisible = false;
+    activeMessageChatID = '';
+    stopThreadRefresh();
+    stopActiveMessageRefresh();
   }
   if (command === 'load_older_messages') loadOlderMessages(payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || '');
   if (command === 'send_reply') sendReply(payload[KEY_CHAT_ID] || payload.CHAT_ID || '', payload[KEY_REPLY_TEXT] || payload.REPLY_TEXT || '', payload[KEY_REPLY_REQUEST_ID] || payload.REPLY_REQUEST_ID || '');

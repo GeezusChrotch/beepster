@@ -84,11 +84,14 @@ review, and information must remain understandable without color.
   newest message; keep up to 60 messages available on the watch.
 - The selected message expands to its complete text directly in the chronological thread; there is
   no separate message-reading screen.
-- By default, Press or Hold Select in a thread starts confirmed voice dictation, Hold Up opens quick
-  replies, and Hold Down jumps to the newest message.
-- Settings expose a one-to-eight lines-per-scroll value, defaulting to two. Each configured scroll
-  action moves that many text-line heights within an oversized selected
-  message; at its beginning or end, the same button moves to the adjacent message.
+- By default, Hold Select starts confirmed voice dictation, Hold Up opens quick
+  replies, and Hold Down opens delete/archive confirmation. Short Select opens a chat
+  from the list and has no action inside a chat. Double Back returns to the top of
+  the actual newest conversation page. All these assignments remain configurable.
+- Tapping an ordinary chat message focuses it without dictating or sending anything.
+- Scroll actions move one text-line height per button press through the continuous
+  timeline, including message boundaries. Scroll distance is not configurable.
+  Touch dragging follows the finger continuously without snapping between messages.
 - Thread backgrounds and body text always use the saved theme colors; selection may accent the
   sender and service icon but must never invert an entire message or change its text color.
 - Normalize smart punctuation to watch-safe equivalents so it does not force an otherwise ordinary

@@ -126,9 +126,9 @@ test('configuration page supports editing an existing paired connection', async 
     assert.match(html, /Jump to newest/);
     assert.match(html, /Archive conversation/);
     assert.match(html, /Delete message/);
-    assert.match(html, /Lines per scroll/);
+    assert.match(html, /one text line per button press/);
     assert.match(html, /buttonBindings:buttonBindings/);
-    assert.match(html, /scrollLines:Number/);
+    assert.doesNotMatch(html, /scrollLines/);
   });
 });
 

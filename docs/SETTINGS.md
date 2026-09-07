@@ -2,7 +2,7 @@
 
 The settings page follows the shared Organik layout based on Pome: **Setup, Themes, Shortcuts, Replies**.
 
-Setup retains pairing, service and inbox filters, refresh interval, Apple conversation links, and agent approvals. Replies contains quick replies and the emoji picker. Shortcuts retains thread/chat button bindings and scroll distance.
+Setup retains pairing, service and inbox filters, refresh interval, Apple conversation links, and agent approvals. Replies contains quick replies and the emoji picker. Shortcuts retains thread/chat button bindings. Chat scroll actions always move one text line per button press; there is no scroll-distance setting.
 
 ## Themes
 
@@ -22,11 +22,20 @@ Verified with generated-page browser checks on 320px and 390px viewports, Time/T
 
 In watch version 0.16.0, tap a different menu row to highlight it and read its
 scrolling title, then tap the highlighted row to activate it. This is not a timed
-double tap. In a chat, activating an ordinary message starts dictation with
-confirmation. Swipe vertically through messages and long expanded text. Approval
+double tap. In a chat, tapping an ordinary message only focuses it, never starts
+dictation. Swipe vertically through messages and long expanded text. Approval
 requests and decisions ignore taps; use their physical-button controls. Touch
 does not run custom button bindings. Enable touch under Settings → Display → Touch
 and wake the watch first. Physical-button controls remain available.
 
 Use Organik Apps Pebble Connector 0.5.0 or newer for this settings layout. Existing
 connections and saved themes do not require resetting.
+
+## Double Back and phone-only customization
+
+Double Back is configurable separately for the conversation list and open chat. It defaults to Top of conversation list, fetching the newest page even from older pages. Press Back twice quickly to run it; a single Back still returns and a long Back retains the watch OS exit behavior. Approval rows permit this safe navigation action but ignore other Double Back bindings. Theme and button customization are phone-only.
+
+In both views, default long presses are Top: Quick reply, Middle: Dictate, Bottom:
+Delete (archive in the list, delete message in a chat; repeat to confirm). Short
+Middle opens a conversation in the list and has no action in a chat. Unchanged
+old defaults migrate; custom assignments are preserved.

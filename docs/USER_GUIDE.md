@@ -29,15 +29,20 @@ stored by stable chat ID on the phone and survive normal refreshes and app resta
 
 ## Thread controls
 
-These defaults are also customizable in the **Buttons** tab. **Lines per scroll** can be set from
-one to eight; it defaults to two.
+These defaults are customizable in the **Buttons** tab. Scroll actions always move
+one text line per button press; scroll distance is not configurable.
 
 | Button | Short press | Long press |
 | --- | --- | --- |
-| Top | Scroll up two text lines; at the top, select the previous message | Open quick replies |
-| Center | Start voice dictation | Start voice dictation |
-| Bottom | Scroll down two text lines; at the bottom, select the next message | Jump to newest message |
+| Top | Scroll up one text line | Open quick replies |
+| Center | No action | Start voice dictation |
+| Bottom | Scroll down one text line | Delete selected message (repeat to confirm) |
 | Back | Return to the chat list or close the current screen | — |
+
+In the conversation list, the same long presses open quick replies, dictate, and
+archive the selected conversation (with confirmation). Short Center opens the chat.
+Double-press Back in either view to return to the top of the newest conversation
+list. Unchanged old defaults migrate; customized mappings are preserved.
 
 Opening a thread always selects its newest message. The selected message expands in place; there is
 no separate reading screen. Near the oldest loaded message, Beepster fetches another page without
@@ -45,7 +50,7 @@ jumping back to the bottom. The watch keeps at most 60 messages at once.
 
 ## Voice replies
 
-Press or hold Center anywhere in a ready thread. Speak after Pebble opens dictation, then review the
+Hold Center on an ordinary message in a ready thread. Speak after Pebble opens dictation, then review the
 transcript before confirming it. Beepster distinguishes four stages: sending to the Mac, accepted by
 Beeper, confirmed by the messaging network, and failed/retryable.
 
@@ -70,14 +75,14 @@ are omitted; all 15 emoji slots remain available.
 
 ## Custom button controls
 
-The **Buttons** tab contains 12 independent assignments: press and hold for Top, Center, and Bottom
-in both the Threads list and an open Chat. Available actions are Scroll up, Scroll down, Open
+The phone **Shortcuts** tab contains 14 independent assignments: press and hold for Top, Center, and Bottom
+in both the Threads list and an open Chat, plus Double Back for each view. Double Back means two quick presses and defaults to Top of conversation list. Single Back still returns; approval rows permit this safe navigation action but ignore other custom Double Back actions. Theme and button settings live on the phone. Available actions include Top of conversation list, Scroll up, Scroll down, Open
 selected chat, Dictate reply, Quick reply, Pin / unpin, and Jump to newest. Jump to newest works in
 both views. Delete is also available: in Threads it archives the selected conversation, while in
 Chat it deletes the selected message for you. Repeat the configured Delete gesture within six
 seconds to confirm; using another action or waiting cancels it. Message deletion depends on the
-underlying network's Beeper capability and may be refused. Button choices and the lines-per-scroll
-value persist on the phone and watch.
+underlying network's Beeper capability and may be refused. Button choices persist
+on the phone and watch.
 
 **iMessage message deletion is temporarily disabled** because Beeper's Apple Messages automation
 has failed to verify its deletion target reliably. Delete in the Threads view still archives the
@@ -95,15 +100,19 @@ default. When multiple sections are enabled, Beepster pages through them in that
 
 ## Optional Hermes and OpenClaw approvals
 
-### Touch dictation (0.16.0)
+### Touch navigation
 
-With touch enabled, tap a different ordinary message in an open chat to highlight
-it. Tap the highlighted message again to dictate a reply to that conversation.
-There is no need to tap quickly. Review the dictation confirmation before sending.
-Swipe to scroll as usual. Taps on approval requests or decision controls do not
+With touch enabled, tap an ordinary message in an open chat to focus it.
+Tapping again does not start dictation; use the configurable physical buttons.
+Drag vertically to scroll the continuous chat timeline: text follows your finger
+while it is down and stays where you leave it. Physical Up/Down scrolling moves
+by one text line per press, including across message boundaries. Swipe right to
+return from the chat to the thread list. Visible
+neighbors load their full text too; a loading label distinguishes a temporary
+preview from a complete message. Taps on approval requests or decision controls do not
 dictate or approve anything; leave approval selection before starting a reply.
 Taps also do not retry a failed send or interrupt an in-progress send. This local
-feature requires watch version 0.16.0. Approval requests and decisions remain
+behavior requires watch version 0.17.0. Approval requests and decisions remain
 tap-inert even when highlighted; use the physical buttons for approval actions.
 
 Follow [agent setup](AGENT_APPROVALS.md) in the unified Connector and enable

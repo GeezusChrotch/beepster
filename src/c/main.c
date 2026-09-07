@@ -36,9 +36,8 @@ static uint8_t s_quick_wait_attempts;
 #define PERSIST_THEME_DATA 102
 #define PERSIST_QUICK_REPLY_COUNT 103
 #define PERSIST_BUTTON_ACTIONS 104
-#define PERSIST_SCROLL_LINES 105
 #define PERSIST_QUICK_REPLY_BASE 110
-#define BUTTON_BINDING_COUNT 12
+#define BUTTON_BINDING_COUNT 14
 
 typedef enum {
   VIEW_SETUP,
@@ -68,7 +67,8 @@ typedef enum {
   BUTTON_ACTION_PIN_TOGGLE,
   BUTTON_ACTION_JUMP_NEWEST,
   BUTTON_ACTION_DELETE,
-  BUTTON_ACTION_NONE
+  BUTTON_ACTION_NONE,
+  BUTTON_ACTION_MAIN_TOP
 } ButtonAction;
 
 typedef struct {
@@ -90,6 +90,7 @@ typedef struct {
   bool is_self;
   uint8_t is_approval;
   int16_t cached_text_height;
+  char *full_text;
 } Message;
 
 typedef struct {
@@ -160,9 +161,20 @@ static char s_pending_pin_chat_id[CHAT_ID_LEN];
 
 static Window *s_message_window;
 static MenuLayer *s_message_menu;
+// The hidden MenuLayer retains action selection only. The visible timeline has
+// one pixel position, never a second scroll offset inside a selected menu row.
+#define MESSAGE_VISIBLE_CELLS 8
+typedef struct { MenuIndex index; int32_t clipped; } MessageCell;
+static Layer *s_message_view, *s_message_cells[MESSAGE_VISIBLE_CELLS];
+static int s_message_anchor;
+static int32_t s_message_offset, s_message_cell_scroll;
+static AppTimer *s_message_prefetch_timer;
+static bool s_message_follow_newest;
+static bool s_message_dragging, s_message_detail_deferred;
+static int16_t s_inline_clip_height = INT16_MAX;
 static TextLayer *s_message_status_layer;
 static ViewState s_message_state = VIEW_LOADING;
-static Message s_messages[MAX_MESSAGES];
+static Message *s_messages;
 static int s_message_count;
 static bool s_has_older_messages;
 static bool s_loading_older_messages;
@@ -180,12 +192,12 @@ static AppTimer *s_reply_return_timer;
 static int s_pending_quick_reply_index = -1;
 static AppTimer *s_load_watchdog;
 static AppTimer *s_message_request_timer;
+static AppTimer *s_view_sync_timer;
 static int s_message_command_attempts;
 static AppTimer *s_content_request_timer;
 static int s_expanded_message_index = -1;
 static char s_expanded_message_id[MESSAGE_ID_LEN];
 static bool s_expanded_message_loaded;
-static int32_t s_expanded_scroll_offset;
 static int32_t s_expanded_text_height;
 static Window *s_media_window;
 static BitmapLayer *s_media_layer;
@@ -232,15 +244,16 @@ static int16_t s_marquee_offset;
 static int16_t s_marquee_max;
 static bool s_marquee_at_end;
 static uint8_t s_button_actions[BUTTON_BINDING_COUNT] = {
-  BUTTON_ACTION_SCROLL_UP, BUTTON_ACTION_SCROLL_UP,
-  BUTTON_ACTION_OPEN_CHAT, BUTTON_ACTION_PIN_TOGGLE,
-  BUTTON_ACTION_SCROLL_DOWN, BUTTON_ACTION_SCROLL_DOWN,
   BUTTON_ACTION_SCROLL_UP, BUTTON_ACTION_QUICK_REPLY,
-  BUTTON_ACTION_DICTATE, BUTTON_ACTION_DICTATE,
-  BUTTON_ACTION_SCROLL_DOWN, BUTTON_ACTION_JUMP_NEWEST
+  BUTTON_ACTION_OPEN_CHAT, BUTTON_ACTION_DICTATE,
+  BUTTON_ACTION_SCROLL_DOWN, BUTTON_ACTION_DELETE,
+  BUTTON_ACTION_SCROLL_UP, BUTTON_ACTION_QUICK_REPLY,
+  BUTTON_ACTION_NONE, BUTTON_ACTION_DICTATE,
+  BUTTON_ACTION_SCROLL_DOWN, BUTTON_ACTION_DELETE,
+  BUTTON_ACTION_MAIN_TOP, BUTTON_ACTION_MAIN_TOP
 };
-static uint8_t s_scroll_lines = 2;
 
+static void configured_back(ClickRecognizerRef recognizer, void *context) { window_stack_pop(true); }
 static void main_clicks(void *context);
 static void message_clicks(void *context);
 static void apply_theme_to_layers(void);
@@ -255,6 +268,10 @@ static void configured_message_long_click(ClickRecognizerRef recognizer, void *c
 static GFont theme_font(void);
 static GFont font_for_text(const char *text);
 static void expire_delete_confirmation(void *context);
+static void message_view_refresh(void);
+static void message_scroll_pixels(int32_t delta);
+static void message_focus_row(int row);
+static void message_prefetch(void *context);
 static void delete_result_timeout(void *context);
 
 static MenuLayer *active_menu(void) {
@@ -278,6 +295,7 @@ static void marquee_reset(void) {
   s_marquee_at_end = false;
   MenuLayer *menu = active_menu();
   if (menu) layer_mark_dirty(menu_layer_get_layer(menu));
+  if (menu == s_message_menu) message_view_refresh();
   marquee_schedule(MARQUEE_PAUSE_MS);
 }
 
@@ -289,6 +307,7 @@ static void marquee_tick(void *context) {
     s_marquee_offset = 0;
     s_marquee_at_end = false;
     layer_mark_dirty(menu_layer_get_layer(menu));
+    if (menu == s_message_menu) message_view_refresh();
     marquee_schedule(MARQUEE_PAUSE_MS);
     return;
   }
@@ -301,6 +320,7 @@ static void marquee_tick(void *context) {
     marquee_schedule(MARQUEE_FRAME_MS);
   }
   layer_mark_dirty(menu_layer_get_layer(menu));
+  if (menu == s_message_menu) message_view_refresh();
 }
 
 static void marquee_selection_changed(MenuLayer *menu_layer, MenuIndex new_index,
@@ -630,6 +650,8 @@ static const char *state_text(ViewState state, bool messages) {
 
 static void set_status(TextLayer *layer, ViewState state, bool messages) {
   if (!layer) return;
+  if (messages && layer == s_message_status_layer && s_message_view)
+    layer_set_hidden(s_message_view, state != VIEW_READY);
   text_layer_set_background_color(layer, s_theme.background);
   text_layer_set_text_color(layer, s_theme.text);
   text_layer_set_text(layer, state_text(state, messages));
@@ -668,7 +690,7 @@ static void apply_theme_to_layers(void) {
   if (s_message_menu) {
     menu_layer_set_normal_colors(s_message_menu, s_theme.background, s_theme.text);
     menu_layer_set_highlight_colors(s_message_menu, s_theme.background, s_theme.text);
-    layer_mark_dirty(menu_layer_get_layer(s_message_menu));
+    message_view_refresh();
   }
   if (s_reply_menu) {
     menu_layer_set_normal_colors(s_reply_menu, s_theme.background, s_theme.text);
@@ -784,10 +806,6 @@ static int16_t inline_line_height(GFont font) {
   return size.h > CHAT_EMOJI_SIZE + 2 ? size.h : CHAT_EMOJI_SIZE + 2;
 }
 
-static int32_t message_preview_height(const char *text) {
-  return 3 * inline_line_height(theme_font());
-}
-
 static void draw_inline_token(GContext *ctx, const char *text, GFont font, GRect frame) {
   if (!has_non_ascii(text)) {
     graphics_draw_text(ctx, text, font, frame, GTextOverflowModeFill, GTextAlignmentLeft, NULL);
@@ -816,6 +834,7 @@ static int32_t layout_inline_emoji_text(GContext *ctx, const char *text, GFont f
   int32_t y = 0;
   while (*cursor) {
     if (draw && y + line_height > frame.size.h) break;
+    if (draw && frame.origin.y + y >= s_inline_clip_height) break;
     if (*cursor == '\n') {
       x = 0;
       y += line_height;
@@ -830,7 +849,8 @@ static int32_t layout_inline_emoji_text(GContext *ctx, const char *text, GFont f
         y += line_height;
       }
       if (draw && y + line_height > frame.size.h) break;
-      if (draw && ctx) {
+      if (draw && ctx && frame.origin.y + y + line_height > 0 &&
+          frame.origin.y + y < s_inline_clip_height) {
         GRect icon_frame = GRect(frame.origin.x + x,
           frame.origin.y + y + (line_height - CHAT_EMOJI_SIZE) / 2,
           CHAT_EMOJI_SIZE, CHAT_EMOJI_SIZE);
@@ -882,7 +902,8 @@ static int32_t layout_inline_emoji_text(GContext *ctx, const char *text, GFont f
     }
     if (draw && y + line_height > frame.size.h) break;
     if (token_width <= frame.size.w) {
-      if (draw && ctx) draw_inline_token(ctx, token, font,
+      if (draw && ctx && frame.origin.y + y + line_height > 0 &&
+          frame.origin.y + y < s_inline_clip_height) draw_inline_token(ctx, token, font,
         GRect(frame.origin.x + x, frame.origin.y + y, token_width + 3, line_height));
       x += token_width;
     } else {
@@ -898,7 +919,8 @@ static int32_t layout_inline_emoji_text(GContext *ctx, const char *text, GFont f
           y += line_height;
         }
         if (draw && y + line_height > frame.size.h) return y;
-        if (draw && ctx) draw_inline_token(ctx, character, font,
+        if (draw && frame.origin.y + y >= s_inline_clip_height) return y;
+        if (draw && ctx && frame.origin.y + y + line_height > 0) draw_inline_token(ctx, character, font,
           GRect(frame.origin.x + x, frame.origin.y + y, character_width + 3, line_height));
         x += character_width;
         part += character_length;
@@ -978,7 +1000,7 @@ static void request_messages(void) {
   s_has_older_messages = false;
   s_loading_older_messages = false;
   set_status(s_message_status_layer, s_message_state, true);
-  if (s_message_menu) menu_layer_reload_data(s_message_menu);
+  if (s_message_menu) message_view_refresh();
   if (s_message_window) window_set_click_config_provider(s_message_window, message_clicks);
   s_message_command_attempts = 0;
   message_command_retry(NULL);
@@ -1183,11 +1205,16 @@ static bool request_message_content(const Message *message) {
 
 static void request_selected_content(void *context) {
   s_content_request_timer = NULL;
+  if (s_message_dragging) {
+    s_content_request_timer = app_timer_register(150, request_selected_content, NULL);
+    return;
+  }
   if (s_expanded_message_index < 0 || s_expanded_message_index >= s_message_count) return;
+  if (s_expanded_message_loaded && !s_messages[s_expanded_message_index].attachment_id[0]) return;
   if (!request_message_content(&s_messages[s_expanded_message_index])) {
     s_inline_media_state = s_inline_attachment_id[0] ? INLINE_MEDIA_FAILED : INLINE_MEDIA_NONE;
     copy_text(s_inline_media_error, sizeof(s_inline_media_error), "Preview unavailable");
-    if (s_message_menu) menu_layer_reload_data(s_message_menu);
+    if (s_message_menu) message_view_refresh();
   }
 }
 
@@ -1426,7 +1453,9 @@ static void retry_chats(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void main_clicks(void *context) {
+  window_single_click_subscribe(BUTTON_ID_BACK,configured_back);
   if (s_chat_state == VIEW_READY) {
+    window_multi_click_subscribe(BUTTON_ID_BACK,2,2,300,true,configured_main_click);
     window_single_click_subscribe(BUTTON_ID_UP, configured_main_click);
     window_single_click_subscribe(BUTTON_ID_SELECT, configured_main_click);
     window_single_click_subscribe(BUTTON_ID_DOWN, configured_main_click);
@@ -1440,6 +1469,38 @@ static void main_clicks(void *context) {
 
 static uint16_t message_rows(MenuLayer *menu_layer, uint16_t section, void *context) {
   return s_message_state == VIEW_READY ? (uint16_t)s_message_count : 0;
+}
+
+static void release_message_texts(void) {
+  for (int i = 0; i < MAX_MESSAGES; i++) {
+    free(s_messages[i].full_text);
+    s_messages[i].full_text = NULL;
+  }
+}
+
+// Bound all retained message bodies plus the incoming body to the old single
+// detail-buffer budget. Evict the farthest rows first, keeping visible neighbors.
+static void reserve_message_text(size_t incoming) {
+  size_t used = incoming;
+  for (int i = 0; i < s_message_count; i++)
+    if (s_messages[i].full_text) used += strlen(s_messages[i].full_text) + 1;
+  while (used > DETAIL_TEXT_CAPACITY) {
+    int victim = -1, distance = -1;
+    for (int i = 0; i < s_message_count; i++) {
+      int d = abs(i - s_expanded_message_index);
+      if (s_messages[i].full_text && d > distance) { victim = i; distance = d; }
+    }
+    if (victim < 0) break;
+    used -= strlen(s_messages[victim].full_text) + 1;
+    free(s_messages[victim].full_text);
+    s_messages[victim].full_text = NULL;
+    s_messages[victim].cached_text_height = 0;
+  }
+}
+
+static const char *message_body(Message *message, bool expanded) {
+  if (expanded && s_expanded_message_loaded && s_detail_text) return s_detail_text;
+  return message->full_text ? message->full_text : message->text;
 }
 
 static void message_selection_changed(MenuLayer *menu_layer, MenuIndex new_index,
@@ -1463,21 +1524,32 @@ static void message_selection_changed(MenuLayer *menu_layer, MenuIndex new_index
         s_content_request_timer = NULL;
       }
       if (s_detail_text) {
-        free(s_detail_text);
+        if (s_expanded_message_loaded && s_expanded_message_index >= 0 &&
+            s_expanded_message_index < s_message_count) {
+          Message *previous = &s_messages[s_expanded_message_index];
+          free(previous->full_text);
+          previous->full_text = s_detail_text;
+          previous->cached_text_height = 0;
+        } else free(s_detail_text);
         s_detail_text = NULL;
       }
       s_detail_length = 0;
       s_expanded_message_index = new_index.row;
       copy_text(s_expanded_message_id, sizeof(s_expanded_message_id), message->id);
       s_expanded_message_loaded = false;
-      s_expanded_scroll_offset = 0;
       s_expanded_text_height = 0;
+      if (message->full_text) {
+        s_detail_text = message->full_text;
+        message->full_text = NULL;
+        s_detail_length = strlen(s_detail_text);
+        s_detail_capacity = s_detail_length + 1;
+        s_expanded_message_loaded = true;
+      }
       clear_media();
       copy_text(s_inline_attachment_id, sizeof(s_inline_attachment_id), message->attachment_id);
       s_inline_media_state = message->attachment_id[0] ? INLINE_MEDIA_LOADING : INLINE_MEDIA_NONE;
       s_inline_media_error[0] = '\0';
-      menu_layer_reload_data(s_message_menu);
-      menu_layer_set_selected_index(s_message_menu, new_index, MenuRowAlignTop, false);
+      message_view_refresh();
       s_content_request_timer = app_timer_register(250, request_selected_content, NULL);
     }
   }
@@ -1500,9 +1572,9 @@ static int32_t message_content_height(MenuLayer *menu_layer, Message *message,
     if (expanded) s_expanded_text_height = text_height;
     else message->cached_text_height = text_height < INT16_MAX ? (int16_t)text_height : INT16_MAX;
   }
-  int32_t preview_limit = message_preview_height(text);
-  if (!expanded && text_height > preview_limit) text_height = preview_limit;
-  int32_t height = 6 + s_theme_size + 9 + text_height + 8 + 22;
+  // Reserve the same measured header/body space that draw_message paints.
+  // Never replace a long, unfocused message with an implicit three-line crop.
+  int32_t height = 6 + inline_line_height(font_for_text(message->sender)) + 9 + text_height + 8 + 22;
   if (message->attachment_kind) {
     if (expanded && s_inline_media_state == INLINE_MEDIA_READY && s_media_bitmap) {
       height += s_media_height + 8;
@@ -1519,11 +1591,8 @@ static int16_t message_row_height(MenuLayer *menu_layer, MenuIndex *index, void 
   if (message->is_approval > 1) return 58;
   bool expanded = index->row == s_expanded_message_index &&
     strcmp(message->id, s_expanded_message_id) == 0;
-  const char *text = expanded && s_expanded_message_loaded && s_detail_text ?
-    s_detail_text : message->text;
+  const char *text = message_body(message, expanded);
   int32_t height = message_content_height(menu_layer, message, expanded, text);
-  int16_t viewport_height = layer_get_bounds(menu_layer_get_layer(menu_layer)).size.h;
-  if (expanded && height > viewport_height) return viewport_height;
   return (int16_t)height;
 }
 
@@ -1539,29 +1608,33 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
     graphics_context_set_text_color(ctx, selected ? GColorWhite : GColorBlack);
     const char *label = message->is_approval == 2 ? "Approve once" :
       (message->is_approval == 3 ? "Deny" : "Always approve");
-    menu_cell_basic_draw(ctx, cell, label, selected ? "> Hold center to choose" : NULL, NULL);
+    graphics_draw_text(ctx, label, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
+      GRect(8, 0 - s_message_cell_scroll, bounds.size.w - 16, 30),
+      GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    if (selected) graphics_draw_text(ctx, "> Hold center to choose",
+      fonts_get_system_font(FONT_KEY_GOTHIC_14),
+      GRect(8, 32 - s_message_cell_scroll, bounds.size.w - 16, 20),
+      GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
     return;
   }
   bool expanded = index->row == s_expanded_message_index &&
     strcmp(message->id, s_expanded_message_id) == 0;
-  const char *body = expanded && s_expanded_message_loaded && s_detail_text ?
-    s_detail_text : message->text;
-  int32_t content_scroll = expanded ? s_expanded_scroll_offset : 0;
-  int sender_height = s_theme_size + 9;
+  const char *body = message_body(message, expanded);
+  int32_t content_scroll = s_message_cell_scroll;
+  int sender_height = inline_line_height(font_for_text(message->sender)) + 9;
   int text_y = sender_height + 1 - content_scroll;
   int text_height = expanded ? s_expanded_text_height : message->cached_text_height;
   if (text_height <= 0) {
     message_content_height(s_message_menu, message, expanded, body);
     text_height = expanded ? s_expanded_text_height : message->cached_text_height;
   }
-  int preview_limit = message_preview_height(body);
-  if (!expanded && text_height > preview_limit) text_height = preview_limit;
   int content_y = text_y + text_height + 5;
   int32_t natural_height = message_content_height(s_message_menu, message, expanded, body);
   int time_y = natural_height - 19 - content_scroll;
   GColor participant_color = sender_color(message);
   graphics_context_set_text_color(ctx, participant_color);
 
+  if (1 - content_scroll < bounds.size.h && 1 - content_scroll + sender_height > 0) {
   draw_marquee_text(ctx, message->sender, font_for_text(message->sender),
     GRect(25, 1 - content_scroll, bounds.size.w - 33, sender_height), selected);
   graphics_context_set_fill_color(ctx, s_theme.background);
@@ -1569,14 +1642,16 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
   draw_service_icon(ctx,
     GRect(7, 1 - content_scroll + (sender_height - 14) / 2, 14, 14),
     s_active_chat_network, participant_color);
+  }
   graphics_context_set_text_color(ctx, s_theme.text);
   layout_inline_emoji_text(ctx, body, theme_font(),
     GRect(8, text_y, bounds.size.w - 16, text_height), true);
   if (message->attachment_kind) {
     if (expanded && s_inline_media_state == INLINE_MEDIA_READY && s_media_bitmap) {
       int image_x = (bounds.size.w - s_media_width) / 2;
-      graphics_draw_bitmap_in_rect(ctx, s_media_bitmap,
-        GRect(image_x, content_y, s_media_width, s_media_height));
+      if (content_y < bounds.size.h && content_y + s_media_height > 0)
+        graphics_draw_bitmap_in_rect(ctx, s_media_bitmap,
+          GRect(image_x, content_y, s_media_width, s_media_height));
       content_y += s_media_height + 8;
     } else {
       const char *label = expanded && s_inline_media_state == INLINE_MEDIA_LOADING ? "Loading photo…" :
@@ -1584,34 +1659,145 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
           (s_inline_media_error[0] ? s_inline_media_error : "Photo unavailable") :
           (message->attachment_kind == 2 ? "GIF preview" :
           (message->attachment_kind == 3 ? "Video preview" : "Photo")));
-      graphics_draw_text(ctx, label, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
+      if (content_y < bounds.size.h && content_y + 18 > 0)
+        graphics_draw_text(ctx, label, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
         GRect(8, content_y, bounds.size.w - 16, 18),
         GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
       content_y += 24;
     }
   }
+  if (time_y - 3 < bounds.size.h && time_y + 19 > 0) {
   graphics_context_set_fill_color(ctx, s_theme.background);
   graphics_fill_rect(ctx, GRect(0, time_y - 3, bounds.size.w, 22), 0, GCornerNone);
   graphics_context_set_text_color(ctx, s_theme.muted);
-  graphics_draw_text(ctx, message->time,
+  bool loading_body = !message->full_text && !(expanded && s_expanded_message_loaded) &&
+    strlen(message->text) >= 220;
+  graphics_draw_text(ctx, loading_body ? "Loading full message…" : message->time,
     fonts_get_system_font(FONT_KEY_GOTHIC_14),
     GRect(8, time_y, bounds.size.w - 16, 16),
     GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
+  }
   graphics_context_set_fill_color(ctx, participant_color);
-  graphics_fill_rect(ctx, GRect(0, 2, 3, bounds.size.h - 4), 0, GCornerNone);
+  graphics_fill_rect(ctx, GRect(0, 0, 3, bounds.size.h), 0, GCornerNone);
 }
 
 static void retry_messages(ClickRecognizerRef recognizer, void *context) {
   request_messages();
 }
 
+static int32_t timeline_height(int row) {
+  MenuIndex index = {.section = 0, .row = row};
+  return message_row_height(s_message_menu, &index, NULL);
+}
+
+static void timeline_move(int32_t delta) {
+  if (s_message_count < 1) { s_message_anchor = 0; s_message_offset = 0; return; }
+  if (s_message_anchor >= s_message_count) s_message_anchor = s_message_count - 1;
+  s_message_offset += delta;
+  while (s_message_offset < 0 && s_message_anchor > 0)
+    s_message_offset += timeline_height(--s_message_anchor);
+  while (s_message_anchor + 1 < s_message_count &&
+         s_message_offset >= timeline_height(s_message_anchor))
+    s_message_offset -= timeline_height(s_message_anchor++);
+  if (s_message_offset < 0) s_message_offset = 0;
+}
+
+static void message_cell_draw(Layer *cell, GContext *ctx) {
+  MessageCell *data = layer_get_data(cell);
+  s_message_cell_scroll = data->clipped;
+  s_inline_clip_height = layer_get_bounds(cell).size.h;
+  draw_message(ctx, cell, &data->index, NULL);
+  s_inline_clip_height = INT16_MAX;
+}
+
+static void message_view_refresh(void) {
+  if (!s_message_view) return;
+  GRect viewport = layer_get_bounds(s_message_view);
+  if (s_message_follow_newest && s_message_count > 0) {
+    s_message_anchor = s_message_count - 1;
+    s_message_offset = 0;
+  }
+  timeline_move(0);
+  int32_t remaining = -s_message_offset;
+  for (int i = s_message_anchor; i < s_message_count; i++) remaining += timeline_height(i);
+  if (remaining < viewport.size.h) timeline_move(remaining - viewport.size.h);
+  int slot = 0;
+  int32_t y = -s_message_offset;
+  if (s_message_state == VIEW_READY) {
+    for (int row = s_message_anchor; row < s_message_count &&
+         slot < MESSAGE_VISIBLE_CELLS && y < viewport.size.h; row++) {
+      int32_t height = timeline_height(row);
+      int top = y < 0 ? 0 : y;
+      int bottom = y + height > viewport.size.h ? viewport.size.h : y + height;
+      if (bottom > top) {
+        Layer *cell = s_message_cells[slot++];
+        if (!cell) break;
+        MessageCell *data = layer_get_data(cell);
+        data->index = (MenuIndex){.section = 0, .row = row};
+        data->clipped = top - y;
+        layer_set_frame(cell, GRect(0, top, viewport.size.w, bottom - top));
+        // Frame resizing can retain a larger bounds rectangle. Reset the
+        // local clip explicitly whenever a recycled cell shrinks or moves.
+        layer_set_bounds(cell, GRect(0, 0, viewport.size.w, bottom - top));
+        layer_set_clips(cell, true);
+        layer_set_hidden(cell, false);
+        layer_mark_dirty(cell);
+      }
+      y += height;
+    }
+  }
+  for (; slot < MESSAGE_VISIBLE_CELLS; slot++)
+    if (s_message_cells[slot]) layer_set_hidden(s_message_cells[slot], true);
+  layer_mark_dirty(s_message_view);
+  if (!s_message_dragging && !s_message_prefetch_timer && s_message_state == VIEW_READY)
+    s_message_prefetch_timer = app_timer_register(100, message_prefetch, NULL);
+}
+
+static void message_prefetch(void *context) {
+  s_message_prefetch_timer = NULL;
+  if (!s_message_view || s_message_dragging || s_message_state != VIEW_READY ||
+      (s_expanded_message_index >= 0 && !s_expanded_message_loaded)) return;
+  for (int i = 0; i < MESSAGE_VISIBLE_CELLS; i++) {
+    Layer *cell = s_message_cells[i];
+    if (!cell || layer_get_hidden(cell)) continue;
+    MessageCell *data = layer_get_data(cell);
+    Message *message = &s_messages[data->index.row];
+    if (message->is_approval || message->full_text ||
+        data->index.row == s_expanded_message_index) continue;
+    // Fetch visible neighboring bodies without moving action focus or scroll.
+    message_selection_changed(s_message_menu, data->index, data->index, NULL);
+    return;
+  }
+}
+
+static void message_focus_row(int row) {
+  if (!s_message_menu || row < 0 || row >= s_message_count) return;
+  MenuIndex index = {.section = 0, .row = row};
+  menu_layer_set_selected_index(s_message_menu, index, MenuRowAlignNone, false);
+  message_selection_changed(s_message_menu, index, index, NULL);
+}
+
+static void message_scroll_pixels(int32_t delta) {
+  if (!s_message_view || s_message_state != VIEW_READY) return;
+  s_message_follow_newest = false;
+  timeline_move(delta);
+  message_view_refresh();
+  if (s_message_dragging) return;
+  // Keep the message being read selected, without snapping its position.
+  int row = s_message_anchor;
+  if (timeline_height(row) - s_message_offset < 24 && row + 1 < s_message_count) row++;
+  message_focus_row(row);
+}
+
 static void message_jump_newest(ClickRecognizerRef recognizer, void *context) {
   if (!s_message_menu || s_message_count < 1) return;
-  s_expanded_scroll_offset = 0;
   MenuIndex newest = {.section = 0, .row = s_message_count - 1};
   while (newest.row > 0 && s_messages[newest.row].is_approval > 1) newest.row--;
+  s_message_follow_newest = newest.row == s_message_count - 1;
+  s_message_anchor = newest.row;
+  s_message_offset = 0;
   menu_layer_set_selected_index(s_message_menu, newest, MenuRowAlignTop, false);
-  layer_mark_dirty(menu_layer_get_layer(s_message_menu));
+  message_view_refresh();
 }
 
 static void message_move_selection(int delta) {
@@ -1620,43 +1806,28 @@ static void message_move_selection(int delta) {
   int row = selected.row;
   if (row < 0) row = 0;
   if (row >= s_message_count) row = s_message_count - 1;
-  MenuIndex current = {.section = 0, .row = row};
   Message *message = &s_messages[row];
   if (message->is_approval > 1) {
     int next = row + delta;
     if (next >= 0 && next < s_message_count) {
+      s_message_follow_newest = false;
       MenuIndex target = {.section = 0, .row = next};
+      s_message_anchor = next;
+      s_message_offset = 0;
       menu_layer_set_selected_index(s_message_menu, target, MenuRowAlignTop, false);
-      layer_mark_dirty(menu_layer_get_layer(s_message_menu));
+      message_view_refresh();
     }
     return;
   }
-  bool expanded = row == s_expanded_message_index &&
-    strcmp(message->id, s_expanded_message_id) == 0;
-  const char *text = expanded && s_expanded_message_loaded && s_detail_text ?
-    s_detail_text : message->text;
-  int32_t visible_height = message_row_height(s_message_menu, &current, NULL);
-  int32_t content_height = message_content_height(s_message_menu, message, expanded, text);
-  int32_t max_scroll = content_height > visible_height ? content_height - visible_height : 0;
-  int32_t step = s_scroll_lines * inline_line_height(theme_font());
-
-  if (delta > 0 && expanded && s_expanded_scroll_offset < max_scroll) {
-    s_expanded_scroll_offset += step;
-    if (s_expanded_scroll_offset > max_scroll) s_expanded_scroll_offset = max_scroll;
-    layer_mark_dirty(menu_layer_get_layer(s_message_menu));
-    return;
+  int anchor = s_message_anchor;
+  int32_t offset = s_message_offset;
+  message_scroll_pixels(delta * inline_line_height(theme_font()));
+  // At the end of the timeline there may be several visible controls. Moving
+  // the viewport cannot reach them further, but buttons must still move focus.
+  if (anchor == s_message_anchor && offset == s_message_offset) {
+    message_focus_row(row + delta);
+    message_view_refresh();
   }
-  if (delta < 0 && expanded && s_expanded_scroll_offset > 0) {
-    s_expanded_scroll_offset -= step;
-    if (s_expanded_scroll_offset < 0) s_expanded_scroll_offset = 0;
-    layer_mark_dirty(menu_layer_get_layer(s_message_menu));
-    return;
-  }
-
-  int next_row = row + delta;
-  if (next_row < 0 || next_row >= s_message_count) return;
-  MenuIndex target = {.section = 0, .row = next_row};
-  menu_layer_set_selected_index(s_message_menu, target, MenuRowAlignTop, false);
 }
 
 static void install_message_clicks(void) {
@@ -1665,7 +1836,9 @@ static void install_message_clicks(void) {
 }
 
 static void message_clicks(void *context) {
+  window_single_click_subscribe(BUTTON_ID_BACK,configured_back);
   if (s_message_state == VIEW_READY) {
+    window_multi_click_subscribe(BUTTON_ID_BACK,2,2,300,true,configured_message_click);
     window_single_click_subscribe(BUTTON_ID_UP, configured_message_click);
     window_single_click_subscribe(BUTTON_ID_SELECT, configured_message_click);
     window_single_click_subscribe(BUTTON_ID_DOWN, configured_message_click);
@@ -1678,6 +1851,7 @@ static void message_clicks(void *context) {
 }
 
 static int binding_slot(ButtonId button, bool long_press, bool message_view) {
+  if(button==BUTTON_ID_BACK)return message_view?13:12;
   int slot = button == BUTTON_ID_UP ? 0 : (button == BUTTON_ID_SELECT ? 2 : 4);
   return (message_view ? 6 : 0) + slot + (long_press ? 1 : 0);
 }
@@ -1784,6 +1958,13 @@ static void perform_button_action(ButtonAction action, bool message_view) {
     if (s_delete_timer) { app_timer_cancel(s_delete_timer); s_delete_timer = NULL; }
     set_status(message_view ? s_message_status_layer : s_status_layer, VIEW_READY, message_view);
   }
+  if (action == BUTTON_ACTION_MAIN_TOP) {
+    if (s_message_window && window_stack_contains_window(s_message_window)) {
+      window_stack_remove(s_message_window, false);
+    }
+    request_chats();
+    return;
+  }
   if (message_view) {
     bool approval_chat = selected_message_is_approval();
     switch (action) {
@@ -1798,6 +1979,7 @@ static void perform_button_action(ButtonAction action, bool message_view) {
       case BUTTON_ACTION_JUMP_NEWEST: message_jump_newest(NULL, NULL); break;
       case BUTTON_ACTION_DELETE: show_delete_confirmation(true); break;
       case BUTTON_ACTION_OPEN_CHAT:
+      case BUTTON_ACTION_MAIN_TOP: // Handled before the view-specific switch.
       case BUTTON_ACTION_NONE: break;
     }
     return;
@@ -1837,12 +2019,19 @@ static void perform_button_action(ButtonAction action, bool message_view) {
       request_chats();
       break;
     case BUTTON_ACTION_DELETE: show_delete_confirmation(false); break;
+    case BUTTON_ACTION_MAIN_TOP: // Handled before the view-specific switch.
     case BUTTON_ACTION_NONE: break;
   }
 }
 
 static void configured_button_click(ClickRecognizerRef recognizer, bool long_press, bool message_view) {
   ButtonId button = click_recognizer_get_button_id(recognizer);
+  int slot = binding_slot(button, long_press, message_view);
+  // Navigation is safe even while an approval row is focused.
+  if (slot >= 0 && slot < BUTTON_BINDING_COUNT && s_button_actions[slot] == BUTTON_ACTION_MAIN_TOP) {
+    perform_button_action(BUTTON_ACTION_MAIN_TOP, message_view);
+    return;
+  }
   // Approval navigation must never inherit a reply/decision binding.
   if (message_view && selected_message_is_approval()) {
     if (button == BUTTON_ID_UP || button == BUTTON_ID_DOWN) {
@@ -1857,7 +2046,6 @@ static void configured_button_click(ClickRecognizerRef recognizer, bool long_pre
     if (action == 2 || action == 3) send_quick_reply_to_phone(action - 2, true);
     return;
   }
-  int slot = binding_slot(button, long_press, message_view);
   if (slot >= 0 && slot < BUTTON_BINDING_COUNT) perform_button_action((ButtonAction)s_button_actions[slot], message_view);
 }
 
@@ -1887,6 +2075,7 @@ static ButtonAction button_action_from_name(const char *name) {
   if (strcmp(name, "pin_toggle") == 0) return BUTTON_ACTION_PIN_TOGGLE;
   if (strcmp(name, "jump_newest") == 0) return BUTTON_ACTION_JUMP_NEWEST;
   if (strcmp(name, "delete") == 0) return BUTTON_ACTION_DELETE;
+  if (strcmp(name, "main_top") == 0) return BUTTON_ACTION_MAIN_TOP;
   return BUTTON_ACTION_NONE;
 }
 
@@ -1938,7 +2127,7 @@ static void apply_state(const char *state, const char *error) {
     if (mapped != VIEW_LOADING) cancel_load_watchdog();
     s_message_state = mapped;
     set_status(s_message_status_layer, mapped, true);
-    if (s_message_menu) menu_layer_reload_data(s_message_menu);
+    if (s_message_menu) message_view_refresh();
     if (mapped == VIEW_READY) {
       install_message_clicks();
     } else {
@@ -2047,7 +2236,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
   if (strcmp(command->value->cstring, "chat_emoji_clear") == 0) {
     clear_chat_emoji_atlas();
     invalidate_message_layouts();
-    if (s_message_menu) menu_layer_reload_data(s_message_menu);
+    if (s_message_menu) message_view_refresh();
     return;
   }
 
@@ -2057,7 +2246,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     s_chat_emoji_atlas = gbitmap_create_with_resource(RESOURCE_ID_EMOJI_CHAT_DEFAULT);
     build_chat_emoji_sub_bitmaps(CHAT_EMOJI_SIZE);
     invalidate_message_layouts();
-    if (s_message_menu) menu_layer_reload_data(s_message_menu);
+    if (s_message_menu) message_view_refresh();
     return;
   }
 
@@ -2093,7 +2282,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     if (s_chat_emoji_atlas && s_chat_emoji_received == s_chat_emoji_total) {
       build_chat_emoji_sub_bitmaps(CHAT_EMOJI_SIZE);
       invalidate_message_layouts();
-      if (s_message_menu) menu_layer_reload_data(s_message_menu);
+      if (s_message_menu) message_view_refresh();
     }
     return;
   }
@@ -2104,19 +2293,13 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     if (!index || !action) return;
     int slot = index->value->int32;
     ButtonAction parsed = button_action_from_name(action->value->cstring);
-    if (slot < 0 || slot >= BUTTON_BINDING_COUNT || parsed == BUTTON_ACTION_NONE) return;
+    if (slot < 0 || slot >= BUTTON_BINDING_COUNT || (parsed == BUTTON_ACTION_NONE && strcmp(action->value->cstring,"none") != 0)) return;
     s_button_actions[slot] = (uint8_t)parsed;
     return;
   }
 
   if (strcmp(command->value->cstring, "button_bindings_ready") == 0) {
-    Tuple *lines = dict_find(iterator, MESSAGE_KEY_INDEX);
-    int requested = lines ? lines->value->int32 : 2;
-    if (requested < 1) requested = 1;
-    if (requested > 8) requested = 8;
-    s_scroll_lines = (uint8_t)requested;
     persist_write_data(PERSIST_BUTTON_ACTIONS, s_button_actions, sizeof(s_button_actions));
-    persist_write_int(PERSIST_SCROLL_LINES, requested);
     if (s_main_window) window_set_click_config_provider(s_main_window, main_clicks);
     if (s_message_window) window_set_click_config_provider(s_message_window, message_clicks);
     return;
@@ -2133,6 +2316,9 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
   }
 
   if (strcmp(command->value->cstring, "messages_start") == 0) {
+    s_message_detail_deferred = false;
+    s_message_anchor = 0;
+    s_message_offset = 0;
     if (s_content_request_timer) {
       app_timer_cancel(s_content_request_timer);
       s_content_request_timer = NULL;
@@ -2146,14 +2332,14 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     s_expanded_message_index = -1;
     s_expanded_message_id[0] = '\0';
     s_expanded_message_loaded = false;
-    s_expanded_scroll_offset = 0;
     s_expanded_text_height = 0;
     s_inline_attachment_id[0] = '\0';
     s_inline_media_state = INLINE_MEDIA_NONE;
     clear_media();
     clear_chat_emoji_atlas();
     s_message_count = 0;
-    memset(s_messages, 0, sizeof(s_messages));
+    release_message_texts();
+    memset(s_messages, 0, MAX_MESSAGES * sizeof(*s_messages));
     return;
   }
 
@@ -2167,6 +2353,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
       memset(s_messages, 0, (size_t)added * sizeof(Message));
       s_message_count += added;
       if (s_expanded_message_index >= 0) s_expanded_message_index += added;
+      s_message_anchor += added;
     }
     return;
   }
@@ -2185,15 +2372,28 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     s_message_state = count > 0 ? VIEW_READY : VIEW_EMPTY;
     set_status(s_message_status_layer, s_message_state, true);
     if (s_message_menu) {
+      // Refresh the hidden action-selection model's row count as well.
       menu_layer_reload_data(s_message_menu);
+      message_view_refresh();
       if (count > 0) {
         int row = selected ? selected->value->int32 : count - 1;
         if (row < 0) row = 0;
         if (row >= count) row = count - 1;
         MenuIndex target = { .section = 0, .row = row };
+        if (!mode || strcmp(mode->value->cstring, "older") != 0) {
+          s_message_anchor = row;
+          s_message_offset = 0;
+          s_message_follow_newest = row == count - 1;
+        }
         MenuRowAlign align = s_messages[row].is_approval || (mode && strcmp(mode->value->cstring, "older") == 0) ?
           MenuRowAlignTop : MenuRowAlignBottom;
         menu_layer_set_selected_index(s_message_menu, target, align, false);
+        // Reloading a conversation clears the expanded body, but MenuLayer
+        // does not notify selection_changed when the row number stays the same.
+        // Explicitly hydrate the selected row; the ID guard makes this a no-op
+        // when the normal selection callback already requested its full text.
+        message_selection_changed(s_message_menu, target, target, NULL);
+        message_view_refresh();
         install_message_clicks();
       }
     }
@@ -2277,7 +2477,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
       persist_current_theme();
       apply_theme_to_layers();
       if (s_chat_menu) menu_layer_reload_data(s_chat_menu);
-      if (s_message_menu) menu_layer_reload_data(s_message_menu);
+      if (s_message_menu) message_view_refresh();
       if (s_reply_menu) menu_layer_reload_data(s_reply_menu);
     }
     if (!theme_only) apply_state(state ? state->value->cstring : "error", error ? error->value->cstring : "");
@@ -2327,6 +2527,11 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
           (MenuIndex) {.section = 0, .row = 0}, MenuRowAlignCenter, false);
         window_set_click_config_provider(s_main_window, main_clicks);
       } else window_set_click_config_provider(s_main_window, main_clicks);
+      // Center-focused touch menus override Top alignment. Retain focus-first
+      // taps, but don't let centering insert empty space above the first row.
+      ScrollLayer *list_scroll = menu_layer_get_scroll_layer(s_chat_menu);
+      if (scroll_layer_get_content_offset(list_scroll).y > 0)
+        scroll_layer_set_content_offset(list_scroll, GPointZero, false);
     }
     return;
   }
@@ -2383,11 +2588,11 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     size_t requested = total && total->value->int32 > 0 ? (size_t)total->value->int32 : 1;
     if (requested >= DETAIL_TEXT_CAPACITY) requested = DETAIL_TEXT_CAPACITY - 1;
     if (s_detail_text) free(s_detail_text);
+    reserve_message_text(requested + 1);
     s_detail_text = malloc(requested + 1);
     s_detail_capacity = s_detail_text ? requested + 1 : 0;
     s_detail_length = 0;
     s_expanded_message_loaded = false;
-    s_expanded_scroll_offset = 0;
     s_expanded_text_height = 0;
     if (s_detail_text) s_detail_text[0] = '\0';
     return;
@@ -2411,14 +2616,11 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
   if (strcmp(command->value->cstring, "message_detail_end") == 0) {
     Tuple *message_id = dict_find(iterator, MESSAGE_KEY_MSG_ID);
     if (!message_id || strcmp(message_id->value->cstring, s_expanded_message_id) != 0) return;
+    if (s_message_dragging) { s_message_detail_deferred = true; return; }
     s_expanded_message_loaded = s_detail_text != NULL;
     s_expanded_text_height = 0;
     if (s_message_menu) {
-      menu_layer_reload_data(s_message_menu);
-      if (s_expanded_message_index >= 0 && s_expanded_message_index < s_message_count) {
-        MenuIndex selected = {.section = 0, .row = s_expanded_message_index};
-        menu_layer_set_selected_index(s_message_menu, selected, MenuRowAlignTop, false);
-      }
+      message_view_refresh();
       install_message_clicks();
     }
     return;
@@ -2482,16 +2684,12 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     if (!s_media_bitmap || s_media_received != s_media_total) {
       s_inline_media_state = INLINE_MEDIA_FAILED;
       copy_text(s_inline_media_error, sizeof(s_inline_media_error), "Photo incomplete");
-      if (s_message_menu) menu_layer_reload_data(s_message_menu);
+      if (s_message_menu) message_view_refresh();
       return;
     }
     s_inline_media_state = INLINE_MEDIA_READY;
     if (s_message_menu) {
-      menu_layer_reload_data(s_message_menu);
-      if (s_expanded_message_index >= 0 && s_expanded_message_index < s_message_count) {
-        MenuIndex selected = {.section = 0, .row = s_expanded_message_index};
-        menu_layer_set_selected_index(s_message_menu, selected, MenuRowAlignTop, false);
-      }
+      message_view_refresh();
       install_message_clicks();
     }
     return;
@@ -2505,7 +2703,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     s_inline_media_state = INLINE_MEDIA_FAILED;
     copy_text(s_inline_media_error, sizeof(s_inline_media_error),
       error ? error->value->cstring : "Photo unavailable");
-    if (s_message_menu) menu_layer_reload_data(s_message_menu);
+    if (s_message_menu) message_view_refresh();
     install_message_clicks();
     return;
   }
@@ -2671,19 +2869,62 @@ static void reply_unload(Window *window) {
   s_reply_showing_status = false;
 }
 
-static void message_touch_selected(MenuLayer *menu,MenuIndex *index,void *context) {
-  if(s_message_state!=VIEW_READY||s_reply_state!=VIEW_READY||!s_active_chat_id[0]||
-     index->section||index->row>=s_message_count||s_messages[index->row].is_approval||
-     selected_message_is_approval())return;
-  thread_dictate(NULL,NULL);
-}
 #if defined(PBL_TOUCH)
-static void message_touch_swipe(const Recognizer *recognizer, RecognizerEvent event) {
-  if(event!=RecognizerEvent_Completed||!touch_service_is_enabled())return;
-  // Moving focus never activates an approval or a custom button shortcut.
-  message_move_selection(swipe_recognizer_get_direction(recognizer)==SwipeDirection_Up?1:-1);
+static void message_touch_pan(const Recognizer *recognizer, RecognizerEvent event) {
+  static int previous;
+  if (!touch_service_is_enabled()) return;
+  if (event == RecognizerEvent_Started) { previous = 0; s_message_dragging = true; }
+  if (event == RecognizerEvent_Cancelled) {
+    s_message_dragging = false;
+  }
+  if (event != RecognizerEvent_Started && event != RecognizerEvent_Updated &&
+      event != RecognizerEvent_Completed && event != RecognizerEvent_Cancelled) return;
+  if (event != RecognizerEvent_Cancelled) {
+    int current = pan_recognizer_get_delta_since_start(recognizer).y;
+    message_scroll_pixels(previous - current);
+    previous = current;
+  }
+  if (event == RecognizerEvent_Completed || event == RecognizerEvent_Cancelled) {
+    s_message_dragging = false;
+    if (s_message_detail_deferred) {
+      s_message_detail_deferred = false;
+      s_expanded_message_loaded = s_detail_text != NULL;
+      s_expanded_text_height = 0;
+    }
+    if (event == RecognizerEvent_Completed) message_scroll_pixels(0);
+    else message_view_refresh();
+  }
+}
+
+static void message_touch_tap(const Recognizer *recognizer, RecognizerEvent event) {
+  if (event != RecognizerEvent_Completed || !touch_service_is_enabled()) return;
+  GPoint point = tap_recognizer_get_tap_point(recognizer);
+  for (int i = 0; i < MESSAGE_VISIBLE_CELLS; i++) {
+    Layer *cell = s_message_cells[i];
+    if (!cell || layer_get_hidden(cell)) continue;
+    GRect frame = layer_get_frame(cell);
+    if (point.y < frame.origin.y || point.y >= frame.origin.y + frame.size.h) continue;
+    MessageCell *data = layer_get_data(cell);
+    // A tap or drag must never decide an approval, even if it moves focus.
+    if (s_messages[data->index.row].is_approval) return;
+    message_focus_row(data->index.row);
+    message_view_refresh();
+    return;
+  }
+}
+
+static void message_touch_back(const Recognizer *recognizer, RecognizerEvent event) {
+  if (event != RecognizerEvent_Completed || !touch_service_is_enabled() ||
+      window_stack_get_top_window() != s_message_window ||
+      swipe_recognizer_get_direction(recognizer) != SwipeDirection_Right) return;
+  // Navigation only: never invoke a configurable binding or an approval action.
+  window_stack_pop(true);
 }
 #endif
+static void message_background_draw(Layer *layer, GContext *ctx) {
+  graphics_context_set_fill_color(ctx, s_theme.background);
+  graphics_fill_rect(ctx, layer_get_bounds(layer), 0, GCornerNone);
+}
 static void chat_touch_select(MenuLayer *menu, MenuIndex *index, void *context) {
   if(s_chat_state!=VIEW_READY)return;
   open_chat_at_index(index);
@@ -2717,12 +2958,37 @@ static void main_load(Window *window) {
   window_set_click_config_provider(window, main_clicks);
 }
 
+// Window disappear/appear callbacks can run together while the outbox is busy.
+// Coalesce them into the CURRENT view, and retry rather than losing the resume.
+static void sync_visible_view(void *context) {
+  s_view_sync_timer = NULL;
+  Window *top = window_stack_get_top_window();
+  const char *command = top == s_message_window ? "chat_view_open" :
+    (top == s_main_window ? "thread_view_open" : "views_closed");
+  if (!request_command(command, top == s_message_window ? s_active_chat_id : NULL)) {
+    s_view_sync_timer = app_timer_register(500, sync_visible_view, NULL);
+  }
+}
+
+static void schedule_view_sync(void) {
+  if (s_view_sync_timer) app_timer_cancel(s_view_sync_timer);
+  s_view_sync_timer = app_timer_register(100, sync_visible_view, NULL);
+}
+
+static void view_outbox_failed(DictionaryIterator *iterator, AppMessageResult reason, void *context) {
+  Tuple *command = dict_find(iterator, MESSAGE_KEY_COMMAND);
+  if (!command || command->type != TUPLE_CSTRING) return;
+  const char *value = command->value->cstring;
+  if (strcmp(value, "chat_view_open") == 0 || strcmp(value, "thread_view_open") == 0 ||
+      strcmp(value, "views_closed") == 0) schedule_view_sync();
+}
+
 static void main_appear(Window *window) {
-  (void)request_command("thread_view_open", NULL);
+  schedule_view_sync();
 }
 
 static void main_disappear(Window *window) {
-  (void)request_command("thread_view_closed", NULL);
+  schedule_view_sync();
 }
 
 static void main_unload(Window *window) {
@@ -2733,17 +2999,19 @@ static void main_unload(Window *window) {
 }
 
 static void message_appear(Window *window) {
-  (void)request_command("chat_view_open", s_active_chat_id);
+  schedule_view_sync();
 }
 
 static void message_disappear(Window *window) {
-  (void)request_command("chat_view_closed", s_active_chat_id);
+  schedule_view_sync();
 }
 
 static void message_load(Window *window) {
 #if defined(PBL_TOUCH)
   window_set_touch_bridge_disabled(window,true);
-  window_attach_recognizer(window,swipe_recognizer_create(message_touch_swipe,NULL,SwipeDirection_Up|SwipeDirection_Down));
+  window_attach_recognizer(window, pan_recognizer_create(message_touch_pan, NULL, PanAxis_Vertical));
+  window_attach_recognizer(window, tap_recognizer_create(message_touch_tap, NULL));
+  window_attach_recognizer(window, swipe_recognizer_create(message_touch_back, NULL, SwipeDirection_Right));
 #endif
   Layer *root = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(root);
@@ -2754,13 +3022,22 @@ static void message_load(Window *window) {
   menu_layer_set_highlight_colors(s_message_menu, s_theme.background, s_theme.text);
   menu_layer_set_callbacks(s_message_menu, NULL, (MenuLayerCallbacks) {
     .get_num_rows = message_rows,
-    .get_cell_height = message_row_height,
     .draw_row = draw_message,
-    .select_click = message_touch_selected,
     .selection_changed = message_selection_changed
   });
   install_message_clicks();
-  layer_add_child(root, menu_layer_get_layer(s_message_menu));
+  s_message_view = layer_create(bounds);
+  if (s_message_view) {
+    layer_set_update_proc(s_message_view, message_background_draw);
+    layer_add_child(root, s_message_view);
+    for (int i = 0; i < MESSAGE_VISIBLE_CELLS; i++) {
+      s_message_cells[i] = layer_create_with_data(bounds, sizeof(MessageCell));
+      if (!s_message_cells[i]) break;
+      layer_set_update_proc(s_message_cells[i], message_cell_draw);
+      layer_set_hidden(s_message_cells[i], true);
+      layer_add_child(s_message_view, s_message_cells[i]);
+    }
+  }
 
   s_message_status_layer = text_layer_create(GRect(14, 58, bounds.size.w - 28, 110));
   text_layer_set_background_color(s_message_status_layer, s_theme.background);
@@ -2800,6 +3077,17 @@ static void media_unload(Window *window) {
 }
 
 static void message_unload(Window *window) {
+  s_message_dragging = false;
+  s_message_detail_deferred = false;
+  if (s_message_prefetch_timer) app_timer_cancel(s_message_prefetch_timer);
+  s_message_prefetch_timer = NULL;
+  for (int i = 0; i < MESSAGE_VISIBLE_CELLS; i++) {
+    if (s_message_cells[i]) layer_destroy(s_message_cells[i]);
+    s_message_cells[i] = NULL;
+  }
+  if (s_message_view) layer_destroy(s_message_view);
+  s_message_view = NULL;
+  release_message_texts();
   if (s_content_request_timer) {
     app_timer_cancel(s_content_request_timer);
     s_content_request_timer = NULL;
@@ -2847,18 +3135,19 @@ static void init(void) {
     copy_text(s_emoji_reply_text[i], sizeof(s_emoji_reply_text[i]), DEFAULT_EMOJI_REPLIES[i].text);
     copy_text(s_emoji_reply_label[i], sizeof(s_emoji_reply_label[i]), DEFAULT_EMOJI_REPLIES[i].label);
   }
-  if (persist_get_size(PERSIST_BUTTON_ACTIONS) == sizeof(s_button_actions)) {
-    uint8_t saved_actions[BUTTON_BINDING_COUNT];
-    persist_read_data(PERSIST_BUTTON_ACTIONS, saved_actions, sizeof(saved_actions));
-    bool valid = true;
-    for (int i = 0; i < BUTTON_BINDING_COUNT; i++) {
-      if (saved_actions[i] >= BUTTON_ACTION_NONE) valid = false;
+  int saved_button_count = persist_get_size(PERSIST_BUTTON_ACTIONS);
+  if (saved_button_count == 12 || saved_button_count == sizeof(s_button_actions)) {
+    uint8_t defaults[BUTTON_BINDING_COUNT];
+    memcpy(defaults, s_button_actions, sizeof(defaults));
+    const uint8_t old_defaults[BUTTON_BINDING_COUNT] = {0,0,2,5,1,1,0,4,3,3,1,6,8,8};
+    persist_read_data(PERSIST_BUTTON_ACTIONS, s_button_actions, saved_button_count);
+    if (memcmp(s_button_actions, old_defaults, saved_button_count) == 0) {
+      memcpy(s_button_actions, defaults, sizeof(defaults));
+      persist_write_data(PERSIST_BUTTON_ACTIONS, s_button_actions, sizeof(s_button_actions));
     }
-    if (valid) memcpy(s_button_actions, saved_actions, sizeof(s_button_actions));
-  }
-  if (persist_exists(PERSIST_SCROLL_LINES)) {
-    int saved_lines = persist_read_int(PERSIST_SCROLL_LINES);
-    s_scroll_lines = saved_lines < 1 ? 1 : (saved_lines > 8 ? 8 : (uint8_t)saved_lines);
+    for (int i = 0; i < BUTTON_BINDING_COUNT; i++) {
+      if (s_button_actions[i] > BUTTON_ACTION_MAIN_TOP) s_button_actions[i] = BUTTON_ACTION_NONE;
+    }
   }
   select_theme(saved_theme);
   if (persist_get_size(PERSIST_THEME_DATA) == sizeof(PersistedTheme)) {
@@ -2902,6 +3191,7 @@ static void init(void) {
   });
 
   app_message_register_inbox_received(inbox_received);
+  app_message_register_outbox_failed(view_outbox_failed);
   app_message_open(2048, 1024);
   s_dictation_session = dictation_session_create(REPLY_TEXT_CAPACITY, dictation_callback, NULL);
   if (s_dictation_session) {
@@ -2913,6 +3203,7 @@ static void init(void) {
 }
 
 static void deinit(void) {
+  if (s_view_sync_timer) app_timer_cancel(s_view_sync_timer);
   cancel_load_watchdog();
   cancel_reply_ack_timer();
   cancel_reply_return_timer();
@@ -2941,10 +3232,16 @@ int main(void) {
   if (!s_reply_text) return 1;
   s_emoji_reply_label = calloc(EMOJI_REPLY_COUNT, sizeof(*s_emoji_reply_label));
   if (!s_emoji_reply_label) { free(s_reply_text); return 1; }
+  // Message storage is still fixed-capacity; allocate it on the heap so code
+  // improvements do not overflow Pebble's 16-bit static-image size field.
+  s_messages = calloc(MAX_MESSAGES, sizeof(*s_messages));
+  if (!s_messages) { free(s_reply_text); free(s_emoji_reply_label); return 1; }
   init();
   app_event_loop();
   deinit();
   free(s_reply_text);
   free(s_emoji_reply_label);
+  release_message_texts();
+  free(s_messages);
   return 0;
 }

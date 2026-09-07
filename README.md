@@ -11,7 +11,7 @@ Beepster is a readable, reliable, open-source Beeper client for Pebble Time 2. I
 chats, complete message text, voice dictation, saved replies, themes, bitmap emoji, and inline
 photo previews to the watch without putting a Beeper credential on the watch or phone.
 
-Version 0.16.0 adds two-step touch menus, tap-to-dictate, and consistent phone settings. Download the watch app and signed, notarized Mac
+Beepster supports touch navigation and configurable physical-button replies; tapping a chat message only focuses it. Download the watch app and signed, notarized Mac
 Connector using the [installation guide](https://geezuschrotch.github.io/beepster/INSTALL).
 Feedback is welcome: [share your experience or report a problem](https://github.com/GeezusChrotch/beepster/issues/new/choose).
 
@@ -31,7 +31,7 @@ The Connector window can be closed after setup; its login background service con
 
 - [Install Beepster](docs/INSTALL.md) — complete Mac, Tailscale, watch, and pairing walkthrough
 - [Feedback and first-run checks](docs/FEEDBACK.md) — help improve Beepster safely
-- [0.16.0 release notes](docs/RELEASE_NOTES_0.16.0.md) — touch controls, settings and known limitations
+- [0.17.0 release notes](docs/RELEASE_NOTES_0.17.0.md) — smooth scrolling, refresh fixes, new shortcuts and known limitations
 - [Hermes and OpenClaw setup](docs/AGENT_APPROVALS.md) — optional integrations and compatibility
 - [Use Beepster](docs/USER_GUIDE.md) — controls, replies, themes, media, and limitations
 - [Troubleshoot](docs/TROUBLESHOOTING.md) — symptom-based fixes and the private health checker
@@ -46,8 +46,8 @@ The Connector window can be closed after setup; its login background service con
   user-controlled alias fallback
 - Persistent service filtering, with all networks enabled by default
 - Chronological history that opens on the newest message and pages up to 60 messages
-- Complete in-thread message text with configurable one-to-eight-line scrolling
-- Fully configurable press and hold actions for all three buttons in both inbox and chat views
+- In-thread message text with continuous finger-following scrolling and fixed one-line button scrolling
+- Phone-configurable press/hold actions and Double Back in both inbox and chat views
 - Confirmed conversation archiving and per-user message deletion as configurable button actions
   (iMessage message deletion is temporarily disabled; iMessage conversation archiving still works)
 - Voice dictation with confirmation and delivery tracking

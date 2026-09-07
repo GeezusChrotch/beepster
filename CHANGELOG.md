@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.17.0 — Smooth scrolling, reliable refresh, and simpler controls
+
+- Use a continuous, finger-following chat timeline with clipped, recycled visible
+  cells, measured message heights, and bounded full-text caching. Fix overlapping
+  senders, cut-off message bottoms, blank gaps and drawing corruption at the edges.
+- Keep text layout and content hydration stable during dragging. Button scrolling
+  moves one text line; remove the obsolete configurable scroll-distance setting.
+- Swipe right from a chat to return to the conversation list. Tapping a message
+  only focuses it; remove tap-to-dictate while keeping approvals physical-button-only.
+- Default long presses in both views: Top quick reply, Middle dictate, Bottom
+  delete/archive with confirmation. Short Middle opens a chat in the list and does
+  nothing in a chat. Double Back defaults to the top of the newest conversation list.
+- Keep all button assignments configurable. Migrate unchanged old defaults while
+  preserving custom mappings, pairing, themes and reply choices.
+- Retry dropped view-state signals so chat refresh can resume after a busy watch
+  connection. Include real messages in change detection even behind approval rows.
+- Retain the default 15-second live-refresh delay, service filters, bitmap emoji,
+  static photo previews, and optional linked Hermes/OpenClaw approval controls.
+
+See [release notes and validation limits](docs/RELEASE_NOTES_0.17.0.md).
+
 ## 0.16.0 — Two-step touch and consistent settings
 
 - Tap a different menu row to highlight it and read its scrolling title; tap the

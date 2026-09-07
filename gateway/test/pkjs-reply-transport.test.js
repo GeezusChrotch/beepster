@@ -355,17 +355,40 @@ test('button defaults are sent to the watch and included in settings', () => {
   const { eventListeners, appMessages, openedURLs } = replyRuntime();
   eventListeners.ready();
   const bindings = appMessages.filter((message) => message[0] === 'button_binding');
-  assert.equal(bindings.length, 12);
+  assert.equal(bindings.length, 14);
   assert.deepEqual(bindings.map((message) => message[1]), [
-    'scroll_up','scroll_up','open_chat','pin_toggle','scroll_down','scroll_down',
-    'scroll_up','quick_reply','dictate','dictate','scroll_down','jump_newest'
+    'scroll_up','quick_reply','open_chat','dictate','scroll_down','delete',
+    'scroll_up','quick_reply','none','dictate','scroll_down','delete','main_top','main_top'
   ]);
   const ready = appMessages.find((message) => message[0] === 'button_bindings_ready');
-  assert.equal(ready[3], 2);
+  assert.equal(ready[3], 1);
   eventListeners.showConfiguration();
   const state = JSON.parse(decodeURIComponent(openedURLs[0].split('#')[1]));
-  assert.equal(state.buttonBindings.length, 12);
-  assert.equal(state.scrollLines, 2);
+  assert.equal(state.buttonBindings.length, 14);
+  assert.equal(state.scrollLines, undefined);
+});
+
+test('legacy saved scroll distance is ignored', () => {
+  const {eventListeners,appMessages,storage}=replyRuntime();
+  storage.set('beepster_scroll_lines','8');
+  eventListeners.ready();
+  assert.equal(appMessages.find(message=>message[0]==='button_bindings_ready')[3],1);
+});
+
+test('unchanged old defaults migrate but custom mappings are preserved', () => {
+  const {context, storage} = replyRuntime();
+  const old = ['scroll_up','scroll_up','open_chat','pin_toggle','scroll_down','scroll_down',
+    'scroll_up','quick_reply','dictate','dictate','scroll_down','jump_newest','none','none'];
+  for (const count of [12,14]) {
+    storage.set('beepster_button_bindings', JSON.stringify(old.slice(0,count)));
+    assert.deepEqual(Array.from(context.configuredButtonBindings()), Array.from(context.DEFAULT_BUTTON_BINDINGS));
+  }
+  old[1] = 'pin_toggle';
+  storage.set('beepster_button_bindings', JSON.stringify(old));
+  assert.deepEqual(Array.from(context.configuredButtonBindings()), old);
+  old[13] = 'main_top';
+  storage.set('beepster_button_bindings', JSON.stringify(old));
+  assert.equal(context.configuredButtonBindings()[13], 'main_top');
 });
 
 test('custom button mappings persist and are applied immediately', () => {
@@ -373,11 +396,12 @@ test('custom button mappings persist and are applied immediately', () => {
   const custom = Array(12).fill('delete');
   eventListeners.webviewclosed({response:encodeURIComponent(JSON.stringify({buttonBindings:custom,scrollLines:7}))});
   assert.deepEqual(JSON.parse(storage.get('beepster_button_bindings')), custom);
-  assert.equal(storage.get('beepster_scroll_lines'), '7');
+  assert.equal(storage.get('beepster_scroll_lines'), undefined);
   const bindings = appMessages.filter((message) => message[0] === 'button_binding');
-  assert.equal(bindings.length, 12);
-  assert.ok(bindings.every((message) => message[1] === 'delete'));
-  assert.equal(appMessages.find((message) => message[0] === 'button_bindings_ready')[3], 7);
+  assert.equal(bindings.length, 14);
+  assert.ok(bindings.slice(0,12).every((message) => message[1] === 'delete'));
+  assert.deepEqual(bindings.slice(12).map(message=>message[1]),['main_top','main_top']);
+  assert.equal(appMessages.find((message) => message[0] === 'button_bindings_ready')[3], 1);
 });
 
 test('pending OpenClaw approvals load as exact synthetic watch messages', () => {
@@ -803,6 +827,40 @@ test('active chat polling stops when the watch leaves the chat', () => {
   assert.equal(requests.length, 1);
 });
 
+test('a new agent reply is detected even behind twelve unchanged approval rows', () => {
+  const {context, requests, appMessages} = replyRuntime();
+  const actions = Array.from({length:12}, (_, i) => ({id:'act-' + i, text:'Approval choice'}));
+  context.loadMessages('agent-chat');
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items:[{id:'first',text:'First reply'}, ...actions]});
+  requests[0].onload();
+  const before = appMessages.length;
+  context.refreshActiveMessages();
+  requests[1].status = 200;
+  requests[1].responseText = JSON.stringify({items:[{id:'new',text:'New reply'}, ...actions]});
+  requests[1].onload();
+  assert.ok(appMessages.slice(before).some(packet => packet[0] === 'message' && packet[30] === 'new'));
+});
+
+test('returning from replies resumes polling and delivers the next incoming reply', () => {
+  const {context, eventListeners, requests, timers, appMessages} = replyRuntime();
+  context.loadMessages('hermes-chat');
+  requests[0].status = 200;
+  requests[0].responseText = JSON.stringify({items:[{id:'initial',text:'Hello'}]});
+  requests[0].onload();
+  eventListeners.appmessage({payload:{0:'views_closed'}});
+  assert.equal(context.messageRefreshTimer, null);
+  assert.equal(context.activeMessageChatID, '');
+  eventListeners.appmessage({payload:{0:'chat_view_open',5:'hermes-chat'}});
+  timers[context.messageRefreshTimer - 1].callback();
+  assert.match(requests[1].url, /hermes-chat\/messages/);
+  requests[1].status = 200;
+  requests[1].responseText = JSON.stringify({items:[{id:'response',text:'Here is my response'}]});
+  requests[1].onload();
+  assert.ok(appMessages.some(packet => packet[0] === 'message' && packet[30] === 'response'));
+  assert.equal(timers[context.messageRefreshTimer - 1].delay, 15000);
+});
+
 test('the visible conversation list refreshes every fifteen seconds and pauses when hidden', () => {
   const { context, eventListeners, requests, timers } = replyRuntime();
   context.scheduleRefresh();
@@ -857,4 +915,11 @@ test('new message detail discards unsent chunks for the previous selection', () 
   assert.equal(context.queue[0].message[30], 'old');
   assert.ok(context.queue.slice(1).every((item) => item.message[30] === 'current'));
   assert.equal(context.queue.at(-1).message[0], 'message_detail_end');
+});
+
+test('Double Back custom bindings persist separately for list and chat',()=>{
+ const {eventListeners,appMessages,storage}=replyRuntime();const custom=Array(12).fill('scroll_up').concat(['pin_toggle','quick_reply']);
+ eventListeners.webviewclosed({response:encodeURIComponent(JSON.stringify({buttonBindings:custom}))});
+ assert.deepEqual(JSON.parse(storage.get('beepster_button_bindings')),custom);
+ assert.deepEqual(appMessages.filter(m=>m[0]==='button_binding').slice(-2).map(m=>m[1]),['pin_toggle','quick_reply']);
 });
