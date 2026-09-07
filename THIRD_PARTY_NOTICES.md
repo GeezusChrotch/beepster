@@ -1,5 +1,14 @@
 # Third-party notices
 
+## Pebble display palette
+
+`gateway/src/pebble-image.cjs` uses room-light palette samples from
+[czmanix/pebble-color-optimizer](https://github.com/czmanix/pebble-color-optimizer),
+commit `d0609657e0a1d41241c84954855b19a7547ba9c6`, copyright 2026 czmanix (MIT).
+The full license is retained in the module. Samples are endpoint-normalized and
+combined with Organik tone adjustment and optional photo dithering; they are an
+approximation for one lighting condition, not a factory display calibration.
+
 ## Twemoji graphics
 
 The emoji artwork in `resources/images/emoji-atlas.png`,

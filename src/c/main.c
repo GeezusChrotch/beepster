@@ -1,7 +1,7 @@
 #include <pebble.h>
 #include "touch_menu.h"
 
-#define MAX_CHATS 30
+#define MAX_CHATS 12
 #define MAX_MESSAGES 60
 // "agent-" + the gateway's 36-character UUID ticket + NUL.
 static char s_reply_approval_id[43];
@@ -152,7 +152,14 @@ static Window *s_main_window;
 static MenuLayer *s_chat_menu;
 static TextLayer *s_status_layer;
 static ViewState s_chat_state = VIEW_LOADING;
+static AppTimer *s_chat_boundary_timer;
+static bool s_restoring_chat_page;
+static bool s_chat_boundary_older;
 static Chat *s_chats;
+static Chat s_incoming_chats[MAX_CHATS];
+static int s_incoming_chat_count;
+static uint32_t s_incoming_chat_mask;
+static bool s_chat_page_loading;
 static int s_chat_capacity;
 static int s_chat_count;
 static bool s_has_older_chats;
@@ -592,6 +599,16 @@ static void cancel_load_watchdog(void) {
 
 static void load_watchdog(void *context) {
   s_load_watchdog = NULL;
+  if (s_chat_page_loading && s_chat_count > 0) {
+    s_chat_page_loading = false;
+    s_incoming_chat_mask = 0;
+    vibes_double_pulse();
+  }
+  if (s_main_window && window_stack_get_top_window() == s_main_window && s_chat_state == VIEW_LOADING) {
+    s_chat_state = VIEW_ERROR;
+    set_status(s_status_layer, s_chat_state, false);
+    window_set_click_config_provider(s_main_window, main_clicks);
+  }
   if (s_message_window && window_stack_get_top_window() == s_message_window && s_message_state == VIEW_LOADING) {
     s_message_state = VIEW_ERROR;
     set_status(s_message_status_layer, s_message_state, true);
@@ -650,11 +667,22 @@ static const char *state_text(ViewState state, bool messages) {
 
 static void set_status(TextLayer *layer, ViewState state, bool messages) {
   if (!layer) return;
+  Window *window = messages ? s_message_window : s_main_window;
+  if (window) {
+    GRect bounds = layer_get_bounds(window_get_root_layer(window));
+    bool loading = state == VIEW_LOADING;
+    layer_set_frame(text_layer_get_layer(layer), loading ?
+      GRect(0, bounds.size.h / 2 - 22, bounds.size.w, 44) : GRect(14, 58, bounds.size.w - 28, 110));
+    text_layer_set_font(layer, theme_font());
+    window_set_background_color(window, s_theme.background);
+  }
+  if (!messages && s_chat_menu)
+    layer_set_hidden(menu_layer_get_layer(s_chat_menu), state != VIEW_READY);
   if (messages && layer == s_message_status_layer && s_message_view)
     layer_set_hidden(s_message_view, state != VIEW_READY);
   text_layer_set_background_color(layer, s_theme.background);
   text_layer_set_text_color(layer, s_theme.text);
-  text_layer_set_text(layer, state_text(state, messages));
+  text_layer_set_text(layer, state == VIEW_LOADING ? "Loading…" : state_text(state, messages));
   layer_set_hidden(text_layer_get_layer(layer), state == VIEW_READY);
 }
 
@@ -1274,27 +1302,16 @@ static void delayed_request_messages(void *context) {
 }
 
 static uint16_t chat_rows(MenuLayer *menu_layer, uint16_t section, void *context) {
-  return s_chat_state == VIEW_READY ?
-    (uint16_t)(s_chat_count + (s_has_newer_chats ? 1 : 0) + (s_has_older_chats ? 1 : 0)) : 0;
-}
-
-static bool is_newer_chat_row(int row) {
-  return s_has_newer_chats && row == 0;
-}
-
-static bool is_older_chat_row(int row) {
-  return s_has_older_chats && row == s_chat_count + (s_has_newer_chats ? 1 : 0);
+  return s_chat_state == VIEW_READY ? (uint16_t)s_chat_count : 0;
 }
 
 static int chat_index_for_row(int row) {
-  if (is_newer_chat_row(row) || is_older_chat_row(row)) return -1;
-  int index = row - (s_has_newer_chats ? 1 : 0);
-  return index >= 0 && index < s_chat_count ? index : -1;
+  return row >= 0 && row < s_chat_count ? row : -1;
 }
 
 static int16_t chat_row_height(MenuLayer *menu_layer, MenuIndex *index, void *context) {
   int chat_index = chat_index_for_row(index->row);
-  if (chat_index < 0) return s_theme_size + 18;
+  if (chat_index < 0) return 1;
   Chat *chat = &s_chats[chat_index];
   int16_t line_height = s_theme_size + 6;
   int16_t height = line_height + 8;
@@ -1307,13 +1324,7 @@ static void draw_chat(GContext *ctx, const Layer *cell, MenuIndex *index, void *
   GRect bounds = layer_get_bounds(cell);
   bool selected = menu_layer_is_index_selected(s_chat_menu, index);
   int chat_index = chat_index_for_row(index->row);
-  if (chat_index < 0) {
-    const char *label = is_newer_chat_row(index->row) ? "< Newer conversations" : "Older conversations >";
-    graphics_context_set_text_color(ctx, selected ? s_theme.accent_text : s_theme.accent);
-    draw_marquee_text(ctx, label, theme_font(),
-      GRect(8, 5, bounds.size.w - 16, bounds.size.h - 8), selected);
-    return;
-  }
+  if (chat_index < 0) return;
   Chat *chat = &s_chats[chat_index];
   int line_height = s_theme_size + 6;
   int name_height = line_height;
@@ -1358,41 +1369,44 @@ static void draw_chat(GContext *ctx, const Layer *cell, MenuIndex *index, void *
   }
 }
 
+static void request_chat_page(bool older);
+static void chat_boundary(void *context) {
+  s_chat_boundary_timer = NULL;
+  if (s_restoring_chat_page || s_chat_state != VIEW_READY || !s_chat_menu ||
+      window_stack_get_top_window() != s_main_window) return;
+  int row = menu_layer_get_selected_index(s_chat_menu).row;
+  if (s_chat_boundary_older ? row + 1 == s_chat_count : row == 0)
+    request_chat_page(s_chat_boundary_older);
+}
 static void chat_selection_changed(MenuLayer *menu_layer, MenuIndex new_index,
                                    MenuIndex old_index, void *context) {
   marquee_reset();
-  if (s_chat_state != VIEW_READY || new_index.section != 0) return;
+  if (s_chat_boundary_timer) { app_timer_cancel(s_chat_boundary_timer); s_chat_boundary_timer = NULL; }
+  if (s_restoring_chat_page || s_chat_state != VIEW_READY || menu_layer != s_chat_menu || s_chat_count < 2) return;
+  if (new_index.row + 1 == s_chat_count && new_index.row > old_index.row && s_has_older_chats)
+    s_chat_boundary_older = true;
+  else if (new_index.row == 0 && new_index.row < old_index.row && s_has_newer_chats)
+    s_chat_boundary_older = false;
+  else return;
+  s_chat_boundary_timer = app_timer_register(150, chat_boundary, NULL);
+}
 
-  const char *command = NULL;
-  if (is_newer_chat_row(new_index.row)) command = "load_newer_chats";
-  else if (is_older_chat_row(new_index.row)) command = "load_older_chats";
-  if (!command) return;
+static void request_chat_page(bool older) {
+  if (s_chat_boundary_timer) { app_timer_cancel(s_chat_boundary_timer); s_chat_boundary_timer = NULL; }
+  if (s_chat_page_loading || s_chat_state != VIEW_READY || !(older ? s_has_older_chats : s_has_newer_chats)) return;
+  const char *command = older ? "load_older_chats" : "load_newer_chats";
 
   if (!request_command(command, NULL)) {
     vibes_double_pulse();
     return;
   }
-  s_chat_state = VIEW_LOADING;
-  set_status(s_status_layer, s_chat_state, false);
-  menu_layer_reload_data(s_chat_menu);
-  window_set_click_config_provider(s_main_window, main_clicks);
+  s_chat_page_loading = true;
+  cancel_load_watchdog();
+  s_load_watchdog = app_timer_register(30000, load_watchdog, NULL);
 }
 
 static void open_chat_at_index(MenuIndex *index) {
-  if (!index) return;
-  if (is_newer_chat_row(index->row) || is_older_chat_row(index->row)) {
-    const char *command = is_newer_chat_row(index->row) ? "load_newer_chats" : "load_older_chats";
-    s_chat_state = VIEW_LOADING;
-    set_status(s_status_layer, s_chat_state, false);
-    menu_layer_reload_data(s_chat_menu);
-    if (!request_command(command, NULL)) {
-      s_chat_state = VIEW_READY;
-      set_status(s_status_layer, s_chat_state, false);
-      menu_layer_reload_data(s_chat_menu);
-      vibes_double_pulse();
-    }
-    return;
-  }
+  if (!index || s_chat_page_loading) return;
   int chat_index = chat_index_for_row(index->row);
   if (chat_index < 0) return;
   copy_text(s_active_chat_id, sizeof(s_active_chat_id), s_chats[chat_index].id);
@@ -1438,7 +1452,7 @@ static void toggle_chat_pin_at_index(MenuIndex *index) {
   move_chat_row(from, target);
   menu_layer_reload_data(s_chat_menu);
   menu_layer_set_selected_index(s_chat_menu,
-    (MenuIndex) {.section = 0, .row = target + (s_has_newer_chats ? 1 : 0)}, MenuRowAlignCenter, true);
+    (MenuIndex) {.section = 0, .row = target}, MenuRowAlignCenter, true);
   vibes_short_pulse();
 
   if (!request_chat_pin(s_pending_pin_chat_id, pinned)) {
@@ -1553,7 +1567,7 @@ static void message_selection_changed(MenuLayer *menu_layer, MenuIndex new_index
       s_content_request_timer = app_timer_register(250, request_selected_content, NULL);
     }
   }
-  if (new_index.section != 0 || new_index.row > 1 || !s_has_older_messages ||
+  if (new_index.section != 0 || new_index.row > 3 || !s_has_older_messages ||
       s_loading_older_messages || !s_active_chat_id[0]) return;
   s_loading_older_messages = true;
   if (!request_command("load_older_messages", s_active_chat_id)) {
@@ -1672,7 +1686,7 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
   graphics_context_set_text_color(ctx, s_theme.muted);
   bool loading_body = !message->full_text && !(expanded && s_expanded_message_loaded) &&
     strlen(message->text) >= 220;
-  graphics_draw_text(ctx, loading_body ? "Loading full message…" : message->time,
+  graphics_draw_text(ctx, loading_body ? "..." : message->time,
     fonts_get_system_font(FONT_KEY_GOTHIC_14),
     GRect(8, time_y, bounds.size.w - 16, 16),
     GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
@@ -1953,6 +1967,7 @@ static void delete_result_timeout(void *context) {
 }
 
 static void perform_button_action(ButtonAction action, bool message_view) {
+  if (!message_view && s_chat_page_loading) return;
   if (action != BUTTON_ACTION_DELETE && s_delete_armed) {
     s_delete_armed = false;
     if (s_delete_timer) { app_timer_cancel(s_delete_timer); s_delete_timer = NULL; }
@@ -1988,9 +2003,11 @@ static void perform_button_action(ButtonAction action, bool message_view) {
   MenuIndex selected = selected_chat_row();
   switch (action) {
     case BUTTON_ACTION_SCROLL_UP:
+      if (selected.row == 0 && s_has_newer_chats) { request_chat_page(false); break; }
       if (s_chat_menu) menu_layer_set_selected_next(s_chat_menu, true, MenuRowAlignCenter, true);
       break;
     case BUTTON_ACTION_SCROLL_DOWN:
+      if (selected.row + 1 >= s_chat_count && s_has_older_chats) { request_chat_page(true); break; }
       if (s_chat_menu) menu_layer_set_selected_next(s_chat_menu, false, MenuRowAlignCenter, true);
       break;
     case BUTTON_ACTION_OPEN_CHAT: open_chat_at_index(&selected); break;
@@ -2306,12 +2323,12 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
   }
 
   if (strcmp(command->value->cstring, "chats_start") == 0) {
-    s_chat_count = 0;
-    s_has_older_chats = false;
-    s_has_newer_chats = false;
-    s_chat_state = VIEW_LOADING;
-    set_status(s_status_layer, s_chat_state, false);
-    if (s_chat_menu) menu_layer_reload_data(s_chat_menu);
+    s_chat_page_loading = true;
+    s_incoming_chat_count = 0;
+    s_incoming_chat_mask = 0;
+    cancel_load_watchdog();
+    s_load_watchdog = app_timer_register(30000, load_watchdog, NULL);
+    // Keep the current list visible until the replacement is complete.
     return;
   }
 
@@ -2485,13 +2502,22 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
   }
 
   if (strcmp(command->value->cstring, "chats_ready") == 0) {
+    s_restoring_chat_page = true;
+    cancel_load_watchdog();
     Tuple *total = dict_find(iterator, MESSAGE_KEY_TOTAL);
     Tuple *page_flags = dict_find(iterator, MESSAGE_KEY_HAS_MORE);
     Tuple *mode = dict_find(iterator, MESSAGE_KEY_STATE);
     Tuple *selected = dict_find(iterator, MESSAGE_KEY_INDEX);
-    int count = total ? total->value->int32 : s_chat_count;
+    int count = total ? total->value->int32 : s_incoming_chat_count;
     if (count < 0) count = 0;
     if (count > s_chat_capacity) count = s_chat_capacity;
+    s_chat_page_loading = false;
+    if (s_incoming_chat_mask != ((1u << count) - 1u)) {
+      s_restoring_chat_page = false;
+      vibes_double_pulse();
+      return;
+    }
+    if (count > 0) memcpy(s_chats, s_incoming_chats, count * sizeof(Chat));
     s_chat_count = count;
     int flags = page_flags ? page_flags->value->int32 : 0;
     s_has_older_chats = (flags & 1) != 0;
@@ -2505,7 +2531,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
           for (int row = 0; row < count; row++) {
             if (strcmp(s_chats[row].id, s_pending_pin_chat_id) == 0) {
               menu_layer_set_selected_index(s_chat_menu,
-                (MenuIndex) {.section = 0, .row = row + (s_has_newer_chats ? 1 : 0)}, MenuRowAlignCenter, false);
+                (MenuIndex) {.section = 0, .row = row}, MenuRowAlignCenter, false);
               break;
             }
           }
@@ -2514,7 +2540,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
           int chat_index = selected ? selected->value->int32 : 0;
           if (chat_index < 0) chat_index = 0;
           if (chat_index >= count) chat_index = count - 1;
-          int watch_row = chat_index + (s_has_newer_chats ? 1 : 0);
+          int watch_row = chat_index;
           MenuRowAlign align = mode && strcmp(mode->value->cstring, "newer") == 0 ?
             MenuRowAlignBottom : MenuRowAlignTop;
           if (mode && strcmp(mode->value->cstring, "archive") == 0) align = MenuRowAlignNone;
@@ -2533,10 +2559,11 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
       if (scroll_layer_get_content_offset(list_scroll).y > 0)
         scroll_layer_set_content_offset(list_scroll, GPointZero, false);
     }
+    s_restoring_chat_page = false;
     return;
   }
 
-  if (strcmp(command->value->cstring, "chat") == 0) {
+if (strcmp(command->value->cstring, "chat") == 0) {
     Tuple *index = dict_find(iterator, MESSAGE_KEY_INDEX);
     if (!index || index->value->int32 < 0 || index->value->int32 >= s_chat_capacity) return;
     int slot = index->value->int32;
@@ -2546,13 +2573,14 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     Tuple *network = dict_find(iterator, MESSAGE_KEY_NETWORK);
     Tuple *unread = dict_find(iterator, MESSAGE_KEY_UNREAD);
     Tuple *pinned = dict_find(iterator, MESSAGE_KEY_CHAT_PINNED);
-    copy_text(s_chats[slot].id, sizeof(s_chats[slot].id), id ? id->value->cstring : "");
-    copy_text(s_chats[slot].name, sizeof(s_chats[slot].name), name ? name->value->cstring : "Unknown contact");
-    copy_text(s_chats[slot].preview, sizeof(s_chats[slot].preview), preview ? preview->value->cstring : "");
-    copy_text(s_chats[slot].network, sizeof(s_chats[slot].network), network ? network->value->cstring : "");
-    s_chats[slot].unread = unread ? unread->value->int32 : 0;
-    s_chats[slot].pinned = pinned && pinned->value->int32 != 0;
-    if (slot + 1 > s_chat_count) s_chat_count = slot + 1;
+    copy_text(s_incoming_chats[slot].id, sizeof(s_incoming_chats[slot].id), id ? id->value->cstring : "");
+    copy_text(s_incoming_chats[slot].name, sizeof(s_incoming_chats[slot].name), name ? name->value->cstring : "Unknown contact");
+    copy_text(s_incoming_chats[slot].preview, sizeof(s_incoming_chats[slot].preview), preview ? preview->value->cstring : "");
+    copy_text(s_incoming_chats[slot].network, sizeof(s_incoming_chats[slot].network), network ? network->value->cstring : "");
+    s_incoming_chats[slot].unread = unread ? unread->value->int32 : 0;
+    s_incoming_chats[slot].pinned = pinned && pinned->value->int32 != 0;
+    s_incoming_chat_mask |= 1u << slot;
+    if (slot + 1 > s_incoming_chat_count) s_incoming_chat_count = slot + 1;
     return;
   }
 
@@ -2929,12 +2957,48 @@ static void chat_touch_select(MenuLayer *menu, MenuIndex *index, void *context) 
   if(s_chat_state!=VIEW_READY)return;
   open_chat_at_index(index);
 }
+#if defined(PBL_TOUCH)
+static void chat_touch_swipe(const Recognizer *recognizer, RecognizerEvent event) {
+  if (event != RecognizerEvent_Completed || !touch_service_is_enabled() ||
+      s_chat_page_loading || s_chat_state != VIEW_READY || !s_chat_menu || s_chat_count < 1) return;
+  bool down = swipe_recognizer_get_direction(recognizer) == SwipeDirection_Up;
+  int row = menu_layer_get_selected_index(s_chat_menu).row;
+  if (down && row + 1 >= s_chat_count) { request_chat_page(true); return; }
+  if (!down && row <= 0) { request_chat_page(false); return; }
+  MenuIndex next = {.section = 0, .row = row + (down ? 1 : -1)};
+  menu_layer_set_selected_index(s_chat_menu, next, MenuRowAlignCenter, true);
+}
+
+static void chat_touch_tap(const Recognizer *recognizer, RecognizerEvent event) {
+  if (event != RecognizerEvent_Completed || !touch_service_is_enabled() ||
+      s_chat_page_loading || s_chat_state != VIEW_READY || !s_chat_menu) return;
+  int y = tap_recognizer_get_tap_point(recognizer).y -
+    scroll_layer_get_content_offset(menu_layer_get_scroll_layer(s_chat_menu)).y;
+  if (y < 0) return;
+  for (int row = 0; row < s_chat_count; row++) {
+    MenuIndex index = {.section = 0, .row = row};
+    int height = chat_row_height(s_chat_menu, &index, NULL);
+    if (y < height) {
+      if (menu_layer_get_selected_index(s_chat_menu).row == row) open_chat_at_index(&index);
+      else menu_layer_set_selected_index(s_chat_menu, index, MenuRowAlignCenter, false);
+      return;
+    }
+    y -= height;
+  }
+}
+#endif
 static void main_load(Window *window) {
   Layer *root = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(root);
   window_set_background_color(window, s_theme.background);
 
   s_chat_menu = organik_menu_create(bounds);
+#if defined(PBL_TOUCH)
+  // Match Notesy's center-focused row navigation, independent of button bindings.
+  window_set_touch_bridge_disabled(window, true);
+  window_attach_recognizer(window, swipe_recognizer_create(chat_touch_swipe, NULL, SwipeDirection_Up | SwipeDirection_Down));
+  window_attach_recognizer(window, tap_recognizer_create(chat_touch_tap, NULL));
+#endif
   menu_layer_set_normal_colors(s_chat_menu, s_theme.background, s_theme.text);
   menu_layer_set_highlight_colors(s_chat_menu, s_theme.accent, s_theme.accent_text);
   menu_layer_set_callbacks(s_chat_menu, NULL, (MenuLayerCallbacks) {
@@ -2992,6 +3056,7 @@ static void main_disappear(Window *window) {
 }
 
 static void main_unload(Window *window) {
+  if (s_chat_boundary_timer) { app_timer_cancel(s_chat_boundary_timer); s_chat_boundary_timer = NULL; }
   menu_layer_destroy(s_chat_menu);
   text_layer_destroy(s_status_layer);
   s_chat_menu = NULL;
@@ -3117,7 +3182,7 @@ static void init(void) {
     const int fallback_chats = 12;
     s_chats = calloc(fallback_chats, sizeof(Chat));
     s_chat_capacity = s_chats ? fallback_chats : 0;
-    APP_LOG(APP_LOG_LEVEL_ERROR, "30-chat allocation failed; fallback capacity=%d", s_chat_capacity);
+    APP_LOG(APP_LOG_LEVEL_ERROR, "Chat allocation failed; retry capacity=%d", s_chat_capacity);
   }
   char saved_theme[20] = "classic";
   if (persist_exists(PERSIST_THEME)) persist_read_string(PERSIST_THEME, saved_theme, sizeof(saved_theme));

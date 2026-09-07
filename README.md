@@ -31,7 +31,7 @@ The Connector window can be closed after setup; its login background service con
 
 - [Install Beepster](docs/INSTALL.md) — complete Mac, Tailscale, watch, and pairing walkthrough
 - [Feedback and first-run checks](docs/FEEDBACK.md) — help improve Beepster safely
-- [0.17.0 release notes](docs/RELEASE_NOTES_0.17.0.md) — smooth scrolling, refresh fixes, new shortcuts and known limitations
+- [0.18.0 release notes](docs/RELEASE_NOTES_0.18.0.md) — improved photos, smaller fluid inbox batches, readable links and known limitations
 - [Hermes and OpenClaw setup](docs/AGENT_APPROVALS.md) — optional integrations and compatibility
 - [Use Beepster](docs/USER_GUIDE.md) — controls, replies, themes, media, and limitations
 - [Troubleshoot](docs/TROUBLESHOOTING.md) — symptom-based fixes and the private health checker
@@ -40,7 +40,7 @@ The Connector window can be closed after setup; its login background service con
 
 ## Current capabilities
 
-- Cursor-paginated access to the complete selected Beeper inboxes through a 30-chat rolling watch
+- Cursor-paginated access to the complete selected Beeper inboxes through a 12-chat rolling watch
   window, with persistent pinning, contact and sender-name normalization, and service icons
 - Automatic linking of split Apple email/phone chats matched to one Mac Contacts record, with a
   user-controlled alias fallback

@@ -1,6 +1,6 @@
 # Beepster user guide
 
-The inbox keeps a rolling window of up to 30 conversations on the watch while the phone pages
+The inbox keeps a rolling window of up to 12 conversations on the watch while the phone pages
 through the complete selected Beeper inboxes. Pinned chats appear first, followed by recent chats.
 Service filters are applied while fetching, so excluded services do not leave the watch page half
 empty.
@@ -12,16 +12,18 @@ to each Top, Center, and Bottom press or hold independently for the Threads and 
 
 | Button | Short press | Long press |
 | --- | --- | --- |
-| Top | Move to the previous chat | Move to the previous chat |
-| Center | Open the selected chat | Pin or unpin the selected chat |
-| Bottom | Move to the next chat | Move to the next chat |
+| Top | Move to the previous chat | Quick reply |
+| Center | Open the selected chat | Dictate |
+| Bottom | Move to the next chat | Archive (repeat to confirm) |
 | Back | Close Beepster | — |
 
-An **Older conversations >** row appears after the last loaded chat when more history is available.
-Scrolling onto it automatically loads the next page; no extra Center press is needed. Scrolling onto
-**< Newer conversations** at the top of an older page automatically goes back. Beepster displays its
-loading notice during the page change. The phone caches fetched pages while the watch retains only
-its current 30-chat window.
+Scrolling beyond the last loaded conversation automatically loads the next page;
+scrolling above an older page loads the newer page. There are no visible paging
+labels and no extra Center press is needed. The current list stays visible while
+the next batch arrives, then switches as a complete batch with the boundary chat
+still selected. Navigation briefly pauses during the transfer. The phone caches
+fetched conversations; each watch batch contains up to 12, with one shared
+conversation between adjacent batches. Initial startup can still show Loading.
 
 A pinned conversation moves into the pinned group at the top and displays a clear **PIN** badge.
 The most recently pinned conversation appears first. Hold Center on it again to unpin it. Pins are
@@ -108,7 +110,7 @@ Drag vertically to scroll the continuous chat timeline: text follows your finger
 while it is down and stays where you leave it. Physical Up/Down scrolling moves
 by one text line per press, including across message boundaries. Swipe right to
 return from the chat to the thread list. Visible
-neighbors load their full text too; a loading label distinguishes a temporary
+neighbors load their full text too; a small `…` indicator distinguishes a temporary
 preview from a complete message. Taps on approval requests or decision controls do not
 dictate or approve anything; leave approval selection before starting a reply.
 Taps also do not retry a failed send or interrupt an in-progress send. This local
@@ -188,3 +190,16 @@ The Mac must be awake with Beeper Desktop and the Beepster companion running. Ta
 connected on both Mac and phone. The Pebble mobile app provides the phone-to-watch transport. Cached
 gateway data may remain readable briefly during a Beeper interruption, but sending requires all
 parts of the path.
+# Photos and touch selection
+
+Phone settings now include Photo appearance: Natural (default), High contrast,
+and Original. Reopen a chat after changing the setting to reload its photos.
+The conversion runs on the Mac; it does not increase watch image dimensions or
+transfer size. Natural and High contrast use approximate display-aware colors.
+
+Swiping the conversation list moves the highlighted conversation one row and
+keeps it centered, matching Notesy. Tap once to focus a row and again
+to open it. Reaching an available page edge automatically loads the adjacent
+batch of 12 after a short pause. The current list stays visible while that batch
+arrives; there is no full-screen loading page between batches. The boundary conversation is retained and selected
+on the new page, so you can open it or continue scrolling without skipping it.

@@ -5,7 +5,17 @@ import vm from 'node:vm';
 
 const source = await readFile(new URL('../../src/pkjs/index.js', import.meta.url), 'utf8');
 
-function replyRuntime({ autoAck = true } = {}) {
+test('image preference persists and reaches attachment conversion',()=>{
+  const {context,eventListeners,storage,requests}=replyRuntime();
+  eventListeners.webviewclosed({response:encodeURIComponent(JSON.stringify({imageMode:'high-contrast'}))});
+  assert.equal(storage.get('beepster_image_mode'),'high-contrast');
+  context.loadAttachment('photo-id');
+  assert.match(requests.at(-1).url,/imageMode=high-contrast$/);
+  eventListeners.webviewclosed({response:encodeURIComponent(JSON.stringify({imageMode:'bad'}))});
+  assert.equal(storage.get('beepster_image_mode'),'high-contrast');
+});
+
+function replyRuntime({ autoAck = true, pageSize = 30 } = {}) {
   const requests = [];
   const timers = [];
   const appMessages = [];
@@ -43,6 +53,7 @@ function replyRuntime({ autoAck = true } = {}) {
     Uint8Array
   };
   vm.runInNewContext(source, context);
+  context.CHAT_PAGE_SIZE = pageSize;
   return { context, requests, timers, appMessages, storage, eventListeners, openedURLs };
 }
 
@@ -52,6 +63,23 @@ test('paired users open settings directly on their saved private gateway', () =>
   assert.equal(openedURLs.length, 1);
   assert.match(openedURLs[0], /^https:\/\/gateway\.example\/configure#/);
   assert.doesNotMatch(openedURLs[0], /github\.io/);
+});
+
+test('hide links persists through settings and applies to history and live-message reads only', () => {
+  const {context,eventListeners,storage,requests,openedURLs}=replyRuntime();
+  eventListeners.webviewclosed({response:encodeURIComponent(JSON.stringify({hideLinks:true}))});
+  assert.equal(storage.get('beepster_hide_links'),'1');
+  eventListeners.showConfiguration();
+  assert.equal(JSON.parse(decodeURIComponent(openedURLs[0].split('#')[1])).hideLinks,true);
+  context.request('/v1/chats/test/messages?limit=12',()=>{});
+  assert.match(requests.at(-1).url,/&hideLinks=1$/);
+  context.request('/v1/chats/test/messages?limit=12&cursor=older',()=>{});
+  assert.match(requests.at(-1).url,/&hideLinks=1$/);
+  context.request('/v1/agents/approvals?chatID=test',()=>{});
+  assert.doesNotMatch(requests.at(-1).url,/hideLinks/);
+  eventListeners.webviewclosed({response:encodeURIComponent(JSON.stringify({hideLinks:false}))});
+  context.request('/v1/chats/test/messages?limit=12',()=>{});
+  assert.doesNotMatch(requests.at(-1).url,/hideLinks/);
 });
 
 test('a personal build migrates a stale saved gateway without losing its credential', () => {
@@ -307,6 +335,35 @@ test('full message detail packets stay tagged to their originating message', () 
   assert.equal(appMessages.at(-1)[30], 'message-1');
 });
 
+test('reply progress bypasses bulk content without losing status order', () => {
+  const {context,appMessages}=replyRuntime({autoAck:false});
+  context.enqueue({0:'media_chunk'});
+  for(let i=0;i<20;i++)context.enqueue({0:'message_detail_chunk'});
+  context.sendState('reply_sending');
+  context.sendState('reply_pending');
+  context.sendState('reply_sent');
+  assert.equal(appMessages.length,1);
+  assert.equal(context.queue[0].message[0],'media_chunk');
+  assert.deepEqual(Array.from(context.queue.slice(1,4),entry=>entry.message[1]),
+    ['reply_sending','reply_pending','reply_sent']);
+  assert.equal(context.queue[4].message[0],'message_detail_chunk');
+});
+
+test('large text uses fewer packets without exceeding the watch inbox', () => {
+  const {context,appMessages}=replyRuntime();
+  const body='é🚀'.repeat(1000);
+  context.messageTextByID['m'.repeat(120)]=body;
+  context.sendMessageDetail('m'.repeat(120));
+  const chunks=appMessages.filter(packet=>packet[0]==='message_detail_chunk');
+  assert.equal(chunks.map(packet=>packet[31]).join(''),body);
+  assert.equal(chunks.length,5); // Previously 13 packets at 500 bytes per chunk.
+  for(const packet of chunks){
+    const bytes=1+Object.entries(packet).reduce((total,[key,value])=>total+7+Buffer.byteLength(String(value),'utf8')+1,0);
+    assert.ok(bytes<2048);
+    assert.ok(Buffer.byteLength(packet[31],'utf8')<=1400);
+  }
+});
+
 test('inline photo packets stay tagged to their originating attachment', () => {
   const { context, requests, appMessages } = replyRuntime();
   context.loadAttachment('attachment-1');
@@ -540,6 +597,59 @@ test('the watch inbox is bounded at thirty conversations', () => {
   assert.equal(appMessages.at(-1)[4], 30);
 });
 
+test('overlapping pages preserve the boundary conversation in both directions',()=>{
+  const {context,requests,appMessages}=replyRuntime();
+  context.loadChats();requests[0].status=200;
+  requests[0].responseText=JSON.stringify({items:Array.from({length:75},(_,i)=>({id:'c'+i,name:'C'+i,network:'Signal'})),hasMore:false});requests[0].onload();
+  context.loadOlderChats();assert.equal(context.inboxPageStart,29);
+  assert.equal(appMessages.filter(m=>m[0]==='chat').at(-30)[5],'c29');
+  assert.equal(appMessages.at(-1)[3],0);
+  context.loadOlderChats();assert.equal(context.inboxPageStart,58);
+  context.loadNewerChats();assert.equal(context.inboxPageStart,29);
+  assert.equal(appMessages.at(-1)[3],29);
+  assert.equal(appMessages.filter(m=>m[0]==='chat').at(-1)[5],'c58');
+  context.loadNewerChats();assert.equal(context.inboxPageStart,0);
+  assert.equal(appMessages.filter(m=>m[0]==='chat').at(-1)[5],'c29');
+});
+
+test('production twelve-chat batches reduce packets and retain the shared boundary',()=>{
+  assert.match(source,/var CHAT_PAGE_SIZE = 12;/);
+  const {context,requests,appMessages}=replyRuntime({pageSize:12});
+  context.loadChats();requests[0].status=200;
+  requests[0].responseText=JSON.stringify({items:Array.from({length:40},(_,i)=>({id:'c'+i,name:'C'+i,network:'Signal'})),hasMore:false});requests[0].onload();
+  assert.equal(appMessages.filter(m=>m[0]==='chat').length,12);
+  appMessages.length=0;context.loadOlderChats();
+  assert.equal(context.inboxPageStart,11);
+  assert.equal(appMessages.filter(m=>m[0]==='chat').length,12);
+  assert.equal(appMessages.filter(m=>m[0]==='chat')[0][5],'c11');
+  assert.equal(appMessages.filter(m=>['chats_start','chat','chats_ready'].includes(m[0])).length,14);
+  context.loadNewerChats();assert.equal(context.inboxPageStart,0);
+  assert.equal(appMessages.at(-1)[3],11);
+});
+
+test('returning from a message keeps an older inbox page without redrawing its selection',()=>{
+  const {context,requests,appMessages,eventListeners,timers}=replyRuntime();
+  context.loadChats();requests[0].status=200;
+  requests[0].responseText=JSON.stringify({items:Array.from({length:90},(_,i)=>({id:'c'+i,name:'C'+i,network:'Signal'})),hasMore:false});requests[0].onload();
+  context.loadOlderChats();context.loadOlderChats();
+  assert.equal(context.inboxPageStart,58);
+  eventListeners.appmessage({payload:{0:'chat_view_open',5:'c65'}});
+  const requestCount=requests.length;
+  appMessages.length=0;
+  eventListeners.appmessage({payload:{0:'thread_view_open'}});
+  assert.equal(context.inboxPageStart,58);
+  assert.equal(context.activeMessageChatID,'');
+  assert.equal(requests.length,requestCount);
+  assert.equal(appMessages.length,0); // No chats_start/reload can move the watch highlight.
+  context.loadChats('refresh');
+  assert.equal(context.inboxPageStart,58);
+  assert.equal(requests.length,requestCount);
+  assert.ok(timers.some(timer=>timer.delay===15000));
+  eventListeners.appmessage({payload:{0:'load_chats'}});
+  assert.equal(context.inboxPageStart,0); // Explicit jump-to-newest still works.
+  assert.equal(requests.length,requestCount+1);
+});
+
 test('older and newer chat pages keep only a thirty-chat watch window', () => {
   const { context, requests, appMessages } = replyRuntime();
   context.loadChats();
@@ -554,7 +664,7 @@ test('older and newer chat pages keep only a thirty-chat watch window', () => {
   appMessages.length = 0;
   context.loadOlderChats();
   let chats = appMessages.filter((message) => message[0] === 'chat');
-  assert.deepEqual(chats.map((message) => message[5]), ['chat-30','chat-31','chat-32','chat-33','chat-34']);
+  assert.deepEqual(chats.map((message) => message[5]), ['chat-29','chat-30','chat-31','chat-32','chat-33','chat-34']);
   assert.equal(appMessages.at(-1)[33], 2);
 
   appMessages.length = 0;
@@ -575,7 +685,7 @@ test('jumping from an older watch page reloads the actual newest Beeper page', (
   requests[0].responseText = JSON.stringify({items:original,hasMore:false});
   requests[0].onload();
   context.loadOlderChats();
-  assert.equal(appMessages.filter((message) => message[0] === 'chat')[30][5], 'old-30');
+  assert.equal(appMessages.filter((message) => message[0] === 'chat')[30][5], 'old-29');
 
   appMessages.length = 0;
   eventListeners.appmessage({payload:{0:'load_chats'}});
@@ -612,6 +722,30 @@ test('service filtering fetches additional pages until the watch page is populat
   requests[1].onload();
   assert.deepEqual(appMessages.filter((message) => message[0] === 'chat').map((message) => message[5]),
     ['instagram-1','instagram-2']);
+});
+
+test('paging waits for an in-flight refresh instead of silently dropping the request', () => {
+  const {context,requests,appMessages,timers}=replyRuntime();
+  context.loadChats();
+  context.loadOlderChats();
+  const retry=timers.find(timer=>timer.delay===500);
+  assert.ok(retry);
+  requests[0].status=200;
+  requests[0].responseText=JSON.stringify({items:Array.from({length:60},(_,i)=>({id:'chat-'+i,name:'Chat '+i,network:'Signal'})),hasMore:false});
+  requests[0].onload();
+  retry.callback();
+  assert.equal(context.inboxPageStart,29);
+  assert.equal(appMessages.at(-1)[0],'chats_ready');
+  assert.equal(appMessages.at(-1)[1],'older');
+});
+
+test('background refresh does not cancel an in-flight conversation page', () => {
+  const {context,requests}=replyRuntime();
+  context.inboxPageLoading=true;
+  const generation=context.chatLoadGeneration;
+  context.loadChats('refresh');
+  assert.equal(context.chatLoadGeneration,generation);
+  assert.equal(requests.length,0);
 });
 
 test('selected inbox sections are appended in configured order', () => {

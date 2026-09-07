@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.18.0 — Clearer photos and lighter conversation browsing
+
+- Add Natural, High contrast and Original photo modes in phone settings, with
+  display-aware palette matching and light dithering. Support transparent and
+  opaque 32-bit macOS bitmap conversion as well as 24-bit input.
+- Use 12-conversation rolling batches with one shared boundary conversation.
+  Keep the previous list visible while receiving an entire replacement batch;
+  remove full-screen loading between conversation batches.
+- Match Notesy's centered swipe selection and automatic boundary paging. Retain
+  older-page position when returning from an open chat; explicit Jump to newest
+  still reloads the newest inbox. Touch cannot decide agent approvals.
+- Show HTML/Markdown links as labels and bare URLs as site names. Add Hide links
+  to phone settings without changing outgoing replies or approval descriptions.
+- Prioritize reply status packets over queued content and increase full-message
+  chunk size, reducing transfer overhead. Retry paging blocked by an active refresh.
+- Require unified Connector 0.8.0 or newer for matching image/link modules.
+
+See [release notes and validation limits](docs/RELEASE_NOTES_0.18.0.md).
+
 ## 0.17.0 — Smooth scrolling, reliable refresh, and simpler controls
 
 - Use a continuous, finger-following chat timeline with clipped, recycled visible

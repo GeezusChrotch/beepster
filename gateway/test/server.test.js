@@ -36,6 +36,23 @@ async function withServer(client, callback, options = {}) {
   }
 }
 
+test('message cache separates each phone link-display preference', async () => {
+  const modes=[];
+  await withServer({listMessages:async (id,limit,cursor,hideLinks) => {
+    modes.push(hideLinks);
+    if (modes.length > 2) throw new Error('Synthetic upstream offline');
+    return {items:[{id:'m',text:hideLinks?'Hello':'Hello Link'}]};
+  }}, async baseURL => {
+    const headers={Authorization:'Bearer gateway-secret'};
+    for (const [query,expected] of [['','Hello Link'],['&hideLinks=1','Hello'],['','Hello Link'],['&hideLinks=1','Hello']]) {
+      const response=await fetch(baseURL+'/v1/chats/test/messages?limit=12'+query,{headers});
+      assert.equal((await response.json()).items[0].text,expected);
+    }
+  });
+  // Offline fallback must not return a cached result from another preference.
+  assert.deepEqual(modes,[false,true,false,true]);
+});
+
 test('health is public but chat data requires gateway authentication', async () => {
   await withServer({ listChats: async () => [] }, async (baseURL) => {
     assert.equal((await fetch(`${baseURL}/health`)).status, 200);

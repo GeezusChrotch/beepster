@@ -33,9 +33,28 @@ connections and saved themes do not require resetting.
 
 ## Double Back and phone-only customization
 
+### Link display
+
+Links in chat messages show their label instead of the destination URL. Bare web
+URLs show only the site hostname; Beepster never fetches a webpage to guess its
+title. Enable **Hide links in messages** under Setup to remove both labels and
+URLs while preserving surrounding text and attachments. This preference does not
+change sent messages or agent approval descriptions. It requires an updated
+watch/phone package and matching unified Connector gateway.
+
 Double Back is configurable separately for the conversation list and open chat. It defaults to Top of conversation list, fetching the newest page even from older pages. Press Back twice quickly to run it; a single Back still returns and a long Back retains the watch OS exit behavior. Approval rows permit this safe navigation action but ignore other Double Back bindings. Theme and button customization are phone-only.
 
 In both views, default long presses are Top: Quick reply, Middle: Dictate, Bottom:
 Delete (archive in the list, delete message in a chat; repeat to confirm). Short
 Middle opens a conversation in the list and has no action in a chat. Unchanged
 old defaults migrate; custom assignments are preserved.
+## Photo appearance
+
+Photo appearance and link-display options require Beepster 0.18.0 and unified
+Organik Apps Pebble Connector 0.8.0 or newer.
+
+Choose **Natural**, **High contrast**, or **Original** in phone settings. Natural
+uses display-aware colors and light photo dithering; High contrast emphasizes
+light and dark details. Original preserves the previous color conversion.
+Reopen the chat to reload photos after changing modes. This does not alter source
+attachments, emoji artwork, or message text. Appearance still depends on lighting.

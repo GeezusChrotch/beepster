@@ -2,6 +2,10 @@
 
 Use the free **Organik Apps Pebble Connector** on macOS 14 or newer.
 
+For Beepster **0.18.0**, update to **Connector 0.8.0 or newer** first. The Connector
+delivers the matching photo conversion and link-display settings; updating only
+the watch app does not update the Mac gateway. Existing pairing and settings are retained.
+
 1. Download the [unified connector](https://github.com/GeezusChrotch/organik-pebble-connector/releases/latest), drag it into Applications and open it.
 2. Install Tailscale on the Mac and paired phone and sign both into the same private network.
 3. Select **Beepster** in the sidebar, follow **Connect**, and resolve unmet **Requirements**.
@@ -24,6 +28,6 @@ change is required. Older standalone setup details remain in [the legacy guide](
 including their version-specific controls. The unified connector’s current guide takes precedence
 for its setup, repair and permission controls.
 
-For optional Hermes/OpenClaw approval controls, update both the watch app to 0.15.0
+For optional Hermes/OpenClaw approval controls, update both the watch app to 0.18.0
 and the unified Connector, then follow [agent setup](AGENT_APPROVALS.md). Ordinary
 messaging does not require either agent. Existing pairing and themes can be retained.
