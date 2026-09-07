@@ -22,6 +22,7 @@ node --check "$project_dir/gateway/src/hermes-client.js"
 python3 "$project_dir/gateway/test/hermes-bridge_test.py"
 node --check "$project_dir/gateway/src/server.js"
 node --check "$project_dir/scripts/build-emoji-assets.mjs"
+node --check "$project_dir/scripts/build-watch-emoji-defaults.mjs"
 if [ "$(uname -s)" = Darwin ]; then
   swiftc -target "$(uname -m)-apple-macosx13.0" -framework AppKit -framework Security -typecheck "$project_dir/mac/BeepsterConnector.swift"
   plutil -lint "$project_dir/mac/BeepsterConnector-Info.plist" "$project_dir/mac/BeepsterContacts-Info.plist" >/dev/null

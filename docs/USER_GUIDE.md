@@ -1,5 +1,9 @@
 # Beepster user guide
 
+Beepster 0.19.0 uses larger 18-pixel service icons, 24-pixel chat emoji and
+26-pixel emoji replies, plus a wider 6-pixel sender stripe. Update Connector to
+0.8.2 or newer and choose Beepster → Set up service for matching downloaded emoji.
+
 The inbox keeps a rolling window of up to 12 conversations on the watch while the phone pages
 through the complete selected Beeper inboxes. Pinned chats appear first, followed by recent chats.
 Service filters are applied while fetching, so excluded services do not leave the watch page half

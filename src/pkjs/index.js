@@ -888,7 +888,7 @@ function loadEmojiReplyAtlas() {
   }
   var generation = ++replyEmojiAtlasGeneration;
   var replies = configuredEmojiReplies();
-  postJSON('/v1/emoji/atlas', {keys:replies.map(function(reply) { return reply.key; }),size:20,columns:5}, function(atlas) {
+  postJSON('/v1/emoji/atlas', {keys:replies.map(function(reply) { return reply.key; }),size:26,columns:5}, function(atlas) {
     if (generation !== replyEmojiAtlasGeneration) return;
     discardQueuedCommands(['emoji_replies_start','emoji_replies_chunk','emoji_replies_end']);
     enqueueEmojiAtlas('emoji_replies', atlas);
@@ -1249,7 +1249,7 @@ function sendChatEmojiAtlas() {
     var clear = {}; clear[KEY_COMMAND] = 'chat_emoji_clear'; enqueue(clear);
     return;
   }
-  postJSON('/v1/emoji/atlas', {keys:chatEmojiKeys,size:18,columns:4}, function(atlas) {
+  postJSON('/v1/emoji/atlas', {keys:chatEmojiKeys,size:24,columns:4}, function(atlas) {
     if (generation !== chatEmojiAtlasGeneration || chatID !== activeMessageChatID) return;
     discardQueuedCommands(['chat_emoji_start','chat_emoji_chunk','chat_emoji_end','chat_emoji_clear']);
     enqueueEmojiAtlas('chat_emoji', atlas);

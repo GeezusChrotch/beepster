@@ -144,7 +144,7 @@ test('opening emoji replies downloads and transfers only the configured bitmap a
   assert.equal(requests[0].url, 'https://gateway.example/v1/emoji/atlas');
   const requested = JSON.parse(requests[0].body);
   assert.equal(requested.keys.length, 15);
-  assert.deepEqual({size:requested.size,columns:requested.columns}, {size:20,columns:5});
+  assert.deepEqual({size:requested.size,columns:requested.columns}, {size:26,columns:5});
   requests[0].status = 200;
   requests[0].responseText = JSON.stringify({
     width:100,height:60,pixels:Buffer.alloc(6000, 0xc0).toString('base64'),
@@ -168,7 +168,7 @@ test('message emoji tokens become compact inline bitmap slots', () => {
   }]});
   requests[0].onload();
   const atlasRequest = requests.find(request => request.url.endsWith('/v1/emoji/atlas'));
-  assert.deepEqual(JSON.parse(atlasRequest.body), {keys:['1f602','2764'],size:18,columns:4});
+  assert.deepEqual(JSON.parse(atlasRequest.body), {keys:['1f602','2764'],size:24,columns:4});
   const message = appMessages.find(packet => packet[0] === 'message');
   assert.equal(message[11], 'Nice \x1dA\x1d \x1dB\x1d');
   assert.equal(message[36], 0);

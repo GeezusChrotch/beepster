@@ -23,9 +23,9 @@ static uint8_t s_quick_wait_attempts;
 #define MAX_QUICK_REPLIES 8
 #define QUICK_REPLY_LEN 96
 #define EMOJI_REPLY_COUNT 15
-#define EMOJI_ICON_SIZE 24
+#define EMOJI_ICON_SIZE 26
 #define CHAT_EMOJI_COUNT 12
-#define CHAT_EMOJI_SIZE 18
+#define CHAT_EMOJI_SIZE 24
 #define EMOJI_MARKER 0x1d
 #define MARQUEE_STEP_PIXELS 2
 #define MARQUEE_FRAME_MS 80
@@ -430,92 +430,92 @@ static void draw_service_icon(GContext *ctx, GRect frame, const char *network, G
   graphics_context_set_stroke_width(ctx, 1);
 
   if (icon == SERVICE_INSTAGRAM) {
-    graphics_draw_round_rect(ctx, GRect(x + 1, y + 1, 12, 12), 3);
-    graphics_draw_circle(ctx, GPoint(x + 7, y + 7), 3);
-    icon_dot(ctx, x + 10, y + 3, 2);
+    graphics_draw_round_rect(ctx, GRect(x + 1, y + 1, 15, 15), 4);
+    graphics_draw_circle(ctx, GPoint(x + 9, y + 9), 4);
+    icon_dot(ctx, x + 13, y + 4, 3);
   } else if (icon == SERVICE_TELEGRAM) {
-    graphics_draw_line(ctx, GPoint(x + 1, y + 6), GPoint(x + 13, y + 1));
-    graphics_draw_line(ctx, GPoint(x + 13, y + 1), GPoint(x + 9, y + 13));
-    graphics_draw_line(ctx, GPoint(x + 9, y + 13), GPoint(x + 1, y + 6));
-    graphics_draw_line(ctx, GPoint(x + 3, y + 6), GPoint(x + 10, y + 4));
-    graphics_draw_line(ctx, GPoint(x + 3, y + 6), GPoint(x + 8, y + 9));
+    graphics_draw_line(ctx, GPoint(x + 1, y + 8), GPoint(x + 17, y + 1));
+    graphics_draw_line(ctx, GPoint(x + 17, y + 1), GPoint(x + 12, y + 17));
+    graphics_draw_line(ctx, GPoint(x + 12, y + 17), GPoint(x + 1, y + 8));
+    graphics_draw_line(ctx, GPoint(x + 4, y + 8), GPoint(x + 13, y + 5));
+    graphics_draw_line(ctx, GPoint(x + 4, y + 8), GPoint(x + 10, y + 12));
   } else if (icon == SERVICE_X) {
-    graphics_context_set_stroke_width(ctx, 2);
-    graphics_draw_line(ctx, GPoint(x + 2, y + 1), GPoint(x + 12, y + 13));
-    graphics_draw_line(ctx, GPoint(x + 11, y + 1), GPoint(x + 2, y + 13));
+    graphics_context_set_stroke_width(ctx, 3);
+    graphics_draw_line(ctx, GPoint(x + 3, y + 1), GPoint(x + 15, y + 17));
+    graphics_draw_line(ctx, GPoint(x + 14, y + 1), GPoint(x + 3, y + 17));
   } else if (icon == SERVICE_SLACK) {
-    graphics_context_set_stroke_width(ctx, 2);
-    graphics_draw_line(ctx, GPoint(x + 5, y + 1), GPoint(x + 4, y + 13));
-    graphics_draw_line(ctx, GPoint(x + 10, y + 1), GPoint(x + 9, y + 13));
-    graphics_draw_line(ctx, GPoint(x + 1, y + 5), GPoint(x + 13, y + 4));
-    graphics_draw_line(ctx, GPoint(x + 1, y + 10), GPoint(x + 13, y + 9));
+    graphics_context_set_stroke_width(ctx, 3);
+    graphics_draw_line(ctx, GPoint(x + 6, y + 1), GPoint(x + 5, y + 17));
+    graphics_draw_line(ctx, GPoint(x + 13, y + 1), GPoint(x + 12, y + 17));
+    graphics_draw_line(ctx, GPoint(x + 1, y + 6), GPoint(x + 17, y + 5));
+    graphics_draw_line(ctx, GPoint(x + 1, y + 13), GPoint(x + 17, y + 12));
   } else if (icon == SERVICE_LINKEDIN) {
-    graphics_draw_rect(ctx, GRect(x + 1, y + 1, 12, 12));
-    icon_dot(ctx, x + 3, y + 3, 2);
-    graphics_fill_rect(ctx, GRect(x + 3, y + 6, 2, 5), 0, GCornerNone);
-    graphics_fill_rect(ctx, GRect(x + 7, y + 6, 2, 5), 0, GCornerNone);
-    graphics_draw_line(ctx, GPoint(x + 8, y + 6), GPoint(x + 11, y + 8));
-    graphics_draw_line(ctx, GPoint(x + 11, y + 8), GPoint(x + 11, y + 11));
+    graphics_draw_rect(ctx, GRect(x + 1, y + 1, 15, 15));
+    icon_dot(ctx, x + 4, y + 4, 3);
+    graphics_fill_rect(ctx, GRect(x + 4, y + 8, 3, 6), 0, GCornerNone);
+    graphics_fill_rect(ctx, GRect(x + 9, y + 8, 3, 6), 0, GCornerNone);
+    graphics_draw_line(ctx, GPoint(x + 10, y + 8), GPoint(x + 14, y + 10));
+    graphics_draw_line(ctx, GPoint(x + 14, y + 10), GPoint(x + 14, y + 14));
   } else if (icon == SERVICE_DISCORD) {
-    graphics_draw_round_rect(ctx, GRect(x + 1, y + 3, 12, 8), 3);
-    graphics_draw_line(ctx, GPoint(x + 3, y + 3), GPoint(x + 4, y + 1));
-    graphics_draw_line(ctx, GPoint(x + 11, y + 3), GPoint(x + 10, y + 1));
-    icon_dot(ctx, x + 4, y + 6, 2);
-    icon_dot(ctx, x + 9, y + 6, 2);
-    graphics_draw_line(ctx, GPoint(x + 4, y + 11), GPoint(x + 2, y + 13));
-    graphics_draw_line(ctx, GPoint(x + 10, y + 11), GPoint(x + 12, y + 13));
+    graphics_draw_round_rect(ctx, GRect(x + 1, y + 4, 15, 10), 4);
+    graphics_draw_line(ctx, GPoint(x + 4, y + 4), GPoint(x + 5, y + 1));
+    graphics_draw_line(ctx, GPoint(x + 14, y + 4), GPoint(x + 13, y + 1));
+    icon_dot(ctx, x + 5, y + 8, 3);
+    icon_dot(ctx, x + 12, y + 8, 3);
+    graphics_draw_line(ctx, GPoint(x + 5, y + 14), GPoint(x + 3, y + 17));
+    graphics_draw_line(ctx, GPoint(x + 13, y + 14), GPoint(x + 15, y + 17));
   } else if (icon == SERVICE_BEEPER) {
-    graphics_draw_circle(ctx, GPoint(x + 7, y + 7), 5);
-    graphics_draw_line(ctx, GPoint(x + 3, y + 5), GPoint(x + 11, y + 5));
-    graphics_draw_line(ctx, GPoint(x + 2, y + 8), GPoint(x + 12, y + 8));
-    graphics_draw_line(ctx, GPoint(x + 5, y + 2), GPoint(x + 3, y));
-    graphics_draw_line(ctx, GPoint(x + 9, y + 2), GPoint(x + 11, y));
+    graphics_draw_circle(ctx, GPoint(x + 9, y + 9), 6);
+    graphics_draw_line(ctx, GPoint(x + 4, y + 6), GPoint(x + 14, y + 6));
+    graphics_draw_line(ctx, GPoint(x + 3, y + 10), GPoint(x + 15, y + 10));
+    graphics_draw_line(ctx, GPoint(x + 6, y + 3), GPoint(x + 4, y));
+    graphics_draw_line(ctx, GPoint(x + 12, y + 3), GPoint(x + 14, y));
   } else if (icon == SERVICE_SIGNAL) {
-    graphics_draw_round_rect(ctx, GRect(x + 2, y + 2, 10, 9), 4);
-    icon_dot(ctx, x + 1, y + 4, 1); icon_dot(ctx, x + 3, y + 1, 1);
-    icon_dot(ctx, x + 11, y + 2, 1); icon_dot(ctx, x + 12, y + 8, 1);
-    graphics_draw_line(ctx, GPoint(x + 5, y + 11), GPoint(x + 3, y + 13));
+    graphics_draw_round_rect(ctx, GRect(x + 3, y + 3, 13, 12), 5);
+    icon_dot(ctx, x + 1, y + 5, 1); icon_dot(ctx, x + 4, y + 1, 1);
+    icon_dot(ctx, x + 14, y + 3, 1); icon_dot(ctx, x + 15, y + 10, 1);
+    graphics_draw_line(ctx, GPoint(x + 6, y + 14), GPoint(x + 4, y + 17));
   } else if (icon == SERVICE_WHATSAPP) {
-    graphics_draw_circle(ctx, GPoint(x + 7, y + 7), 6);
-    graphics_draw_line(ctx, GPoint(x + 4, y + 4), GPoint(x + 10, y + 10));
-    graphics_context_set_stroke_width(ctx, 2);
-    graphics_draw_line(ctx, GPoint(x + 4, y + 5), GPoint(x + 5, y + 8));
-    graphics_draw_line(ctx, GPoint(x + 5, y + 8), GPoint(x + 9, y + 10));
+    graphics_draw_circle(ctx, GPoint(x + 9, y + 9), 8);
+    graphics_draw_line(ctx, GPoint(x + 5, y + 5), GPoint(x + 13, y + 13));
+    graphics_context_set_stroke_width(ctx, 3);
+    graphics_draw_line(ctx, GPoint(x + 5, y + 6), GPoint(x + 6, y + 10));
+    graphics_draw_line(ctx, GPoint(x + 6, y + 10), GPoint(x + 12, y + 13));
   } else if (icon == SERVICE_GOOGLE_VOICE) {
-    graphics_draw_round_rect(ctx, GRect(x + 1, y + 2, 12, 9), 4);
-    graphics_draw_line(ctx, GPoint(x + 5, y + 11), GPoint(x + 3, y + 13));
-    graphics_context_set_stroke_width(ctx, 2);
-    graphics_draw_line(ctx, GPoint(x + 4, y + 5), GPoint(x + 5, y + 8));
-    graphics_draw_line(ctx, GPoint(x + 5, y + 8), GPoint(x + 9, y + 9));
+    graphics_draw_round_rect(ctx, GRect(x + 1, y + 3, 15, 12), 5);
+    graphics_draw_line(ctx, GPoint(x + 6, y + 14), GPoint(x + 4, y + 17));
+    graphics_context_set_stroke_width(ctx, 3);
+    graphics_draw_line(ctx, GPoint(x + 5, y + 6), GPoint(x + 6, y + 10));
+    graphics_draw_line(ctx, GPoint(x + 6, y + 10), GPoint(x + 12, y + 12));
   } else if (icon == SERVICE_MESSENGER) {
-    graphics_draw_round_rect(ctx, GRect(x + 1, y + 2, 12, 9), 4);
-    graphics_draw_line(ctx, GPoint(x + 5, y + 11), GPoint(x + 3, y + 13));
-    graphics_draw_line(ctx, GPoint(x + 3, y + 8), GPoint(x + 7, y + 5));
-    graphics_draw_line(ctx, GPoint(x + 7, y + 5), GPoint(x + 6, y + 9));
-    graphics_draw_line(ctx, GPoint(x + 6, y + 9), GPoint(x + 11, y + 5));
+    graphics_draw_round_rect(ctx, GRect(x + 1, y + 3, 15, 12), 5);
+    graphics_draw_line(ctx, GPoint(x + 6, y + 14), GPoint(x + 4, y + 17));
+    graphics_draw_line(ctx, GPoint(x + 4, y + 10), GPoint(x + 9, y + 6));
+    graphics_draw_line(ctx, GPoint(x + 9, y + 6), GPoint(x + 8, y + 12));
+    graphics_draw_line(ctx, GPoint(x + 8, y + 12), GPoint(x + 14, y + 6));
   } else if (icon == SERVICE_GOOGLE_MESSAGES) {
-    graphics_draw_round_rect(ctx, GRect(x + 1, y + 2, 12, 9), 4);
-    graphics_draw_line(ctx, GPoint(x + 5, y + 11), GPoint(x + 3, y + 13));
-    icon_dot(ctx, x + 4, y + 6, 1); icon_dot(ctx, x + 7, y + 6, 1); icon_dot(ctx, x + 10, y + 6, 1);
+    graphics_draw_round_rect(ctx, GRect(x + 1, y + 3, 15, 12), 5);
+    graphics_draw_line(ctx, GPoint(x + 6, y + 14), GPoint(x + 4, y + 17));
+    icon_dot(ctx, x + 5, y + 8, 1); icon_dot(ctx, x + 9, y + 8, 1); icon_dot(ctx, x + 13, y + 8, 1);
   } else if (icon == SERVICE_GOOGLE_CHAT) {
-    graphics_draw_rect(ctx, GRect(x + 1, y + 2, 11, 9));
-    graphics_draw_line(ctx, GPoint(x + 4, y + 11), GPoint(x + 2, y + 13));
-    graphics_draw_line(ctx, GPoint(x + 5, y + 5), GPoint(x + 10, y + 5));
-    graphics_draw_line(ctx, GPoint(x + 5, y + 8), GPoint(x + 9, y + 8));
+    graphics_draw_rect(ctx, GRect(x + 1, y + 3, 14, 12));
+    graphics_draw_line(ctx, GPoint(x + 5, y + 14), GPoint(x + 3, y + 17));
+    graphics_draw_line(ctx, GPoint(x + 6, y + 6), GPoint(x + 13, y + 6));
+    graphics_draw_line(ctx, GPoint(x + 6, y + 10), GPoint(x + 12, y + 10));
   } else if (icon == SERVICE_LINE) {
-    graphics_draw_round_rect(ctx, GRect(x + 1, y + 2, 12, 9), 4);
-    graphics_draw_line(ctx, GPoint(x + 9, y + 11), GPoint(x + 11, y + 13));
-    graphics_draw_line(ctx, GPoint(x + 4, y + 5), GPoint(x + 4, y + 8));
-    graphics_draw_line(ctx, GPoint(x + 4, y + 8), GPoint(x + 8, y + 8));
+    graphics_draw_round_rect(ctx, GRect(x + 1, y + 3, 15, 12), 5);
+    graphics_draw_line(ctx, GPoint(x + 12, y + 14), GPoint(x + 14, y + 17));
+    graphics_draw_line(ctx, GPoint(x + 5, y + 6), GPoint(x + 5, y + 10));
+    graphics_draw_line(ctx, GPoint(x + 5, y + 10), GPoint(x + 10, y + 10));
   } else if (icon == SERVICE_IMESSAGE) {
-    graphics_draw_circle(ctx, GPoint(x + 7, y + 6), 5);
-    graphics_draw_line(ctx, GPoint(x + 4, y + 10), GPoint(x + 2, y + 13));
-    graphics_draw_line(ctx, GPoint(x + 2, y + 13), GPoint(x + 7, y + 11));
+    graphics_draw_circle(ctx, GPoint(x + 9, y + 8), 6);
+    graphics_draw_line(ctx, GPoint(x + 5, y + 13), GPoint(x + 3, y + 17));
+    graphics_draw_line(ctx, GPoint(x + 3, y + 17), GPoint(x + 9, y + 14));
   } else {
-    graphics_draw_round_rect(ctx, GRect(x + 1, y + 2, 12, 9), 4);
-    graphics_draw_line(ctx, GPoint(x + 5, y + 11), GPoint(x + 3, y + 13));
+    graphics_draw_round_rect(ctx, GRect(x + 1, y + 3, 15, 12), 5);
+    graphics_draw_line(ctx, GPoint(x + 6, y + 14), GPoint(x + 4, y + 17));
     if (icon == SERVICE_UNKNOWN) {
-      icon_dot(ctx, x + 4, y + 6, 1); icon_dot(ctx, x + 7, y + 6, 1); icon_dot(ctx, x + 10, y + 6, 1);
+      icon_dot(ctx, x + 5, y + 8, 1); icon_dot(ctx, x + 9, y + 8, 1); icon_dot(ctx, x + 13, y + 8, 1);
     }
   }
 }
@@ -1336,10 +1336,10 @@ static void draw_chat(GContext *ctx, const Layer *cell, MenuIndex *index, void *
 
   graphics_context_set_text_color(ctx, foreground);
   draw_marquee_text(ctx, chat->name, font_for_text(chat->name),
-    GRect(25, 2, bounds.size.w - 33 - pin_width, name_height), selected);
+    GRect(29, 2, bounds.size.w - 37 - pin_width, name_height), selected);
   graphics_context_set_fill_color(ctx, selected ? s_theme.accent : s_theme.background);
-  graphics_fill_rect(ctx, GRect(0, 0, 24, name_height + 3), 0, GCornerNone);
-  draw_service_icon(ctx, GRect(7, 2 + (name_height - 14) / 2, 14, 14), chat->network, foreground);
+  graphics_fill_rect(ctx, GRect(0, 0, 28, name_height + 3), 0, GCornerNone);
+  draw_service_icon(ctx, GRect(7, 2 + (name_height - 18) / 2, 18, 18), chat->network, foreground);
 
   if (chat->pinned) {
     GRect badge = GRect(bounds.size.w - 36, 2 + (name_height - 16) / 2, 32, 16);
@@ -1650,11 +1650,11 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
 
   if (1 - content_scroll < bounds.size.h && 1 - content_scroll + sender_height > 0) {
   draw_marquee_text(ctx, message->sender, font_for_text(message->sender),
-    GRect(25, 1 - content_scroll, bounds.size.w - 33, sender_height), selected);
+    GRect(29, 1 - content_scroll, bounds.size.w - 37, sender_height), selected);
   graphics_context_set_fill_color(ctx, s_theme.background);
-  graphics_fill_rect(ctx, GRect(0, 1 - content_scroll, 24, sender_height), 0, GCornerNone);
+  graphics_fill_rect(ctx, GRect(0, 1 - content_scroll, 28, sender_height), 0, GCornerNone);
   draw_service_icon(ctx,
-    GRect(7, 1 - content_scroll + (sender_height - 14) / 2, 14, 14),
+    GRect(7, 1 - content_scroll + (sender_height - 18) / 2, 18, 18),
     s_active_chat_network, participant_color);
   }
   graphics_context_set_text_color(ctx, s_theme.text);
@@ -1692,7 +1692,8 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
     GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
   }
   graphics_context_set_fill_color(ctx, participant_color);
-  graphics_fill_rect(ctx, GRect(0, 0, 3, bounds.size.h), 0, GCornerNone);
+  // Double-width sender stripe; keep clear of the icon at x=7 and text at x=8.
+  graphics_fill_rect(ctx, GRect(0, 0, 6, bounds.size.h), 0, GCornerNone);
 }
 
 static void retry_messages(ClickRecognizerRef recognizer, void *context) {
@@ -2278,7 +2279,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
     int requested_count = count ? count->value->int32 : 0;
     clear_chat_emoji_atlas();
     if (atlas_width != CHAT_EMOJI_SIZE * 4 || atlas_height < CHAT_EMOJI_SIZE ||
-        requested != (size_t)atlas_width * atlas_height || requested > 8000 ||
+        requested != (size_t)atlas_width * atlas_height || requested > CHAT_EMOJI_COUNT * CHAT_EMOJI_SIZE * CHAT_EMOJI_SIZE ||
         requested_count < 0 || requested_count > CHAT_EMOJI_COUNT) return;
     s_chat_emoji_count = (uint8_t)requested_count;
     s_chat_emoji_total = requested;

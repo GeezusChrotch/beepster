@@ -33,8 +33,8 @@ typedef struct { GPoint origin; GSize size; } GRect;
 #define GTextOverflowModeWordWrap 1
 #define GTextAlignmentLeft 0
 #define GCompOpSet 0
-#define CHAT_EMOJI_SIZE 18
-#define CHAT_EMOJI_COUNT 15
+#define CHAT_EMOJI_SIZE 24
+#define CHAT_EMOJI_COUNT 12
 #define EMOJI_MARKER 0x1d
 static struct { int muted; } s_theme;
 static int s_chat_emoji_count = 1;

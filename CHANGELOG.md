@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.19.0 — Larger icons and clearer sender indicators
+
+- Double the sender stripe from 3 to 6 pixels without reducing message text width.
+- Enlarge service icons from 14 to 18 pixels and reserve matching space beside names.
+- Enlarge chat emoji from 18 to 24 pixels and emoji replies from 20 to 26 pixels.
+  Rebuild bundled fallback artwork to match downloaded emoji sizes.
+- Update inline measurement, wrapping, and bounded atlas handling for the larger
+  emoji. Preserve existing themes, button assignments, pairing, and reply choices.
+
+See [update instructions and validation](docs/RELEASE_NOTES_0.19.0.md).
+
 ## 0.18.0 — Clearer photos and lighter conversation browsing
 
 - Add Natural, High contrast and Original photo modes in phone settings, with

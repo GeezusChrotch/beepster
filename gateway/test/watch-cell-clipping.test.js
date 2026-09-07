@@ -10,7 +10,7 @@ test('recycled cells reset local bounds and clipping down to a one-pixel edge',(
  const start=source.indexOf('        layer_set_frame(cell, GRect(0, top, viewport.size.w, bottom - top));');
  const code=source.slice(start,source.indexOf('        layer_mark_dirty(cell);',start));
  assert.ok(start>0);
- assert.match(source,/GRect\(0, 0, 3, bounds.size.h\)/);
+ assert.match(source,/GRect\(0, 0, 6, bounds.size.h\)/);
  assert.doesNotMatch(source,/bounds.size.h - 4/);
  const dir=mkdtempSync(join(tmpdir(),'beepster-cell-clip-'));
  try{
