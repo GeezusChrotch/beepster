@@ -107,7 +107,7 @@ hostname, or pairing code. Never upload the demo PBW as the release artifact.
 
 > Beepster is an independent, open-source Beeper client built for Pebble Time 2. Read complete
 > messages, scroll recent history, dictate replies, choose up to eight quick replies, customize
-> themes and fonts, and view private photo or GIF/video poster previews. Requires a Mac running
+> themes and fonts, view full-width photos, short GIF loops and YouTube thumbnail cards. Requires a Mac running
 > Beeper Desktop, the open-source Beepster companion, and a private Tailscale connection. Beepster
 > is not affiliated with or endorsed by Beeper, Automattic, Pebble, or Core Devices.
 
@@ -130,7 +130,7 @@ hostname, or pairing code. Never upload the demo PBW as the release artifact.
 - [ ] Screenshots contain only synthetic data
 - [ ] Description clearly states Mac, Beeper Desktop, and Tailscale requirements
 - [ ] Privacy, support, source, license, and independence links are present
-- [ ] Release notes mention limitations: Emery only, static GIF/video posters, one attachment preview
+- [ ] Release notes mention limitations: Emery only, bounded GIF loops with still fallback, video posters, one attachment preview
 - [ ] Git tag, GitHub Release, PBW, checksum, and source archive use the same version
 - [ ] The Store entry itself is moved from draft/release to published state
 

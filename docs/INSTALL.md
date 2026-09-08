@@ -2,8 +2,8 @@
 
 Use the free **Organik Apps Pebble Connector** on macOS 14 or newer.
 
-For Beepster **0.19.0**, update to **Connector 0.8.2 or newer** first. The Connector
-delivers the matching photo conversion and link-display settings; updating only
+For Beepster **0.20.0**, update to **Connector 0.9.0 or newer** first. The Connector
+delivers matching reactions, GIF conversion, YouTube thumbnails, and attachment-access checks; updating only
 the watch app does not update the Mac gateway. Existing pairing and settings are retained.
 After updating the Connector, existing users must select **Beepster → Set up
 service** to refresh the managed gateway, then reopen Beepster's phone settings.
@@ -31,6 +31,16 @@ change is required. Older standalone setup details remain in [the legacy guide](
 including their version-specific controls. The unified connector’s current guide takes precedence
 for its setup, repair and permission controls.
 
-For optional Hermes/OpenClaw approval controls, update both the watch app to 0.19.0
+For optional Hermes/OpenClaw approval controls, update both the watch app to 0.20.0
 and the unified Connector, then follow [agent setup](AGENT_APPROVALS.md). Ordinary
 messaging does not require either agent. Existing pairing and themes can be retained.
+
+## Apple Messages photos and GIFs
+
+If the attachment-access requirement is not ready, select **Beepster → Apple Messages
+photos/GIFs → Allow attachment access**. In macOS Full Disk Access settings, add or
+enable the background component highlighted by the Connector, then choose **Restart
+and recheck** in the Connector. This permission is optional for users who do not need
+protected Apple Messages attachments. The Connector checks the actual background
+process; granting access to Terminal or the Connector window alone is not equivalent.
+Do not disable macOS security protections. Test an existing photo after the check passes.

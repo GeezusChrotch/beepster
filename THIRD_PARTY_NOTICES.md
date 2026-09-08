@@ -1,5 +1,12 @@
 # Third-party notices
 
+## GIF decoding
+
+The Connector uses [omggif](https://github.com/deanm/omggif) 1.0.10,
+copyright Dean McNamee, 2013, under the MIT license. The complete license is
+retained in the distributed dependency. GIFs are resized, composited and
+quantized into bounded frame sequences locally; no conversion service is used.
+
 ## Pebble display palette
 
 `gateway/src/pebble-image.cjs` uses room-light palette samples from

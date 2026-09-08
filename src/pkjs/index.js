@@ -4,6 +4,8 @@ var KEY_COMMAND = 0;
 var KEY_STATE = 1;
 var KEY_ERROR = 2;
 var KEY_INDEX = 3;
+var KEY_MSG_REACTIONS = 38;
+var KEY_MEDIA_FRAMES = 39;
 var KEY_TOTAL = 4;
 var KEY_CHAT_ID = 5;
 var KEY_CHAT_NAME = 6;
@@ -657,7 +659,7 @@ function messageSignature(items) {
   // twelve rows can hide every real message behind unchanged approval actions.
   return (items || []).slice(-MAX_WATCH_MESSAGES).map(function(item) {
     var attachmentID = item.attachment && item.attachment.id ? item.attachment.id : '';
-    return [item.id || '', item.timestamp || '', item.text || '', attachmentID].join('\x1f');
+    return [item.id || '', item.timestamp || '', item.text || '', attachmentID, JSON.stringify(item.reactions || [])].join('\x1f');
   }).join('\x1e');
 }
 
@@ -1226,6 +1228,7 @@ function addChatEmojiKeys(items, reset) {
   if (reset) chatEmojiKeys = [];
   for (var itemIndex = items.length - 1; itemIndex >= 0 && chatEmojiKeys.length < MAX_CHAT_EMOJI; itemIndex--) {
     var keys = Array.isArray(items[itemIndex].emojiKeys) ? items[itemIndex].emojiKeys : [];
+    (items[itemIndex].reactions || []).forEach(function(reaction) { keys = keys.concat(reaction.emojiKeys || []); });
     for (var keyIndex = 0; keyIndex < keys.length && chatEmojiKeys.length < MAX_CHAT_EMOJI; keyIndex++) {
       var key = String(keys[keyIndex] || '').toLowerCase();
       if (/^[0-9a-f-]{1,100}$/.test(key) && chatEmojiKeys.indexOf(key) === -1) chatEmojiKeys.push(key);
@@ -1256,9 +1259,24 @@ function sendChatEmojiAtlas() {
   }, function() {});
 }
 
+function watchReactions(reactions) {
+  var output = '';
+  for (var i=0; i<reactions.length; i++) {
+    var reaction=reactions[i];
+    var name=safeSlice(String(reaction.sender || 'Unknown').replace(/[\x00-\x1f]/g,' '),44);
+    var emoji=watchMessageText(reaction).replace(/[\t\r\n]/g,' ');
+    var line=name+'\t'+(reaction.isSelf?'1':'0')+'\t'+emoji+'\n';
+    // Keep complete records and reserve space for an explicit overflow notice.
+    if (utf8ByteLength(output+line) > 165) { output+='\t0\t+ more reactions\n'; break; }
+    output+=line;
+  }
+  return output;
+}
+
 function queueMessage(item, index, total) {
   var messageID = String(item.id || ('message-' + index));
-  var watchText = watchMessageText(item);
+  // A media-only message is not an error or a missing-body placeholder.
+  var watchText = watchMessageText(item) || (item.attachment ? ' ' : '');
   messageTextByID[messageID] = watchText;
   messageRouteByID[messageID] = {
     chatID:String(item.sourceChatID || activeMessageChatID),
@@ -1275,6 +1293,7 @@ function queueMessage(item, index, total) {
   message[KEY_MSG_ID] = safeSlice(messageID, 120);
   message[KEY_MSG_IS_SELF] = item.isSelf === true || item.sender === 'Me' ? 1 : 0;
   message[KEY_MSG_APPROVAL] = item.approvalID ? (item.approvalAction || 1) : 0;
+  message[KEY_MSG_REACTIONS] = watchReactions(item.reactions || []);
   if (item.attachment) {
     message[KEY_ATTACHMENT_ID] = safeSlice(item.attachment.id, 30);
     message[KEY_ATTACHMENT_KIND] = item.attachment.kind === 'gif' ? 2 : (item.attachment.kind === 'video' ? 3 : 1);
@@ -1574,7 +1593,7 @@ function loadAttachment(attachmentID) {
   }
   if (!url || !token || !attachmentID) { fail('Attachment unavailable'); return; }
   var xhr = new XMLHttpRequest();
-  xhr.open('GET', url + '/v1/attachments/' + encodeURIComponent(attachmentID) + '/preview?format=json&imageMode=' + encodeURIComponent(localStorage.getItem('beepster_image_mode') || 'natural'), true);
+  xhr.open('GET', url + '/v1/attachments/' + encodeURIComponent(attachmentID) + '/preview?format=json&animate=1&imageMode=' + encodeURIComponent(localStorage.getItem('beepster_image_mode') || 'natural'), true);
   xhr.setRequestHeader('Authorization', 'Bearer ' + token);
   xhr.timeout = 30000;
   xhr.onload = function() {
@@ -1590,11 +1609,12 @@ function loadAttachment(attachmentID) {
     catch (error) { fail('Invalid preview response'); return; }
     var width = Number(preview.width);
     var height = Number(preview.height);
+    var frames = preview.frames === undefined ? 1 : Number(preview.frames);
     var kind = preview.kind === 'gif' ? 2 : (preview.kind === 'video' ? 3 : 1);
     var bytes = base64Bytes(preview.pixels);
     console.log('Beepster preview dimensions=' + width + 'x' + height + ' bytes=' + bytes.length + ' kind=' + kind);
-    if (!width || !height || bytes.length !== width * height || bytes.length > 32400) { fail('Invalid watch preview'); return; }
-    var start = {}; start[KEY_COMMAND] = 'media_start'; start[KEY_ATTACHMENT_ID] = attachmentID; start[KEY_MEDIA_WIDTH] = width; start[KEY_MEDIA_HEIGHT] = height; start[KEY_MEDIA_TOTAL] = bytes.length; start[KEY_ATTACHMENT_KIND] = kind; enqueue(start);
+    if (width < 1 || width > 180 || width % 1 || height < 1 || height > 180 || height % 1 || frames < 1 || frames > 6 || frames % 1 || bytes.length !== width * height * frames || bytes.length > 32400) { fail('Invalid watch preview'); return; }
+    var start = {}; start[KEY_COMMAND] = 'media_start'; start[KEY_ATTACHMENT_ID] = attachmentID; start[KEY_MEDIA_WIDTH] = width; start[KEY_MEDIA_HEIGHT] = height; start[KEY_MEDIA_TOTAL] = bytes.length; start[KEY_ATTACHMENT_KIND] = kind; start[KEY_MEDIA_FRAMES] = frames; enqueue(start);
     for (var offset = 0; offset < bytes.length; offset += 512) {
       var chunkBytes = [];
       var chunkEnd = Math.min(offset + 512, bytes.length);

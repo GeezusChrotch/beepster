@@ -12,7 +12,7 @@ test('watch messages measure whole lines and never draw wrapped emoji/text below
   // into the timestamp/next-row area before the next loop checked the height.
   const layout = source.slice(source.indexOf('static int inline_text_width('),
     source.indexOf('static void persist_current_theme('));
-  const heightStart = source.indexOf('static int32_t message_content_height(');
+  const heightStart = source.indexOf('static int32_t layout_message_reactions(');
   const heightCode = source.slice(heightStart, source.indexOf('static int16_t message_row_height(', heightStart));
   assert.doesNotMatch(source, /message_preview_height/);
   assert.match(source, /int sender_height = inline_line_height\(font_for_text\(message->sender\)\) \+ 9;/);
@@ -23,9 +23,11 @@ test('watch messages measure whole lines and never draw wrapped emoji/text below
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
 typedef int GFont;
 typedef int GContext;
 typedef struct { int16_t w, h; } GSize;
+#define GSize(w,h) ((GSize){w,h})
 typedef struct { int16_t x, y; } GPoint;
 typedef struct { GPoint origin; GSize size; } GRect;
 #define GRect(x,y,w,h) ((GRect){{x,y},{w,h}})
@@ -73,13 +75,22 @@ static void graphics_context_set_compositing_mode(GContext *ctx, int mode) {}
 static void graphics_context_set_stroke_color(GContext *ctx, int color) {}
 ${layout}
 typedef int MenuLayer;
-typedef struct { char sender[8]; int16_t cached_text_height; int attachment_kind; } Message;
+typedef struct { char sender[48]; int16_t cached_text_height; int attachment_kind; bool is_self; char reactions[192]; } Message;
+typedef int GColor;
+#define GTextOverflowModeTrailingEllipsis 2
+#define GCornerNone 0
+static void copy_text(char*d,size_t n,const char*s){snprintf(d,n,"%s",s);}
+static GColor sender_color(const Message*m){return 1;}
+static void graphics_context_set_fill_color(GContext*c,GColor x){}
+static void graphics_context_set_text_color(GContext*c,GColor x){}
+static void graphics_fill_rect(GContext*c,GRect r,int a,int b){record(r);}
 static int32_t s_expanded_text_height;
-static int s_inline_media_state, s_media_height;
+static int s_inline_media_state, s_media_height, s_media_width, s_media_kind;
 static void *s_media_bitmap;
 #define INLINE_MEDIA_READY 1
 static void *menu_layer_get_layer(MenuLayer *menu) { return menu; }
 static GRect layer_get_bounds(void *layer) { return GRect(0,0,200,228); }
+${source.slice(source.indexOf('static GSize inline_media_size('), source.indexOf('// Pebble\'s bitmap drawing'))}
 ${heightCode}
 static void check(const char *text, int width, int height, int origin, int expected) {
   GContext ctx = 0;
@@ -100,6 +111,16 @@ int main(void) {
     s_expanded_text_height=0;
     assert(inactive == message_content_height(0,&message,true,long_text));
     assert(inactive > 8*h); // no silent three-line truncation
+    strcpy(message.reactions,"Avery\\t0\\t\\035A\\035\\n");
+    assert(message_content_height(0,&message,false,long_text)==inactive+h+4);
+    bottom_limit=h+4;layout_message_reactions(&ctx,&message,GRect(8,0,184,h+4));
+    message.reactions[0]=0;
+    message.attachment_kind=2;s_media_kind=2;s_media_width=72;s_media_height=49;
+    s_inline_media_state=INLINE_MEDIA_READY;s_media_bitmap=(void*)1;
+    assert(message_content_height(0,&message,true,long_text)==inactive+125+8);
+    s_media_width=120;s_media_height=60;
+    assert(message_content_height(0,&message,true,long_text)==inactive+92+8);
+    message.attachment_kind=0;s_media_bitmap=0;
     int body_end=inline_line_height(font_for_text(message.sender))+10+measured;
     assert(inactive-22 >= body_end); // timestamp clear cannot cover final line
     bottom_limit=body_end;

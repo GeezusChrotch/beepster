@@ -7,7 +7,7 @@ import {execFileSync} from 'node:child_process';
 
 test('loaded message tail survives moving focus to the next sender and back',()=>{
  const source=readFileSync(new URL('../../src/c/main.c',import.meta.url),'utf8');
- const code=source.slice(source.indexOf('static void release_message_texts('),source.indexOf('static int32_t message_content_height('));
+ const code=source.slice(source.indexOf('static void release_message_texts('),source.indexOf('static int32_t layout_message_reactions('));
  assert.equal((source.match(/message_body\(message, expanded\)/g)||[]).length,2);
  const dir=mkdtempSync(join(tmpdir(),'beepster-retained-text-'));
  try {

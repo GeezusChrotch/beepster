@@ -14,6 +14,16 @@ Beepster is designed for personal, self-hosted use.
   transferred directly to the watch; Beeper file paths are not sent to the phone or watch.
 - No Beepster-operated cloud database or account is required.
 - The eight-entry Mac preview cache is memory-only and disappears when the companion restarts.
+- YouTube link cards prefer an image already available through Beeper. If none is available, the
+  Mac requests the video's thumbnail from `i.ytimg.com`. YouTube receives the requested video ID
+  and the Mac's public IP address, but no Beeper credentials, contact names or message body.
+  Arbitrary link hosts and redirects are not fetched. Hide links disables these link cards.
+- GIF animation conversion runs locally in a bounded worker; no external conversion service is used.
+- Optional Apple Messages attachment access requires a user-granted macOS Full Disk Access
+  permission for Beepster's stable background component. The Connector cannot grant this itself.
+  Its readiness check only opens and closes the attachment directory without enumerating files;
+  actual preview requests read the selected attachment. Errors record codes, not file paths or
+  message content.
 - The optional Contacts helper scans Contacts locally for normalized, exact phone-number and email
   matches to identifiers already supplied by Beeper. It returns matching display names and an
   opaque hash that identifies when two matches belong to the same local contact. It does not return

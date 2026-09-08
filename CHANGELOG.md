@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.20.0 — Reactions and full-width media
+
+- Show Beeper-supplied reactions beneath messages, grouped by sender with bitmap
+  emojis and matching sender indicators, including Apple Messages reactions.
+- Fill the message width with photos, GIFs, and video thumbnails while preserving
+  aspect ratio. Retry smaller bitmap allocations under memory pressure instead of
+  losing large photos, and preserve useful allocation errors.
+- Play bounded six-frame GIF previews, with reduced-frame or still fallback on
+  memory-constrained watches. Fix filename-only GIF detection, animation repaint
+  scheduling, and neighboring text prefetch canceling active media.
+- Add YouTube thumbnails, retrying a constrained public thumbnail when Beeper's
+  cached image expires. Hide links also hides these cards.
+- Replace media-only empty-text errors with clean captions; allow tapping failed
+  media to retry. Add a managed-runtime Apple Messages permission probe and clear
+  access-denied errors for the unified Connector's guided permission setup.
+- Require Connector 0.9.0 or newer for the matching gateway and permission UI.
+
+See [update instructions, privacy notes, and validation](docs/RELEASE_NOTES_0.20.0.md).
+
 ## 0.19.0 — Larger icons and clearer sender indicators
 
 - Double the sender stripe from 3 to 6 pixels without reducing message text width.

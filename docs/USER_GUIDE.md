@@ -35,6 +35,17 @@ stored by stable chat ID on the phone and survive normal refreshes and app resta
 
 ## Thread controls
 
+### Message reactions
+
+Reactions supplied by Beeper appear beneath their original message, grouped by
+person with that sender's color stripe, name and bitmap emoji. Reaction changes
+are included in live refresh. Hidden bridge tapback notices are not shown as
+separate messages; ordinary visible replies are not guessed to be reactions.
+Long reaction groups can wrap. If a message exceeds the watch's compact reaction
+budget, an explicit “+ more reactions” line is shown. Custom network reaction
+images without a supported emoji use their reaction label instead.
+
+
 These defaults are customizable in the **Buttons** tab. Scroll actions always move
 one text line per button press; scroll distance is not configurable.
 
@@ -184,9 +195,32 @@ Selecting a message with media automatically requests one private preview. The M
 opens the asset locally, scales it to watch-safe dimensions, converts it into Pebble's 64-color
 format, deletes temporary files, and transfers only pixels plus an opaque identifier.
 
-Photos display inline. GIFs and videos currently show a static poster frame; animation and multiple
-attachments per message are not yet supported. Moving to another message cancels obsolete queued
-preview chunks so the current content gets priority.
+Photos display inline. Photos, GIFs, and video thumbnails fill the available message width
+while preserving their aspect ratio; taller images scroll with the conversation. Enlarging
+the display does not require a larger image buffer. GIF files can play a short, reduced-detail
+loop: up to six frames, four frames per second, and 72 source pixels on the longest side.
+If a full-resolution preview cannot fit in watch memory, Beepster retries with a smaller
+pixel buffer while keeping the same full-width display and aspect ratio.
+The current preview animates; it pauses while dragging or viewing another screen. Long GIFs show the first 1.5 seconds.
+Large, unsupported, or visually static GIFs fall back to a still image, as does animation when
+the watch cannot allocate even a two-frame loop. Under memory pressure Beepster first tries
+fewer frames sampled across the loop instead of immediately switching to a still. Video-based GIFs and ordinary videos retain a poster
+frame; this is not video playback. Multiple attachments per message are not yet supported.
+Moving to another message cancels obsolete queued preview chunks so current content gets priority.
+
+Apple Messages keeps some attachments in a macOS-protected folder. If a preview reports blocked
+Mac media access, open the unified Connector's **Beepster** page and its optional Apple Messages
+attachment-access step. Open the access settings, add/enable the highlighted Beepster background
+component (`node`) in Full Disk Access, then use **Restart and recheck**. macOS requires you to
+grant this permission yourself. The check runs in the background gateway, not just the Connector
+window, and does not list attachment names or read message contents. Other messaging services
+and public YouTube thumbnails do not require this Apple Messages folder permission.
+
+YouTube links show the video title and a thumbnail when available, including watch, youtu.be,
+Shorts and live-video links. The Connector prefers Beeper's local preview. Otherwise it fetches
+only the recognized video's thumbnail from YouTube's image host, without sending Beeper credentials
+or message text. Missing thumbnails leave the title readable. The existing Hide links setting
+also hides these link cards; normal attached photos are unaffected.
 
 ## Normal operating requirements
 

@@ -5,6 +5,41 @@ import vm from 'node:vm';
 
 const source = await readFile(new URL('../../src/pkjs/index.js', import.meta.url), 'utf8');
 
+test('media-only messages keep a blank caption instead of a no-text error',()=>{
+  const {context,appMessages}=replyRuntime();
+  context.queueMessage({id:'gif',text:'',attachment:{id:'asset',kind:'gif'}},0,1);
+  context.sendMessageDetail('gif');
+  assert.equal(appMessages.find(m=>m[0]==='message')[11],' ');
+  assert.equal(appMessages.find(m=>m[0]==='message_detail_chunk')[31],' ');
+  assert.ok(!appMessages.some(m=>String(m[31]||'').includes('contains no text')));
+});
+
+test('animated previews opt in, carry frame count, reject bad lengths and discard superseded transfers',()=>{
+  const {context,requests,appMessages}=replyRuntime();
+  context.loadAttachment('gif');const xhr=requests.at(-1);
+  assert.match(xhr.url,/animate=1/);
+  xhr.status=200;xhr.responseText=JSON.stringify({width:2,height:1,kind:'gif',frames:3,pixels:Buffer.from([192,255,240,192,192,240]).toString('base64')});xhr.onload();
+  assert.equal(appMessages.find(m=>m[0]==='media_start')[39],3);
+  assert.equal(appMessages.find(m=>m[0]==='media_start')[29],6);
+  context.loadAttachment('bad');const bad=requests.at(-1);bad.status=200;bad.responseText=JSON.stringify({width:2,height:1,kind:'gif',frames:7,pixels:'wP8='});bad.onload();
+  assert.ok(appMessages.some(m=>m[0]==='media_failed'&&m[23]==='bad'));
+  context.loadAttachment('old');const old=requests.at(-1);context.loadAttachment('new');
+  const count=appMessages.length;old.status=200;old.responseText=xhr.responseText;old.onload();assert.equal(appMessages.length,count);
+});
+
+test('reaction-only changes refresh, use bitmap slots, and stay on the parent message',()=>{
+ const {context,appMessages}=replyRuntime();
+ const item={id:'parent',sender:'Me',text:'Hello',reactions:[{sender:'Avery',isSelf:false,text:'👍',watchText:'\x1e1f44d\x1f',emojiKeys:['1f44d']}]};
+ const before=context.messageSignature([{...item,reactions:[]}]);
+ assert.notEqual(context.messageSignature([item]),before);
+ context.addChatEmojiKeys([item],true);context.queueMessage(item,0,1);
+ const packet=appMessages.find(m=>m[0]==='message');
+ assert.equal(packet[30],'parent');assert.equal(packet[38],'Avery\t0\t\x1dA\x1d\n');
+ assert.equal(context.watchReactions([]),'');
+ const large=context.watchReactions(Array(30).fill(item.reactions[0]));
+ assert.ok(context.utf8ByteLength(large)<192);assert.match(large,/more reactions/);
+});
+
 test('image preference persists and reaches attachment conversion',()=>{
   const {context,eventListeners,storage,requests}=replyRuntime();
   eventListeners.webviewclosed({response:encodeURIComponent(JSON.stringify({imageMode:'high-contrast'}))});

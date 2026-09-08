@@ -36,7 +36,7 @@ sent until Beeper resolves the pending message with a successful send status.
 - [x] Mac-side resize and 64-color Time 2 conversion
 - [x] Full-screen photo previews from message history
 - [x] Static GIF and video poster previews
-- [ ] Animated GIF playback
+- [x] Bounded short GIF loops (up to six frames); full-length playback remains unsupported
 - [ ] Multiple attachments in one message
 
 ## 0.4.1 — Complete message reading

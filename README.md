@@ -31,7 +31,7 @@ The Connector window can be closed after setup; its login background service con
 
 - [Install Beepster](docs/INSTALL.md) — complete Mac, Tailscale, watch, and pairing walkthrough
 - [Feedback and first-run checks](docs/FEEDBACK.md) — help improve Beepster safely
-- [0.19.0 release notes](docs/RELEASE_NOTES_0.19.0.md) — larger service icons and emojis, clearer sender stripes
+- [0.20.0 release notes](docs/RELEASE_NOTES_0.20.0.md) — reactions, full-width media, short GIF loops, and YouTube thumbnails
 - [Hermes and OpenClaw setup](docs/AGENT_APPROVALS.md) — optional integrations and compatibility
 - [Use Beepster](docs/USER_GUIDE.md) — controls, replies, themes, media, and limitations
 - [Troubleshoot](docs/TROUBLESHOOTING.md) — symptom-based fixes and the private health checker
@@ -52,7 +52,9 @@ The Connector window can be closed after setup; its login background service con
   (iMessage message deletion is temporarily disabled; iMessage conversation archiving still works)
 - Voice dictation with confirmation and delivery tracking
 - Up to eight text-or-emoji quick replies, followed by 15 user-chosen, reorderable bitmap emoji
-- Static photo, GIF-poster, and video-poster previews, including Instagram media
+- Full-width, aspect-preserving photos and video posters, including Instagram media
+- Short, reduced-detail GIF loops with bounded-memory fallback and YouTube thumbnail cards
+- Bitmap reactions grouped by sender beneath messages when supplied by Beeper
 - HTML cleanup for rich Instagram messages
 - Six presets and saved custom themes using five font families and five sizes
 - Twemoji bitmap rendering in chats, including multi-codepoint families, flags, and skin tones
@@ -63,7 +65,7 @@ The Connector window can be closed after setup; its login background service con
   with request descriptions, highlighted choices and deliberate hold-center activation.
   Always approve is shown only when supported and requires additional confirmation.
 
-Animated GIF playback and multiple attachments per message remain planned. See the
+Full-length animation, video playback, and multiple attachments per message remain unsupported. See the
 [roadmap](ROADMAP.md) and [UX requirements](docs/UX_REQUIREMENTS.md).
 
 ## Architecture

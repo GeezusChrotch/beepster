@@ -91,6 +91,7 @@ typedef struct {
   uint8_t is_approval;
   int16_t cached_text_height;
   char *full_text;
+  char reactions[192];
 } Message;
 
 typedef struct {
@@ -210,10 +211,15 @@ static Window *s_media_window;
 static BitmapLayer *s_media_layer;
 static TextLayer *s_media_status_layer;
 static GBitmap *s_media_bitmap;
+static uint8_t *s_media_frames;
+static uint8_t s_media_frame_count = 1, s_media_frame_index;
+static AppTimer *s_media_timer;
+static bool s_media_visible;
 static size_t s_media_total;
 static size_t s_media_received;
 static int16_t s_media_width;
 static int16_t s_media_height;
+static int16_t s_media_bitmap_width, s_media_bitmap_height;
 static uint8_t s_media_kind;
 static char s_inline_attachment_id[MESSAGE_ATTACHMENT_LEN];
 static InlineMediaState s_inline_media_state = INLINE_MEDIA_NONE;
@@ -520,7 +526,74 @@ static void draw_service_icon(GContext *ctx, GRect frame, const char *network, G
   }
 }
 
+static void paint_media_pixels(const uint8_t *pixels, size_t start, size_t length) {
+  if (!s_media_bitmap) return;
+  uint8_t *data = gbitmap_get_data(s_media_bitmap);
+  uint16_t stride = gbitmap_get_bytes_per_row(s_media_bitmap);
+  for (int y = 0; y < s_media_bitmap_height; y++) {
+    size_t row = (size_t)(y * s_media_height / s_media_bitmap_height) * s_media_width;
+    if (row >= start + length || row + s_media_width <= start) continue;
+    for (int x = 0; x < s_media_bitmap_width; x++) {
+      size_t source = row + x * s_media_width / s_media_bitmap_width;
+      if (source >= start && source - start < length) data[y * stride + x] = pixels[source - start];
+    }
+  }
+}
+
+static void paint_media_frame(void) {
+  if (!s_media_bitmap || !s_media_frames) return;
+  const uint8_t *frame = s_media_frames + (size_t)s_media_frame_index * s_media_width * s_media_height;
+  paint_media_pixels(frame, 0, (size_t)s_media_width * s_media_height);
+}
+
+static void media_animation_tick(void *context) {
+  s_media_timer = NULL;
+  if (!s_media_frames || s_media_frame_count < 2) return;
+  // Do not gate the clock on a flag set by the drawing callback. Refreshes
+  // clear that flag before PebbleOS schedules a repaint; the animation itself
+  // must be able to request the next repaint.
+  if (!s_message_dragging && window_stack_get_top_window() == s_message_window) {
+    s_media_frame_index = (s_media_frame_index + 1) % s_media_frame_count;
+    paint_media_frame();
+    for (int i = 0; i < MESSAGE_VISIBLE_CELLS; i++) if (s_message_cells[i]) layer_mark_dirty(s_message_cells[i]);
+  }
+  s_media_timer = app_timer_register(250, media_animation_tick, NULL);
+}
+
+static GSize inline_media_size(int16_t available_width) {
+  int width = available_width;
+  // Keep exceptionally narrow/tall assets within signed Pebble geometry.
+  if (s_media_height > 0 && s_media_width > 0 && width * s_media_height / s_media_width > 30000)
+    width = 30000 * s_media_width / s_media_height;
+  return GSize(width, s_media_width > 0 ? (s_media_height * width + s_media_width / 2) / s_media_width : 0);
+}
+
+// Pebble's bitmap drawing does not resize pixels. Scale at paint time with
+// clipped horizontal runs, retaining the small source bitmap/frame buffers.
+static void draw_inline_media(GContext *ctx, GRect rect, int16_t clip_height) {
+  uint8_t *pixels = gbitmap_get_data(s_media_bitmap);
+  int stride = gbitmap_get_bytes_per_row(s_media_bitmap);
+  int first_y = rect.origin.y < 0 ? -rect.origin.y : 0;
+  int last_y = rect.size.h < clip_height - rect.origin.y ? rect.size.h : clip_height - rect.origin.y;
+  for (int y = first_y; y < last_y; y++) {
+    int dy = rect.origin.y + y;
+    if (dy < 0 || dy >= clip_height) continue;
+    int sy = y * s_media_bitmap_height / rect.size.h;
+    for (int x = 0; x < rect.size.w;) {
+      uint8_t color = pixels[sy * stride + x * s_media_bitmap_width / rect.size.w];
+      int end = x + 1;
+      while (end < rect.size.w && pixels[sy * stride + end * s_media_bitmap_width / rect.size.w] == color) end++;
+      graphics_context_set_fill_color(ctx, (GColor){.argb = color});
+      graphics_fill_rect(ctx, GRect(rect.origin.x + x, dy, end - x, 1), 0, GCornerNone);
+      x = end;
+    }
+  }
+}
+
 static void clear_media(void) {
+  if (s_media_timer) { app_timer_cancel(s_media_timer); s_media_timer = NULL; }
+  free(s_media_frames); s_media_frames = NULL;
+  s_media_frame_count = 1; s_media_frame_index = 0; s_media_visible = false;
   if (s_media_bitmap) {
     if (s_media_layer) bitmap_layer_set_bitmap(s_media_layer, NULL);
     gbitmap_destroy(s_media_bitmap);
@@ -530,6 +603,7 @@ static void clear_media(void) {
   s_media_received = 0;
   s_media_width = 0;
   s_media_height = 0;
+  s_media_bitmap_width = 0; s_media_bitmap_height = 0;
 }
 
 static void clear_reply_emoji_atlas(void) {
@@ -1575,6 +1649,44 @@ static void message_selection_changed(MenuLayer *menu_layer, MenuIndex new_index
   }
 }
 
+static int32_t layout_message_reactions(GContext *ctx, const Message *message, GRect frame) {
+  char records[192];
+  copy_text(records, sizeof(records), message->reactions);
+  int32_t y = 0;
+  char *row = records;
+  while (*row) {
+    char *end = strchr(row, '\n');
+    if (end) *end = '\0';
+    char *self = strchr(row, '\t');
+    if (!self) break;
+    *self++ = '\0';
+    char *emoji = strchr(self, '\t');
+    if (!emoji) break;
+    *emoji++ = '\0';
+    int name_width = row[0] ? frame.size.w / 2 : 0;
+    int emoji_width = frame.size.w - name_width;
+    int height = layout_inline_emoji_text(NULL, emoji, theme_font(), GRect(0,0,emoji_width,30000), false) + 4;
+    if (ctx && frame.origin.y + y < s_inline_clip_height && frame.origin.y + y + height > 0) {
+      Message reactor = {0};
+      copy_text(reactor.sender, sizeof(reactor.sender), row);
+      reactor.is_self = *self == '1';
+      GColor color = sender_color(&reactor);
+      graphics_context_set_fill_color(ctx, color);
+      graphics_fill_rect(ctx, GRect(0, frame.origin.y + y, 6, height), 0, GCornerNone);
+      graphics_context_set_text_color(ctx, color);
+      if (row[0]) graphics_draw_text(ctx, row, font_for_text(row),
+        GRect(frame.origin.x, frame.origin.y + y, name_width - 4, height),
+        GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+      layout_inline_emoji_text(ctx, emoji, theme_font(),
+        GRect(frame.origin.x + name_width, frame.origin.y + y, emoji_width, height - 4), true);
+    }
+    y += height;
+    if (!end) break;
+    row = end + 1;
+  }
+  return y;
+}
+
 static int32_t message_content_height(MenuLayer *menu_layer, Message *message,
                                       bool expanded, const char *text) {
   int16_t width = layer_get_bounds(menu_layer_get_layer(menu_layer)).size.w - 16;
@@ -1589,9 +1701,10 @@ static int32_t message_content_height(MenuLayer *menu_layer, Message *message,
   // Reserve the same measured header/body space that draw_message paints.
   // Never replace a long, unfocused message with an implicit three-line crop.
   int32_t height = 6 + inline_line_height(font_for_text(message->sender)) + 9 + text_height + 8 + 22;
+  height += layout_message_reactions(NULL, message, GRect(0,0,width,30000));
   if (message->attachment_kind) {
     if (expanded && s_inline_media_state == INLINE_MEDIA_READY && s_media_bitmap) {
-      height += s_media_height + 8;
+      height += inline_media_size(width).h + 8;
     } else {
       height += 24;
     }
@@ -1662,11 +1775,16 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
     GRect(8, text_y, bounds.size.w - 16, text_height), true);
   if (message->attachment_kind) {
     if (expanded && s_inline_media_state == INLINE_MEDIA_READY && s_media_bitmap) {
-      int image_x = (bounds.size.w - s_media_width) / 2;
-      if (content_y < bounds.size.h && content_y + s_media_height > 0)
-        graphics_draw_bitmap_in_rect(ctx, s_media_bitmap,
-          GRect(image_x, content_y, s_media_width, s_media_height));
-      content_y += s_media_height + 8;
+      GSize image_size = inline_media_size(bounds.size.w - 16);
+      int image_x = (bounds.size.w - image_size.w) / 2;
+      if (content_y < bounds.size.h && content_y + image_size.h > 0) {
+        s_media_visible = true;
+        if (image_size.w == s_media_bitmap_width && image_size.h == s_media_bitmap_height)
+          graphics_draw_bitmap_in_rect(ctx, s_media_bitmap, GRect(image_x, content_y, image_size.w, image_size.h));
+        else
+          draw_inline_media(ctx, GRect(image_x, content_y, image_size.w, image_size.h), bounds.size.h);
+      }
+      content_y += image_size.h + 8;
     } else {
       const char *label = expanded && s_inline_media_state == INLINE_MEDIA_LOADING ? "Loading photo…" :
         (expanded && s_inline_media_state == INLINE_MEDIA_FAILED ?
@@ -1694,6 +1812,9 @@ static void draw_message(GContext *ctx, const Layer *cell, MenuIndex *index, voi
   graphics_context_set_fill_color(ctx, participant_color);
   // Double-width sender stripe; keep clear of the icon at x=7 and text at x=8.
   graphics_fill_rect(ctx, GRect(0, 0, 6, bounds.size.h), 0, GCornerNone);
+  int reaction_height = layout_message_reactions(NULL, message, GRect(0,0,bounds.size.w - 16,30000));
+  layout_message_reactions(ctx, message,
+    GRect(8, time_y - 3 - reaction_height, bounds.size.w - 16, reaction_height));
 }
 
 static void retry_messages(ClickRecognizerRef recognizer, void *context) {
@@ -1727,6 +1848,7 @@ static void message_cell_draw(Layer *cell, GContext *ctx) {
 
 static void message_view_refresh(void) {
   if (!s_message_view) return;
+  s_media_visible = false;
   GRect viewport = layer_get_bounds(s_message_view);
   if (s_message_follow_newest && s_message_count > 0) {
     s_message_anchor = s_message_count - 1;
@@ -1772,6 +1894,9 @@ static void message_prefetch(void *context) {
   s_message_prefetch_timer = NULL;
   if (!s_message_view || s_message_dragging || s_message_state != VIEW_READY ||
       (s_expanded_message_index >= 0 && !s_expanded_message_loaded)) return;
+  // Neighbor-body hydration changes the expanded row and clears its media.
+  // Keep the user's current photo/GIF selected until they actually navigate.
+  if (s_inline_attachment_id[0]) return;
   for (int i = 0; i < MESSAGE_VISIBLE_CELLS; i++) {
     Layer *cell = s_message_cells[i];
     if (!cell || layer_get_hidden(cell)) continue;
@@ -2594,6 +2719,9 @@ if (strcmp(command->value->cstring, "chat") == 0) {
     Tuple *time = dict_find(iterator, MESSAGE_KEY_MSG_TIME);
     Tuple *message_id = dict_find(iterator, MESSAGE_KEY_MSG_ID);
     Tuple *is_self = dict_find(iterator, MESSAGE_KEY_MSG_IS_SELF);
+    Tuple *reactions = dict_find(iterator, MESSAGE_KEY_MSG_REACTIONS);
+    copy_text(s_messages[slot].reactions, sizeof(s_messages[slot].reactions),
+      reactions && reactions->type == TUPLE_CSTRING ? reactions->value->cstring : "");
     Tuple *is_approval = dict_find(iterator, MESSAGE_KEY_MSG_APPROVAL);
     copy_text(s_messages[slot].sender, sizeof(s_messages[slot].sender), sender ? sender->value->cstring : "Unknown");
     copy_text(s_messages[slot].text, sizeof(s_messages[slot].text), text ? text->value->cstring : "");
@@ -2661,19 +2789,41 @@ if (strcmp(command->value->cstring, "chat") == 0) {
     Tuple *height = dict_find(iterator, MESSAGE_KEY_MEDIA_HEIGHT);
     Tuple *total = dict_find(iterator, MESSAGE_KEY_MEDIA_TOTAL);
     Tuple *kind = dict_find(iterator, MESSAGE_KEY_ATTACHMENT_KIND);
+    Tuple *frames = dict_find(iterator, MESSAGE_KEY_MEDIA_FRAMES);
     if (!attachment_id || strcmp(attachment_id->value->cstring, s_inline_attachment_id) != 0) return;
     clear_media();
     s_media_width = width ? width->value->int32 : 0;
+    s_inline_media_state = INLINE_MEDIA_LOADING;
     s_media_height = height ? height->value->int32 : 0;
     s_media_total = total ? total->value->uint32 : 0;
     s_media_kind = kind ? kind->value->uint8 : 1;
-    if (s_media_width < 1 || s_media_height < 1 || s_media_total != (size_t)s_media_width * s_media_height || s_media_total > 32400) {
+    int frame_count = frames ? frames->value->int32 : 1;
+    if (s_media_width < 1 || s_media_width > 180 || s_media_height < 1 || s_media_height > 180 || frame_count < 1 || frame_count > 6 || s_media_total != (size_t)s_media_width * s_media_height * frame_count || s_media_total > 32400) {
       s_inline_media_state = INLINE_MEDIA_FAILED;
       copy_text(s_inline_media_error, sizeof(s_inline_media_error), "Invalid photo");
       s_media_total = 0;
       return;
     }
-    s_media_bitmap = gbitmap_create_blank(GSize(s_media_width, s_media_height), GBitmapFormat8Bit);
+    // Keep the full preview when possible; otherwise downsample incoming pixels
+    // into a smaller buffer. Display geometry always uses the original ratio.
+    for (int percent = 100; percent >= 40 && !s_media_bitmap; percent -= 20) {
+      s_media_bitmap_width = s_media_width * percent / 100;
+      s_media_bitmap_height = s_media_height * percent / 100;
+      if (s_media_bitmap_width < 1) s_media_bitmap_width = 1;
+      if (s_media_bitmap_height < 1) s_media_bitmap_height = 1;
+      s_media_bitmap = gbitmap_create_blank(GSize(s_media_bitmap_width, s_media_bitmap_height), GBitmapFormat8Bit);
+    }
+    APP_LOG(APP_LOG_LEVEL_INFO, "Media source=%dx%d buffer=%dx%d ready=%d", s_media_width, s_media_height,
+      s_media_bitmap_width, s_media_bitmap_height, s_media_bitmap != NULL);
+    if (s_media_bitmap && frame_count > 1) {
+      // Retain a smaller, evenly sampled loop if the full loop cannot fit.
+      // Previously one failed allocation silently disabled all animation.
+      for (int keep = frame_count; keep >= 2 && !s_media_frames; keep--) {
+        s_media_frames = malloc((size_t)s_media_width * s_media_height * keep);
+        if (s_media_frames) s_media_frame_count = keep;
+      }
+      APP_LOG(APP_LOG_LEVEL_INFO, "GIF frames received=%d retained=%d", frame_count, s_media_frame_count);
+    }
     if (!s_media_bitmap) {
       s_inline_media_state = INLINE_MEDIA_FAILED;
       copy_text(s_inline_media_error, sizeof(s_inline_media_error), "Not enough memory");
@@ -2688,20 +2838,21 @@ if (strcmp(command->value->cstring, "chat") == 0) {
     Tuple *bytes = dict_find(iterator, MESSAGE_KEY_MEDIA_BYTES);
     size_t start = offset ? offset->value->uint32 : s_media_total;
     if (attachment_id && strcmp(attachment_id->value->cstring, s_inline_attachment_id) == 0 &&
-        s_media_bitmap && bytes && start + bytes->length <= s_media_total) {
-      uint8_t *bitmap_data = gbitmap_get_data(s_media_bitmap);
-      uint16_t stride = gbitmap_get_bytes_per_row(s_media_bitmap);
-      size_t copied = 0;
-      while (copied < bytes->length) {
-        size_t packed_offset = start + copied;
-        size_t row = packed_offset / s_media_width;
-        size_t column = packed_offset % s_media_width;
-        size_t row_remaining = (size_t)s_media_width - column;
-        size_t chunk_remaining = bytes->length - copied;
-        size_t count = row_remaining < chunk_remaining ? row_remaining : chunk_remaining;
-        memcpy(bitmap_data + row * stride + column, bytes->value->data + copied, count);
-        copied += count;
+        s_media_bitmap && bytes && start == s_media_received && bytes->length <= s_media_total - start) {
+      if (s_media_frames) {
+        size_t frame_size = (size_t)s_media_width * s_media_height;
+        int incoming_frames = s_media_total / frame_size;
+        for (int frame = 0; frame < s_media_frame_count; frame++) {
+          size_t source = (size_t)(frame * (incoming_frames - 1) / (s_media_frame_count - 1)) * frame_size;
+          size_t from = start > source ? start : source;
+          size_t to = start + bytes->length < source + frame_size ? start + bytes->length : source + frame_size;
+          if (to > from) memcpy(s_media_frames + frame * frame_size + from - source,
+            bytes->value->data + from - start, to - from);
+        }
+        s_media_received += bytes->length;
+        return;
       }
+      paint_media_pixels(bytes->value->data, start, bytes->length);
       s_media_received += bytes->length;
     }
     return;
@@ -2710,6 +2861,7 @@ if (strcmp(command->value->cstring, "chat") == 0) {
   if (strcmp(command->value->cstring, "media_end") == 0) {
     Tuple *attachment_id = dict_find(iterator, MESSAGE_KEY_ATTACHMENT_ID);
     if (!attachment_id || strcmp(attachment_id->value->cstring, s_inline_attachment_id) != 0) return;
+    if (s_inline_media_state == INLINE_MEDIA_FAILED) return;
     if (!s_media_bitmap || s_media_received != s_media_total) {
       s_inline_media_state = INLINE_MEDIA_FAILED;
       copy_text(s_inline_media_error, sizeof(s_inline_media_error), "Photo incomplete");
@@ -2717,6 +2869,8 @@ if (strcmp(command->value->cstring, "chat") == 0) {
       return;
     }
     s_inline_media_state = INLINE_MEDIA_READY;
+    paint_media_frame();
+    if (s_media_frames && s_media_frame_count > 1 && !s_media_timer) s_media_timer = app_timer_register(250, media_animation_tick, NULL);
     if (s_message_menu) {
       message_view_refresh();
       install_message_clicks();
@@ -2937,6 +3091,11 @@ static void message_touch_tap(const Recognizer *recognizer, RecognizerEvent even
     // A tap or drag must never decide an approval, even if it moves focus.
     if (s_messages[data->index.row].is_approval) return;
     message_focus_row(data->index.row);
+    if (s_inline_media_state == INLINE_MEDIA_FAILED && s_inline_attachment_id[0]) {
+      s_inline_media_state = INLINE_MEDIA_LOADING;
+      if (s_content_request_timer) app_timer_cancel(s_content_request_timer);
+      s_content_request_timer = app_timer_register(1, request_selected_content, NULL);
+    }
     message_view_refresh();
     return;
   }
