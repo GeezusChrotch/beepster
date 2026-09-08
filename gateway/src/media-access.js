@@ -1,12 +1,16 @@
 import {opendir} from 'node:fs/promises';
 import {homedir} from 'node:os';
-import {join} from 'node:path';
+import {isAbsolute, join} from 'node:path';
 
 // Run in the actual managed gateway, whose macOS access can differ from the UI.
 // Open and close the attachment directory without enumerating names or contents.
 export async function probeMediaAccess({platform = process.platform, openDirectory = opendir,
-  directory = join(homedir(), 'Library', 'Messages', 'Attachments')} = {}) {
+  directory, environment = process.env} = {}) {
   if (platform !== 'darwin') return {supported:false, allowed:null, code:'NOT_APPLICABLE'};
+  if (environment.BEEPSTER_DISTRIBUTION === 'app-store') {
+    directory = environment.BEEPSTER_ATTACHMENTS_DIR;
+    if (!directory || !isAbsolute(directory)) return {supported:true, allowed:false, code:'SETUP_REQUIRED'};
+  } else directory ||= join(homedir(), 'Library', 'Messages', 'Attachments');
   try {
     const handle = await openDirectory(directory);
     await handle.close();
