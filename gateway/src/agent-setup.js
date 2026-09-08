@@ -12,7 +12,8 @@ import { readSecret } from './secret-store.js';
 import { BeeperClient } from './beeper-client.js';
 import { createOpenClawApprovalClient } from './openclaw-client.js';
 import { createHermesApprovalClient } from './hermes-client.js';
-import { promptViews, saveThreadPrompt } from './thread-prompts.js';
+import { promptViews, saveThreadPrompt, syncStorePrompts } from './thread-prompts.js';
+import { isStoreDistribution, requireLocalAgentInstall } from './agent-distribution.js';
 import { telegramCompatibility } from './openclaw-telegram-compat.js';
 import { readAgentLinks, saveAgentLink } from './agent-settings.js';
 import { isTelegramSession } from './agent-approvals.js';
@@ -44,6 +45,7 @@ if (process.argv.includes('--launch')) {
     bridgeHealth = [];
     hermesEnabled = false;
     try {
+      requireLocalAgentInstall();
       const home = path.join(os.homedir(), '.hermes');
       const {stdout} = await exec(path.join(home, 'hermes-agent', 'venv', 'bin', 'hermes'),
         ['plugins','list','--plain','--no-bundled'], {timeout:5000,maxBuffer:128000,env:{...process.env,HERMES_HOME:home}});
@@ -55,8 +57,13 @@ if (process.argv.includes('--launch')) {
     }
     clients.openclaw = openclaw;
     const states = [];
+    if (isStoreDistribution()) {
+      hermesEnabled = Boolean(process.env.BEEPSTER_HERMES_BRIDGE_URL);
+      if (!process.env.BEEPSTER_OPENCLAW_HOME) states.push('OpenClaw: choose its data folder to discover sessions and sync prompts. Existing authenticated approvals are independent.');
+    }
     const links = await readAgentLinks();
-    if (!healthOnly) choices = [...await discoverOpenClawSessions(), ...await discoverHermesSessions()];
+    if (!healthOnly) choices = [...await discoverOpenClawSessions(),
+      ...(isStoreDistribution() ? await hermes.listSessions().catch(()=>[]) : await discoverHermesSessions())];
     // Saved links stay manageable separately; they are not evidence of a current route.
     for (const provider of ['hermes','openclaw']) {
       const enabled = (provider === 'hermes' ? hermesEnabled : !!openclaw) || links.some(l => l.provider === provider && l.enabled);
@@ -72,7 +79,7 @@ if (process.argv.includes('--launch')) {
         for (const sessionKey of sessions) if (!choices.some(c => c.provider === provider && c.sessionKey === sessionKey)) choices.push({provider,sessionKey});
         states.push(`${provider}: connected; ${sessions.length} Telegram session(s) with pending requests`);
         if (pending.length && !sessions.length) states.push(`${provider}: requests have no Telegram session identity. This agent version cannot be linked safely.`);
-      } catch { states.push(provider === 'hermes' ? (hermesEnabled ? 'Hermes: bridge installed and enabled. Waiting for activation: restart Hermes when idle, then trigger a Telegram approval request.' : 'Hermes: bridge not connected. Install the bridge, then restart Hermes when no work is running. Its connection appears after the first Telegram approval request.') : 'OpenClaw: connection or pairing needs attention. In Organik Apps Pebble Connector, select Beepster → Pair OpenClaw access, then review the device request in OpenClaw.'); }
+      } catch { states.push(provider === 'hermes' ? (isStoreDistribution() ? 'Hermes: authenticated HTTP bridge unavailable. Check its URL/token and install or update the plugin from Hermes itself; Connector cannot install agent code.' : hermesEnabled ? 'Hermes: bridge installed and enabled. Waiting for activation: restart Hermes when idle, then trigger a Telegram approval request.' : 'Hermes: bridge not connected. Install the bridge, then restart Hermes when no work is running. Its connection appears after the first Telegram approval request.') : 'OpenClaw: connection or pairing needs attention. In Organik Apps Pebble Connector, select Beepster → Pair OpenClaw access, then review the device request in OpenClaw.'); }
     }
     if (!healthOnly && !loadedChats) try { await moreChats(); } catch { states.push('Beeper chats unavailable. Check the Beeper connection in Connector, then refresh. Agent installation and saved links are independent of this check.'); }
     return states;
@@ -86,6 +93,7 @@ if (process.argv.includes('--launch')) {
     cursor = page.nextCursor || ''; loadedChats = true;
   }
   async function installHermes() {
+    requireLocalAgentInstall();
     const home = path.join(os.homedir(), '.hermes');
     const executable = path.join(home, 'hermes-agent', 'venv', 'bin', 'hermes');
     try { await access(executable); } catch { throw new Error('HERMES_NOT_FOUND'); }
@@ -102,6 +110,7 @@ if (process.argv.includes('--launch')) {
     catch { throw new Error('HERMES_ENABLE_FAILED'); }
   }
   async function installOpenClawPrompts() {
+    requireLocalAgentInstall();
     const executable = await openClawExecutable();
     const bundle = fileURLToPath(new URL('../integrations/openclaw/organik-thread-prompts',import.meta.url));
     const destination = path.join(os.homedir(),'.openclaw','extensions','organik-thread-prompts');
@@ -134,6 +143,7 @@ ${cursor ? '<form method="post"><input type="hidden" name="action" value="more">
       let raw = ''; for await (const chunk of process.stdin) { raw += chunk; if (raw.length > 16384) throw new Error('Request too large'); }
       const input = JSON.parse(raw || '{}');
       const states = await load(input.action === 'health');
+      if (isStoreDistribution() && ['install','install-openclaw-prompts','install-openclaw-fallback'].includes(input.action)) requireLocalAgentInstall();
       const telegramCompatibilityState = input.action === 'health' ? undefined : await telegramCompatibility({install:input.action === 'install-openclaw-fallback'});
       if (input.action === 'install-openclaw-fallback') note = telegramCompatibilityState.detail;
       // Pagination is bounded and requested explicitly by the native picker.
@@ -150,11 +160,18 @@ ${cursor ? '<form method="post"><input type="hidden" name="action" value="more">
         if (!link) throw new Error('Link no longer exists');
         await saveAgentLink({...link,enabled:false}); note = 'Link disabled.';
       } else if (input.action && !['status','health','install-openclaw-fallback'].includes(input.action)) throw new Error('Unsupported action');
+      const links = await readAgentLinks();
+      const threadPrompts = await promptViews(links);
+      if (input.action !== 'health') {
+        try { await syncStorePrompts(threadPrompts, hermes); }
+        catch { throw new Error('PROMPT_SYNC_FAILED'); }
+      }
       process.stdout.write(JSON.stringify({ok:true,note,states,hermesEnabled,bridgeHealth,telegramCompatibility:telegramCompatibilityState,choices,
-        chats:chats.map(c => ({id:c.id,name:c.name || c.title || c.id})),hasMore:!!cursor,links:await readAgentLinks(),threadPrompts:await promptViews(await readAgentLinks())}));
+        chats:chats.map(c => ({id:c.id,name:c.name || c.title || c.id})),hasMore:!!cursor,links,threadPrompts}));
     } catch (error) {
       const note = error.message === 'PROMPT_BUSY' ? 'Another prompt save is in progress. Retry after it finishes.' : error.message === 'PROMPT_CHANGED' ? 'This prompt changed elsewhere. Reload it before saving again.' : error.message === 'PROMPT_LINK_CHANGED' ? 'The link changed or is disabled. Reload connections before editing its prompt.' : error.message === 'PROMPT_INVALID' ? 'Use a prompt of at most 12,000 characters.' : error.message === 'HERMES_NOT_FOUND' ? 'Default Hermes installation not found. No plugin was installed.' : error.message === 'HERMES_ENABLE_FAILED' ? 'Bridge files were copied, but Hermes could not enable the plugin. Check Hermes plugin support and retry.' : 'Setup could not complete. Refresh connections and reselect the session and chat. No approval was sent.';
-      process.stdout.write(JSON.stringify({ok:false,note}));
+      process.stdout.write(JSON.stringify({ok:false,note:error.message === 'PROMPT_SYNC_FAILED' ?
+        'Settings are saved locally, but agent prompt sync failed. Reconnect the bridge or grant the selected folder, then refresh. The agent may still have its previous prompt.' : note}));
     } finally { openclaw?.stop(); }
     process.exit(0);
   }

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { beepsterStateDir } from './agent-distribution.js';
 
 const SCHEMA_VERSION = 1;
 const OPERATOR_ROLE = 'operator';
@@ -40,7 +40,7 @@ function normalizeScopes(scopes) {
 
 export function createOpenClawDeviceAuthStore(options = {}) {
   const stateDir = path.resolve(options.stateDir || process.env.BEEPSTER_OPENCLAW_STATE_DIR ||
-    path.join(os.homedir(), 'Library', 'Application Support', 'Beepster', 'openclaw'));
+    path.join(beepsterStateDir(), 'openclaw'));
   const identityPath = path.join(stateDir, 'device-identity.json');
   const tokenPath = path.join(stateDir, 'device-auth.json');
 

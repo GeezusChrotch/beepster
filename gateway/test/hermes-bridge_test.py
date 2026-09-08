@@ -8,6 +8,7 @@ import sys
 import asyncio
 import threading
 import time
+import http.client
 from types import SimpleNamespace
 sys.dont_write_bytecode = True
 
@@ -16,6 +17,50 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 class BridgeTest(unittest.TestCase):
+    def test_http_auth_sessions_prompt_sync_and_exact_decision(self):
+        session = 'agent:main:telegram:dm:123'
+        pending = [dict(request_id='one', command='echo test')]
+        decisions = []
+        def resolve(key, choice, request_id):
+            decisions.append((key, choice, request_id)); pending.clear(); return 1
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = module.ApprovalBridge(lambda key: pending, resolve, directory,
+                http_port=0, http_token='a'*64,
+                session_loader=lambda: [dict(provider='hermes', sessionKey=session, label='Test')])
+            bridge.sessions.add(session)
+            bridge.start()
+            def request(body, token='a'*64, extra=None):
+                connection = http.client.HTTPConnection('127.0.0.1', bridge.server.server_port, timeout=4)
+                headers = {'Authorization': 'Bearer '+token, 'Content-Type': 'application/json'}
+                headers.update(extra or {})
+                connection.request('POST', '/v1/beepster', json.dumps(body), headers)
+                response = connection.getresponse()
+                result = response.status, json.loads(response.read())
+                connection.close()
+                return result
+            try:
+                self.assertFalse((Path(directory)/'approvals.sock').exists())
+                self.assertEqual(request(dict(method='list'), token='bad')[0],401)
+                self.assertEqual(request(dict(method='list'), extra={'Origin':'http://evil.test'})[0],403)
+                self.assertEqual(request(dict(method='list'), extra={'Host':'evil.test'})[0],403)
+                self.assertEqual(request(dict(method='sessions'))[1]['items'][0]['sessionKey'],session)
+                row = dict(sessionKey=session, chatID='chat', text='Brief replies')
+                self.assertEqual(request(dict(method='prompts.sync',prompts=[row]))[0],200)
+                self.assertEqual(bridge.synced_prompts,[row])
+                self.assertEqual((Path(directory)/'store-prompts.json').stat().st_mode & 0o777,0o600)
+                self.assertEqual(request(dict(method='prompts.sync',prompts=[dict(row,sessionKey='other')]))[0],400)
+                self.assertEqual(bridge.synced_prompts,[row])
+                self.assertEqual(request(dict(method='prompts.sync',prompts=[]))[0],200)
+                self.assertEqual(bridge.synced_prompts,[])
+                body = dict(method='resolve',sessionKey=session,id='wrong',decision='deny')
+                self.assertEqual(request(body)[0],400)
+                body['id']='one'
+                self.assertEqual(request(body)[0],200)
+                self.assertEqual(request(body)[0],400)
+                self.assertEqual(decisions,[(session,'deny','one')])
+            finally:
+                bridge.stop()
+
     def test_scoped_system_prompt(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

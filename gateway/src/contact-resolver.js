@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process';
 import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { homedir } from 'node:os';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
+import { beepsterStateDir } from './agent-distribution.js';
 
 const POSITIVE_CACHE_MS = 6 * 60 * 60 * 1000;
 const NEGATIVE_CACHE_MS = 15 * 60 * 1000;
@@ -80,7 +80,7 @@ export async function runHelper(helperPath, identifiers) {
 
 export class MacContactsResolver {
   constructor({
-    helperPath = process.env.BEEPSTER_CONTACT_HELPER || join(homedir(), 'Library/Application Support/Beepster/bin/Beepster Contacts.app'),
+    helperPath = process.env.BEEPSTER_CONTACT_HELPER || join(beepsterStateDir(), 'bin/Beepster Contacts.app'),
     runner = runHelper,
     now = () => Date.now()
   } = {}) {

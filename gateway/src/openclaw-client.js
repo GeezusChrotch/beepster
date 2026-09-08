@@ -1,7 +1,7 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { createOpenClawDeviceAuthStore, OPENCLAW_SCOPES } from './openclaw-device-auth.js';
+import { agentHome } from './agent-distribution.js';
 
 const MAX_SUMMARY = 620;
 
@@ -48,8 +48,10 @@ function readGatewayToken(configPath) {
 export function createOpenClawBridge(options = {}) {
   let client = null;
   let stopped = false;
-  const configPath = options.configPath || process.env.BEEPSTER_OPENCLAW_CONFIG ||
-    path.join(os.homedir(), '.openclaw', 'openclaw.json');
+  // Resolve only when bootstrap needs a token; paired/manual-token Store users
+  // need no permission to an external configuration file.
+  const configPath = () => options.configPath || process.env.BEEPSTER_OPENCLAW_CONFIG ||
+    path.join(agentHome('openclaw'), 'openclaw.json');
   const gatewayUrl = options.gatewayUrl || process.env.BEEPSTER_OPENCLAW_GATEWAY_URL || 'ws://127.0.0.1:18789';
   const deviceAuthStore = options.deviceAuthStore || createOpenClawDeviceAuthStore(options.deviceAuthOptions);
   const identity = deviceAuthStore.loadOrCreateDeviceIdentity();
@@ -62,7 +64,7 @@ export function createOpenClawBridge(options = {}) {
       import('@openclaw/gateway-client'), import('@openclaw/gateway-protocol/version'),
       import('@openclaw/gateway-protocol/connect-error-details'), import('@openclaw/gateway-protocol/client-info')
     ]);
-    const sharedToken = storedAuth ? undefined : readGatewayToken(configPath);
+    const sharedToken = storedAuth ? undefined : (process.env.OPENCLAW_GATEWAY_TOKEN?.trim() || readGatewayToken(configPath()));
     await new Promise((resolve) => {
       let settled = false;
       client = new GatewayClient({url:gatewayUrl, token:sharedToken, deviceIdentity:identity,

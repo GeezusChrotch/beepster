@@ -4,9 +4,21 @@ import { promisify } from 'node:util';
 import path from 'node:path';
 import os from 'node:os';
 import { isTelegramSession } from './agent-approvals.js';
+import { agentHome, isStoreDistribution, requireLocalAgentInstall } from './agent-distribution.js';
 const exec = promisify(execFile);
 
+async function queryIndex(db, sql) {
+  if (!isStoreDistribution()) {
+    const {stdout} = await exec('/usr/bin/sqlite3', ['-readonly','-json',db,sql], {timeout:3000,maxBuffer:256000});
+    return JSON.parse(stdout || '[]');
+  }
+  const {DatabaseSync} = await import('node:sqlite');
+  const database = new DatabaseSync(db, {readOnly:true});
+  try { return database.prepare(sql).all(); } finally { database.close(); }
+}
+
 export async function openClawExecutable() {
+  requireLocalAgentInstall();
   for (const candidate of [path.join(os.homedir(),'.local','bin','openclaw'),'/opt/homebrew/bin/openclaw','/usr/local/bin/openclaw']) {
     try { await access(candidate); return candidate; } catch { }
   }
@@ -14,7 +26,11 @@ export async function openClawExecutable() {
 }
 
 // Local index metadata only: no transcript reads and no broader Gateway scopes.
-export async function discoverOpenClawSessions(root = path.join(os.homedir(), '.openclaw', 'agents')) {
+export async function discoverOpenClawSessions(root) {
+  if (!root) {
+    if (isStoreDistribution() && !process.env.BEEPSTER_OPENCLAW_HOME) return [];
+    root = path.join(agentHome('openclaw'), 'agents');
+  }
   const result = [];
   for (const agent of await readdir(root, {withFileTypes:true}).catch(() => [])) {
     if (!agent.isDirectory()) continue;
@@ -27,13 +43,12 @@ export async function discoverOpenClawSessions(root = path.join(os.homedir(), '.
     const db = path.join(folder, 'agent', 'openclaw-agent.sqlite');
     try {
       await access(db);
-      const {stdout} = await exec('/usr/bin/sqlite3', ['-readonly', '-json', db,
-        "SELECT session_key AS sessionKey, COALESCE(NULLIF(label,''),NULLIF(display_name,''),'') AS label FROM session_nodes WHERE session_key LIKE '%:telegram:%' AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 200"], {timeout:3000,maxBuffer:256000});
-      entries.unshift(...JSON.parse(stdout || '[]'));
+      entries.unshift(...await queryIndex(db,
+        "SELECT session_key AS sessionKey, COALESCE(NULLIF(label,''),NULLIF(display_name,''),'') AS label FROM session_nodes WHERE session_key LIKE '%:telegram:%' AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 200"));
       // Newer OpenClaw may share agent:main:main across messaging channels.
-      const shared = await exec('/usr/bin/sqlite3', ['-readonly','-json',db,
-        "SELECT DISTINCT n.session_key AS sessionKey, COALESCE(NULLIF(n.label,''),NULLIF(n.display_name,''),'') AS label FROM session_nodes n JOIN session_conversations sc ON sc.session_id=n.current_session_id JOIN conversations c USING(conversation_id) WHERE c.channel='telegram' AND n.archived_at IS NULL ORDER BY n.updated_at DESC LIMIT 200"], {timeout:3000,maxBuffer:256000}).catch(() => ({stdout:'[]'}));
-      entries.push(...JSON.parse(shared.stdout || '[]').map(item => ({...item,telegramMetadata:true})));
+      const shared = await queryIndex(db,
+        "SELECT DISTINCT n.session_key AS sessionKey, COALESCE(NULLIF(n.label,''),NULLIF(n.display_name,''),'') AS label FROM session_nodes n JOIN session_conversations sc ON sc.session_id=n.current_session_id JOIN conversations c USING(conversation_id) WHERE c.channel='telegram' AND n.archived_at IS NULL ORDER BY n.updated_at DESC LIMIT 200").catch(() => []);
+      entries.push(...shared.map(item => ({...item,telegramMetadata:true})));
     } catch { /* Missing/unsupported index remains discoverable from pending requests. */ }
     for (const item of entries) if ((isTelegramSession(item.sessionKey) || (item.telegramMetadata && /^agent:[^:]+:[^:]+$/.test(item.sessionKey))) && !result.some(r => r.sessionKey === item.sessionKey)) {
       result.push({provider:'openclaw', sessionKey:item.sessionKey, requiresTelegramRoute:!isTelegramSession(item.sessionKey), label:`${agent.name}${item.label ? ' — '+item.label : ''}${!isTelegramSession(item.sessionKey) ? ' — shared session (Telegram)' : ''}`});
@@ -41,7 +56,7 @@ export async function discoverOpenClawSessions(root = path.join(os.homedir(), '.
   }
   // Ask the local runtime for the same title projection used by its sidebar.
   // Only enrich sessions already known to have a Telegram route.
-  if (root === path.join(os.homedir(), '.openclaw', 'agents')) {
+  if (!isStoreDistribution() && root === path.join(os.homedir(), '.openclaw', 'agents')) {
     try {
       const {stdout} = await exec(await openClawExecutable(), ['gateway','call','sessions.list','--params',JSON.stringify({includeDerivedTitles:true,limit:200}),'--json'], {timeout:12000,maxBuffer:2000000});
       for(const row of JSON.parse(stdout).sessions || []) {
@@ -62,6 +77,7 @@ export function validSetupPost(originHeader, origin, submittedToken, token) {
 }
 
 export async function discoverHermesSessions(home = path.join(os.homedir(), '.hermes')) {
+  if (isStoreDistribution()) throw new Error('Store Hermes sessions must use its authenticated bridge');
   let entries = [];
   try {
     const db = path.join(home,'state.db'); await access(db);

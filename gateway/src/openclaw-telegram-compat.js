@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import {createHash} from 'node:crypto';
+import { isStoreDistribution, requireLocalAgentInstall } from './agent-distribution.js';
 
 const marker = '// Beepster exact-ID Telegram fallback v1';
 const anchor = '\t\tconst decisionButtons = view.actions.flatMap((action) => {';
@@ -20,6 +21,10 @@ export function patchedRenderer(source) {
   return source.replace(anchor, addition + anchor);
 }
 export async function telegramCompatibility({root, install = false, backupDir = path.join(os.homedir(),'Library/Application Support/Beepster/openclaw-renderer-backups')} = {}) {
+  if (isStoreDistribution()) {
+    if (install) requireLocalAgentInstall();
+    return {supported:false,installed:false,detail:'Store builds never patch agent code. Configure approvals in OpenClaw itself.'};
+  }
   const candidates = root ? [root] : ['/usr/local/lib/node_modules/openclaw','/opt/homebrew/lib/node_modules/openclaw',path.join(os.homedir(),'.npm-global/lib/node_modules/openclaw')];
   let pkg;
   for (const candidate of candidates) {

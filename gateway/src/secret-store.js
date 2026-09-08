@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
-import os from 'node:os';
+import { beepsterStateDir } from './agent-distribution.js';
 
-const helper = process.env.BEEPSTER_KEYCHAIN_HELPER || path.join(os.homedir(), 'Library/Application Support/Beepster/bin/beepster-keychain');
+const helper = process.env.BEEPSTER_KEYCHAIN_HELPER || path.join(beepsterStateDir(), 'bin/beepster-keychain');
 
 export function readSecret(account) {
   return new Promise((resolve) => {

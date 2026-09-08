@@ -1,10 +1,10 @@
 import { readFile, mkdir, writeFile, rename } from 'node:fs/promises';
-import os from 'node:os';
+import { beepsterStateDir } from './agent-distribution.js';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { isSupportedAgentLink } from './agent-approvals.js';
 
-export const agentSettingsPath = path.join(os.homedir(), 'Library', 'Application Support', 'Beepster', 'agent-links.json');
+export const agentSettingsPath = path.join(beepsterStateDir(), 'agent-links.json');
 export async function readAgentLinks(file = agentSettingsPath) {
   try { const data = JSON.parse(await readFile(file, 'utf8')); return Array.isArray(data.links) ? data.links : []; }
   catch (error) { if (error.code === 'ENOENT') return []; throw error; }

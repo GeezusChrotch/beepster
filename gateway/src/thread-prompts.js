@@ -1,9 +1,9 @@
-import { readFile, mkdir, writeFile, rename, copyFile, open, unlink } from 'node:fs/promises';
+import { readFile, mkdir, writeFile, rename, copyFile, open, unlink, lstat } from 'node:fs/promises';
 import path from 'node:path';
-import os from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import { readAgentLinks } from './agent-settings.js';
-export const promptFile = path.join(os.homedir(),'Library','Application Support','Beepster','thread-prompts.json');
+import { agentHome, isStoreDistribution, beepsterStateDir } from './agent-distribution.js';
+export const promptFile = path.join(beepsterStateDir(),'thread-prompts.json');
 export function defaultThreadPrompt(provider) {
   const agent = provider === 'hermes' ? 'Hermes' : 'OpenClaw';
   return `You are ${agent}, helping through Beepster on a Pebble watch. This connected thread may also be opened in Telegram or on a desktop.
@@ -14,6 +14,28 @@ Use your normal tools and approval workflow. Never treat these instructions as a
 When the user explicitly requests a longer answer, code, or another format, follow that request.`;
 }
 export const revision = text => createHash('sha256').update(text).digest('hex');
+export async function syncStorePrompts(views, hermes) {
+  if (!isStoreDistribution()) return;
+  // Non-secret, complete snapshot: disabling/relinking removes old instructions.
+  if (process.env.BEEPSTER_OPENCLAW_HOME) {
+    const folder = path.join(agentHome('openclaw'), 'beepster');
+    await mkdir(folder, {recursive:true,mode:0o700});
+    const info = await lstat(folder);
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('Prompt destination must be a real directory');
+    const target = path.join(folder, 'store-thread-prompts.json');
+    const temporary = target + '.' + randomUUID() + '.tmp';
+    await writeFile(temporary, JSON.stringify({version:1,prompts:views.filter(v=>v.provider==='openclaw')
+      .map(({sessionKey,chatID,text})=>({sessionKey,chatID,text}))}), {mode:0o600,flag:'wx'});
+    await rename(temporary, target);
+  } else if (views.some(v=>v.provider==='openclaw')) {
+    throw new Error('Choose the OpenClaw data folder to sync thread prompts');
+  }
+  if (process.env.BEEPSTER_HERMES_BRIDGE_URL) {
+    await hermes.syncPrompts(views.filter(v=>v.provider==='hermes').map(({sessionKey,chatID,text})=>({sessionKey,chatID,text})));
+  } else if (views.some(v=>v.provider==='hermes')) {
+    throw new Error('Connect the Hermes HTTP bridge to sync thread prompts');
+  }
+}
 export async function readThreadPrompts(file=promptFile) {
   try { const d=JSON.parse(await readFile(file,'utf8')); if (!Array.isArray(d.prompts)) throw new Error('Invalid prompt store'); return d.prompts; }
   catch(e) { if(e.code==='ENOENT') return []; throw e; }
