@@ -33,7 +33,7 @@ mode retains its existing default transports and installers.
 ## Hermes agent-side setup
 
 The user installs/updates `gateway/integrations/hermes/beepster` through Hermes'
-own plugin workflow, outside the Store app. Candidate plugin version is 0.5.0.
+own plugin workflow, outside the Store app. Candidate plugin version is 0.5.1.
 Configure these environment variables in the environment that starts Hermes:
 
 - `BEEPSTER_HERMES_BRIDGE_PORT`: an available port from 1024 through 65535.
@@ -58,6 +58,10 @@ credentials, private requests and internal exception details.
 
 Session choices come from agent-side routing metadata plus observed Telegram
 sessions, not names guessed from Beeper. Prompt sync replaces the complete set of
+enabled Hermes links. If the routing index is empty after a reset or migration,
+exact keys from canonical Telegram session metadata remain discoverable with
+`fromHistory:true`; these are known scopes, not proof of an active turn.
+Prompt sync replaces the complete set of
 enabled Hermes links, so disabling or relinking clears old instructions. It
 accepts at most 100 distinct known sessions and 12,000 characters per prompt.
 The plugin persists only those prompt rows in its private `store-prompts.json`;

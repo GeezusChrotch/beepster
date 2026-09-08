@@ -9,6 +9,7 @@ import asyncio
 import threading
 import time
 import http.client
+import sqlite3
 from types import SimpleNamespace
 sys.dont_write_bytecode = True
 
@@ -17,6 +18,21 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 class BridgeTest(unittest.TestCase):
+    def test_empty_routing_index_preserves_exact_canonical_telegram_scopes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with sqlite3.connect(Path(directory)/'state.db') as db:
+                db.executescript("CREATE TABLE gateway_routing(session_key TEXT,entry_json TEXT,updated_at REAL); CREATE TABLE sessions(session_key TEXT,display_name TEXT,title TEXT,source TEXT,archived INT,started_at REAL);")
+                db.executemany('INSERT INTO sessions VALUES(?,?,?,?,?,?)',[
+                    ('agent:main:telegram:dm:123','Known',None,'telegram',0,2),
+                    ('agent:main:telegram:dm:123','Old',None,'telegram',0,1),
+                    ('agent:main:telegram:dm:456','Archived',None,'telegram',1,3),
+                    (None,'No exact key',None,'telegram',0,4),
+                    ('agent:main:telegram:dm:999','Wrong source',None,'cli',0,5)])
+            rows=module.discover_sessions(directory)
+            self.assertEqual(len(rows),1)
+            self.assertEqual(rows[0]['sessionKey'],'agent:main:telegram:dm:123')
+            self.assertTrue(rows[0]['fromHistory'])
+
     def test_http_auth_sessions_prompt_sync_and_exact_decision(self):
         session = 'agent:main:telegram:dm:123'
         pending = [dict(request_id='one', command='echo test')]

@@ -21,15 +21,30 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 def discover_sessions(home):
     """Agent-side routing metadata only; never return transcripts."""
+    result = []
     try:
         with sqlite3.connect((Path(home) / 'state.db').as_uri() + '?mode=ro', uri=True) as db:
             rows = db.execute("SELECT session_key, json_extract(entry_json,'$.display_name') FROM gateway_routing WHERE json_extract(entry_json,'$.platform')='telegram' AND COALESCE(json_extract(entry_json,'$.expiry_finalized'),0)=0 ORDER BY updated_at DESC LIMIT 200").fetchall()
-            return [dict(provider='hermes', sessionKey=key, label=label or 'Hermes Telegram session') for key, label in rows if ':telegram:' in key]
+            result = [dict(provider='hermes', sessionKey=key, label=label or 'Hermes Telegram session') for key, label in rows if ':telegram:' in key]
+            # Routing indexes may be empty after resets/migration. Canonical
+            # session metadata retains exact routing keys even when an older
+            # conversation has ended. These are known scopes, not proof of a
+            # currently running turn; never derive keys from names or chat IDs.
+            try:
+                history = db.execute("SELECT session_key, COALESCE(NULLIF(display_name,''),NULLIF(title,''),'Previously used Telegram session') FROM sessions WHERE source='telegram' AND session_key IS NOT NULL AND COALESCE(archived,0)=0 ORDER BY started_at DESC LIMIT 1000").fetchall()
+                known = {row['sessionKey'] for row in result}
+                for key, label in history:
+                    if ':telegram:' in key and key not in known and len(result) < 200:
+                        result.append(dict(provider='hermes', sessionKey=key, label=label, fromHistory=True))
+                        known.add(key)
+            except sqlite3.Error:
+                pass  # Older schemas still use the routing table above.
+            return result
     except (OSError, sqlite3.Error):
         try:
             data = json.loads((Path(home) / 'sessions' / 'sessions.json').read_text())
             return [dict(provider='hermes', sessionKey=key, label=item.get('display_name') or 'Hermes Telegram session')
-                    for key, item in data.items() if ':telegram:' in key and item.get('platform') == 'telegram' and not item.get('expiry_finalized')][:200]
+                    for key, item in data.items() if isinstance(item, dict) and ':telegram:' in key and item.get('platform') == 'telegram' and not item.get('expiry_finalized')][:200]
         except (OSError, ValueError, AttributeError):
             return []
 

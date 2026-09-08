@@ -1,5 +1,5 @@
 name: beepster
-version: 0.5.0
+version: 0.5.1
 description: Optional local Beepster scoped approval bridge with authenticated Store transport
 author: Organik Apps
 kind: standalone
