@@ -2,7 +2,7 @@
 
 Use the free **Organik Apps Pebble Connector** on macOS 14 or newer.
 
-For Beepster **0.20.0**, update to **Connector 0.9.0 or newer** first. The Connector
+For Beepster **0.20.0**, update to **Connector 0.8.7 or newer** first. The Connector
 delivers matching reactions, GIF conversion, YouTube thumbnails, and attachment-access checks; updating only
 the watch app does not update the Mac gateway. Existing pairing and settings are retained.
 After updating the Connector, existing users must select **Beepster → Set up

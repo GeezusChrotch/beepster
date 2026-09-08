@@ -15,7 +15,7 @@
 - Replace media-only empty-text errors with clean captions; allow tapping failed
   media to retry. Add a managed-runtime Apple Messages permission probe and clear
   access-denied errors for the unified Connector's guided permission setup.
-- Require Connector 0.9.0 or newer for the matching gateway and permission UI.
+- Require Connector 0.8.7 or newer for the matching gateway and permission UI.
 
 See [update instructions, privacy notes, and validation](docs/RELEASE_NOTES_0.20.0.md).
 

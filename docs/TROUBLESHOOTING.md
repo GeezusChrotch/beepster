@@ -11,7 +11,7 @@ Open **Organik Apps Pebble Connector → Beepster → Requirements**. Use **Conn
 
 ## Photos, GIFs, and YouTube cards
 
-- Use Beepster 0.20.0 with Connector 0.9.0 or newer. After updating the Mac app,
+- Use Beepster 0.20.0 with Connector 0.8.7 or newer. After updating the Mac app,
   choose **Beepster → Set up service** to refresh its managed gateway.
 - For blocked Apple Messages attachments, use **Allow attachment access** in the
   optional **Apple Messages photos/GIFs** step, grant the highlighted background

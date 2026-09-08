@@ -5,7 +5,7 @@ and thumbnails use the full chat width with correct proportions. Large-photo mem
 fallbacks and preview cancellation fixes improve reliability. Supported GIFs play
 short, reduced-detail loops; YouTube links can show thumbnail cards. Videos do not play.
 
-Update Organik Apps Pebble Connector to 0.9.0 or newer and choose Beepster → Set up
+Update Organik Apps Pebble Connector to 0.8.7 or newer and choose Beepster → Set up
 service before updating the watch. Protected Apple Messages attachments have guided
 permission setup in the Connector. Pairing, themes and saved replies are preserved.
 

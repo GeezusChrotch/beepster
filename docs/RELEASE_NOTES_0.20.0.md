@@ -15,7 +15,7 @@
 
 ## Update both components
 
-Install [Organik Apps Pebble Connector 0.9.0 or newer](https://github.com/GeezusChrotch/organik-pebble-connector/releases/latest)
+Install [Organik Apps Pebble Connector 0.8.7 or newer](https://github.com/GeezusChrotch/organik-pebble-connector/releases/latest)
 first. Choose **Beepster → Set up service** to refresh the managed gateway, then
 reopen Beepster's phone settings. Install this release's PBW using the Pebble phone
 app, or update through the watch-app listing when its matching version is available.
