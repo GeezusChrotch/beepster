@@ -3,7 +3,7 @@ import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { homedir } from 'node:os';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
 
 const POSITIVE_CACHE_MS = 6 * 60 * 60 * 1000;
@@ -39,7 +39,25 @@ export async function waitForHelperResponse(responsePath, {
   throw new Error('Contacts helper response timed out');
 }
 
-async function runHelper(helperPath, identifiers) {
+// Store builds provide an inherited executable instead of a LaunchServices app.
+// Keep identifiers off argv and avoid files crossing sandbox containers.
+export async function runHelper(helperPath, identifiers) {
+  if (!/\.app\/?$/i.test(helperPath)) {
+    if (!isAbsolute(helperPath)) throw new Error('Contacts executable must use an absolute path');
+    return new Promise((resolve, reject) => {
+      const child = execFile(helperPath, ['--lookup'], {
+        timeout: 8000,
+        maxBuffer: 256 * 1024,
+        encoding: 'utf8'
+      }, (error, stdout) => {
+        if (error) { reject(error); return; }
+        try { resolve(JSON.parse(stdout)); } catch (error) { reject(error); }
+      });
+      // An early exit may close stdin before the request is written.
+      child.stdin.on('error', reject);
+      child.stdin.end(JSON.stringify({ identifiers }));
+    });
+  }
   const directory = await mkdtemp(join(tmpdir(), 'beepster-contacts-'));
   const requestPath = join(directory, 'request.json');
   const responsePath = join(directory, 'response.json');

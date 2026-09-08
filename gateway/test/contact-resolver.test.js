@@ -1,6 +1,63 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MacContactsResolver, normalizeContactIdentifier, waitForHelperResponse } from '../src/contact-resolver.js';
+import { MacContactsResolver, normalizeContactIdentifier, waitForHelperResponse, runHelper } from '../src/contact-resolver.js';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+async function withExecutable(body, run) {
+  const directory = await mkdtemp(join(tmpdir(), 'beepster-stdio-test-'));
+  const helper = join(directory, 'Contacts Helper');
+  try {
+    await writeFile(helper, `#!${process.execPath}\n${body}`, {mode:0o700});
+    await run(helper);
+  } finally { await rm(directory, {recursive:true, force:true}); }
+}
+
+test('Store Contacts executable receives lookup JSON only on stdin, with names and identity keys intact', async () => {
+  await withExecutable(`
+    if (JSON.stringify(process.argv.slice(2)) !== '["--lookup"]') process.exit(2);
+    let input='';process.stdin.on('data',x=>input+=x);
+    process.stdin.on('end',()=>{
+      const request=JSON.parse(input);
+      if(request.identifiers[0]!=='person@example.com') process.exit(3);
+      process.stdout.write(JSON.stringify({authorized:true,names:{'person@example.com':'Example'},contactKeys:{'person@example.com':'key'}}));
+    });`, async helper => {
+      const resolver = new MacContactsResolver({helperPath:helper, runner:runHelper});
+      if (process.platform === 'darwin') {
+        const result = await resolver.lookupDetails(['Person@example.com']);
+        assert.equal(result.names.get('person@example.com'), 'Example');
+        assert.equal(result.contactKeys.get('person@example.com'), 'key');
+      } else {
+        assert.equal((await runHelper(helper,['person@example.com'])).authorized,true);
+      }
+    });
+});
+
+test('Store Contacts executable preserves denied permission response without prompting', async () => {
+  await withExecutable(`process.stdin.resume();process.stdin.on('end',()=>process.stdout.write('{"authorized":false,"names":{}}'));`, async helper => {
+    assert.equal((await runHelper(helper, ['person@example.com'])).authorized, false);
+  });
+});
+
+test('Store Contacts executable rejects malformed, oversized and failed responses', async () => {
+  for (const body of [
+    "process.stdout.write('invalid');",
+    "process.stdout.write('x'.repeat(300*1024));",
+    "process.exit(1);"
+  ]) {
+    await withExecutable(`process.stdin.resume();process.stdin.on('end',()=>{${body}});`, async helper => {
+      await assert.rejects(runHelper(helper,['person@example.com']));
+    });
+  }
+  await assert.rejects(runHelper('relative-helper', []), /absolute path/);
+});
+
+test('Store Contacts executable is bounded by a timeout', async () => {
+  await withExecutable('process.stdin.resume();setInterval(()=>{},1000);', async helper => {
+    await assert.rejects(runHelper(helper, []), error => error.killed === true);
+  });
+});
 
 test('contact identifiers normalize emails and North American phone numbers', () => {
   assert.equal(normalizeContactIdentifier('MAILTO:Person@Example.COM'), 'person@example.com');
