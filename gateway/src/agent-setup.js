@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { cp, access, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { readSecret } from './secret-store.js';
+import { readConfiguredSecret } from './secret-store.js';
 import { BeeperClient } from './beeper-client.js';
 import { createOpenClawApprovalClient } from './openclaw-client.js';
 import { createHermesApprovalClient } from './hermes-client.js';
@@ -52,7 +52,7 @@ if (process.argv.includes('--launch')) {
       hermesEnabled = stdout.split('\n').some(line => /^enabled\s+user\s+\S+\s+beepster\s*$/.test(line.trim()));
     } catch { /* Leave installation state unknown; never infer success from files alone. */ }
     clients.hermes = hermes;
-    if (!openclaw && /^(enabled|true|1)$/i.test(await readSecret('openclaw-enabled'))) {
+    if (!openclaw && /^(enabled|true|yes|1)$/i.test(await readConfiguredSecret('openclaw-enabled', 'BEEPSTER_OPENCLAW_ENABLED'))) {
       openclaw = createOpenClawApprovalClient();
     }
     clients.openclaw = openclaw;
@@ -85,9 +85,9 @@ if (process.argv.includes('--launch')) {
     return states;
   }
   async function moreChats() {
-    const token = await readSecret('beeper-access-token');
+    const token = await readConfiguredSecret('beeper-access-token', 'BEEPER_ACCESS_TOKEN');
     if (!token) throw new Error('Set your Beeper token in Connector first');
-    const client = new BeeperClient({baseURL:'http://127.0.0.1:23373',accessToken:token});
+    const client = new BeeperClient({baseURL:process.env.BEEPER_BASE_URL || 'http://127.0.0.1:23373',accessToken:token});
     const page = await client.listChats(50, cursor);
     for (const chat of page.items || page) if (/telegram/i.test(chat.network || '') && !chats.some(c => c.id === chat.id)) chats.push(chat);
     cursor = page.nextCursor || ''; loadedChats = true;

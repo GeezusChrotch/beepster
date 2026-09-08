@@ -4,6 +4,11 @@ import { beepsterStateDir } from './agent-distribution.js';
 
 const helper = process.env.BEEPSTER_KEYCHAIN_HELPER || path.join(beepsterStateDir(), 'bin/beepster-keychain');
 
+export async function readConfiguredSecret(account, variable, {environment = process.env, reader = readSecret} = {}) {
+  const configured = environment[variable];
+  return typeof configured === 'string' && configured.trim() ? configured.trim() : reader(account);
+}
+
 export function readSecret(account) {
   return new Promise((resolve) => {
     // A first Keychain access can remain pending while macOS asks the user to
