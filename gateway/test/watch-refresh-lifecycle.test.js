@@ -28,6 +28,9 @@ enum {MESSAGE_KEY_COMMAND, TUPLE_CSTRING};
 static Window main_window, message_window, reply_window;
 static Window *s_main_window=&main_window, *s_message_window=&message_window, *top;
 static AppTimer *s_view_sync_timer;
+static AppTimer *s_read_sync_timer;
+static bool s_dictation_active;
+static void sync_read_receipt(void *context){}
 static char s_active_chat_id[]="agent-chat";
 static bool busy; static char sent[40]; static int delay;
 static void (*pending)(void *);

@@ -36,6 +36,22 @@ async function withServer(client, callback, options = {}) {
   }
 }
 
+test('read receipts require authentication and an explicit message boundary', async()=>{
+  const calls=[];
+  const client=new BeeperClient({baseURL:'http://beeper.invalid',accessToken:'test'});
+  client.request=async(path,options)=>{calls.push([path,JSON.parse(options.body)]);return {unreadCount:1};};
+  await withServer(client,async base=>{
+    const path=base+'/v1/chats/chat%2Fone/read';
+    assert.equal((await fetch(path,{method:'POST',body:'{}'})).status,401);
+    const headers={Authorization:'Bearer gateway-secret','Content-Type':'application/json'};
+    assert.equal((await fetch(path,{method:'POST',headers,body:'{}'})).status,400);
+    const r=await fetch(path,{method:'POST',headers,body:JSON.stringify({messageID:'seen-message'})});
+    assert.equal(r.status,200);assert.deepEqual(await r.json(),{unreadCount:1});
+    assert.deepEqual(calls,[['/v1/chats/chat%2Fone/read',{messageID:'seen-message'}]]);
+  });
+  await assert.rejects(client.markRead('chat',''),/required/);
+});
+
 test('message cache separates each phone link-display preference', async () => {
   const modes=[];
   await withServer({listMessages:async (id,limit,cursor,hideLinks) => {

@@ -191,6 +191,11 @@ static char s_active_chat_name[CHAT_NAME_LEN];
 static char s_active_chat_network[24];
 static bool s_active_chat_pinned;
 static DictationSession *s_dictation_session;
+static bool s_dictation_active;
+static AppTimer *s_dictation_send_timer;
+static char s_dictation_chat_id[CHAT_ID_LEN];
+#define STATUS_TEXT_CAPACITY 192
+static char (*s_status_text)[STATUS_TEXT_CAPACITY];
 #define REPLY_TEXT_CAPACITY 512
 static char *s_reply_text;
 static char s_reply_request_id[48];
@@ -201,6 +206,8 @@ static int s_pending_quick_reply_index = -1;
 static AppTimer *s_load_watchdog;
 static AppTimer *s_message_request_timer;
 static AppTimer *s_view_sync_timer;
+static AppTimer *s_read_sync_timer;
+static void schedule_view_sync(void);
 static int s_message_command_attempts;
 static AppTimer *s_content_request_timer;
 static int s_expanded_message_index = -1;
@@ -696,6 +703,16 @@ static void copy_text(char *destination, size_t size, const char *source) {
   snprintf(destination, size, "%s", source ? source : "");
 }
 
+// TextLayer borrows its string. Inbox tuple strings expire when the callback
+// returns, so status/error text must live as long as its layer can display it.
+static void set_owned_status_text(TextLayer *layer, const char *text) {
+  if (!layer || !s_status_text) return;
+  int slot = layer == s_message_status_layer ? 0 :
+    layer == s_reply_status_layer ? 1 : layer == s_media_status_layer ? 2 : 3;
+  copy_text(s_status_text[slot], STATUS_TEXT_CAPACITY, text);
+  text_layer_set_text(layer, s_status_text[slot]);
+}
+
 static GColor sender_color(const Message *message) {
   if (!message || message->is_self) return s_theme.accent;
   static const uint8_t light_background_palette[SENDER_COLOR_COUNT] = {
@@ -1171,7 +1188,7 @@ static void reply_status_clicks(void *context) {
 static void reply_show_status(const char *text) {
   s_reply_showing_status = true;
   if (s_reply_status_layer) {
-    text_layer_set_text(s_reply_status_layer, text ? text : "");
+    set_owned_status_text(s_reply_status_layer, text);
     layer_set_hidden(text_layer_get_layer(s_reply_status_layer), false);
   }
   if (s_reply_menu) layer_set_hidden(menu_layer_get_layer(s_reply_menu), true);
@@ -1274,13 +1291,32 @@ static void send_quick_reply_to_phone(int index, bool create_request_id) {
   reply_show_status(state_text(s_reply_state, true));
 }
 
+static void dictation_send_ready(void *context) {
+  s_dictation_send_timer = NULL;
+  s_dictation_active = false;
+  if (strcmp(s_dictation_chat_id, s_active_chat_id) == 0 && s_active_chat_id[0]) {
+    send_reply_to_phone();
+  } else {
+    s_reply_text[0] = '\0';
+    s_reply_request_id[0] = '\0';
+    s_reply_state = VIEW_READY;
+  }
+  schedule_view_sync();
+}
+
 static void dictation_callback(DictationSession *session, DictationSessionStatus status,
                                char *transcription, void *context) {
+  APP_LOG(APP_LOG_LEVEL_INFO, "Dictation result=%d heap=%lu", status, (unsigned long)heap_bytes_free());
+  if (!s_dictation_active || s_dictation_send_timer) return;
   if (status == DictationSessionStatusSuccess && transcription && transcription[0]) {
     copy_text(s_reply_text, REPLY_TEXT_CAPACITY, transcription);
     s_pending_quick_reply_index = -1;
     new_reply_request_id();
-    send_reply_to_phone();
+    // Let the SDK finish dismissing its UI/freeing the transcription before
+    // starting AppMessage traffic and changing reply-window state.
+    s_dictation_send_timer = app_timer_register(100, dictation_send_ready, NULL);
+    if (s_dictation_send_timer) return;
+    s_reply_state = VIEW_REPLY_RETRYABLE;
   } else if (status != DictationSessionStatusFailureTranscriptionRejected) {
     s_reply_state = VIEW_REPLY_RETRYABLE;
     if (s_reply_window && window_stack_get_top_window() == s_reply_window) {
@@ -1290,6 +1326,8 @@ static void dictation_callback(DictationSession *session, DictationSessionStatus
       layer_set_hidden(text_layer_get_layer(s_message_status_layer), false);
     }
   }
+  s_dictation_active = false;
+  schedule_view_sync();
 }
 
 static bool request_message_content(const Message *message) {
@@ -1339,6 +1377,8 @@ static void thread_quick_replies(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void thread_dictate(ClickRecognizerRef recognizer, void *context) {
+  if (s_dictation_active || s_dictation_send_timer || !s_active_chat_id[0] ||
+      s_reply_state == VIEW_REPLY_SENDING || s_reply_state == VIEW_REPLY_PENDING) return;
   if (s_reply_approval_id[0]) {
     s_reply_approval_id[0] = '\0';
     s_reply_request_id[0] = '\0';
@@ -1350,8 +1390,21 @@ static void thread_dictate(ClickRecognizerRef recognizer, void *context) {
     return;
   }
   if (s_dictation_session) {
+    cancel_reply_return_timer();
     s_pending_quick_reply_index = -1;
-    dictation_session_start(s_dictation_session);
+    copy_text(s_dictation_chat_id, sizeof(s_dictation_chat_id), s_active_chat_id);
+    s_dictation_active = true;
+    APP_LOG(APP_LOG_LEVEL_INFO, "Dictation start heap=%lu", (unsigned long)heap_bytes_free());
+    DictationSessionStatus result = dictation_session_start(s_dictation_session);
+    if (result != DictationSessionStatusSuccess) {
+      s_dictation_active = false;
+      APP_LOG(APP_LOG_LEVEL_WARNING, "Dictation start failed=%d", result);
+      if (s_message_status_layer) {
+        text_layer_set_text(s_message_status_layer, "Voice unavailable\nTry again");
+        layer_set_hidden(text_layer_get_layer(s_message_status_layer), false);
+      }
+    }
+    schedule_view_sync();
   } else if (s_message_status_layer) {
     text_layer_set_text(s_message_status_layer, "Voice dictation unavailable");
     layer_set_hidden(text_layer_get_layer(s_message_status_layer), false);
@@ -2225,7 +2278,7 @@ static ButtonAction button_action_from_name(const char *name) {
 static void apply_state(const char *state, const char *error) {
   if (strncmp(state, "media_", 6) == 0) {
     if (s_media_status_layer) {
-      text_layer_set_text(s_media_status_layer, strcmp(state, "media_loading") == 0 ?
+      set_owned_status_text(s_media_status_layer, strcmp(state, "media_loading") == 0 ?
         "Loading attachment…" : (error && error[0] ? error : "Attachment unavailable\nPress Back"));
       layer_set_hidden(text_layer_get_layer(s_media_status_layer), false);
     }
@@ -2254,7 +2307,7 @@ static void apply_state(const char *state, const char *error) {
       if (reply_state == VIEW_REPLY_RETRYABLE && !(error && error[0])) {
         feedback = "Reply failed\nPress Select to retry";
       }
-      text_layer_set_text(s_message_status_layer, feedback);
+      set_owned_status_text(s_message_status_layer, feedback);
       layer_set_hidden(text_layer_get_layer(s_message_status_layer), false);
       return;
     }
@@ -2304,7 +2357,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
       vibes_short_pulse();
       set_status(status, VIEW_READY, s_delete_message);
     } else if (status) {
-      text_layer_set_text(status, error ? error->value->cstring : "Deletion was not allowed");
+      set_owned_status_text(status, error ? error->value->cstring : "Deletion was not allowed");
       layer_set_hidden(text_layer_get_layer(status), false);
       vibes_double_pulse();
     }
@@ -2541,6 +2594,7 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
       }
     }
     cancel_load_watchdog();
+    schedule_view_sync();
     return;
   }
 
@@ -2643,6 +2697,23 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
       vibes_double_pulse();
       return;
     }
+    // A background/read-badge refresh is not navigation. Anchor by chat ID
+    // before replacing the rows, retaining its exact on-screen position.
+    bool preserve_position = mode && strcmp(mode->value->cstring, "refresh") == 0 &&
+      s_chat_menu && s_chat_count > 0;
+    int previous_row = preserve_position ? menu_layer_get_selected_index(s_chat_menu).row : 0;
+    char previous_id[sizeof(s_chats[0].id)] = {0};
+    GPoint previous_offset = GPointZero;
+    int previous_top = 0;
+    if (preserve_position) {
+      if (previous_row >= s_chat_count) previous_row = s_chat_count - 1;
+      copy_text(previous_id, sizeof(previous_id), s_chats[previous_row].id);
+      previous_offset = scroll_layer_get_content_offset(menu_layer_get_scroll_layer(s_chat_menu));
+      for (int row = 0; row < previous_row; row++) {
+        MenuIndex index = {.section = 0, .row = row};
+        previous_top += chat_row_height(s_chat_menu, &index, NULL);
+      }
+    }
     if (count > 0) memcpy(s_chats, s_incoming_chats, count * sizeof(Chat));
     s_chat_count = count;
     int flags = page_flags ? page_flags->value->int32 : 0;
@@ -2662,6 +2733,20 @@ static void inbox_received(DictionaryIterator *iterator, void *context) {
             }
           }
           s_pending_pin_chat_id[0] = '\0';
+        } else if (preserve_position) {
+          int target = previous_row < count ? previous_row : count - 1;
+          for (int row = 0; row < count; row++) {
+            if (strcmp(s_chats[row].id, previous_id) == 0) { target = row; break; }
+          }
+          int new_top = 0;
+          for (int row = 0; row < target; row++) {
+            MenuIndex index = {.section = 0, .row = row};
+            new_top += chat_row_height(s_chat_menu, &index, NULL);
+          }
+          menu_layer_set_selected_index(s_chat_menu,
+            (MenuIndex) {.section = 0, .row = target}, MenuRowAlignNone, false);
+          scroll_layer_set_content_offset(menu_layer_get_scroll_layer(s_chat_menu),
+            GPoint(previous_offset.x, previous_offset.y + previous_top - new_top), false);
         } else {
           int chat_index = selected ? selected->value->int32 : 0;
           if (chat_index < 0) chat_index = 0;
@@ -3184,13 +3269,33 @@ static void main_load(Window *window) {
 
 // Window disappear/appear callbacks can run together while the outbox is busy.
 // Coalesce them into the CURRENT view, and retry rather than losing the resume.
+static void sync_read_receipt(void *context) {
+  s_read_sync_timer = NULL;
+  if (s_dictation_active || window_stack_get_top_window() != s_message_window || s_message_state != VIEW_READY ||
+      !s_message_follow_newest || !s_active_chat_id[0]) return;
+  int row = s_message_count - 1;
+  while (row >= 0 && s_messages[row].is_approval) row--;
+  if (row < 0 || !s_messages[row].id[0]) return;
+  DictionaryIterator *iterator;
+  if (app_message_outbox_begin(&iterator) != APP_MSG_OK || !iterator) {
+    s_read_sync_timer = app_timer_register(500, sync_read_receipt, NULL); return;
+  }
+  dict_write_cstring(iterator, MESSAGE_KEY_COMMAND, "mark_read");
+  dict_write_cstring(iterator, MESSAGE_KEY_CHAT_ID, s_active_chat_id);
+  dict_write_cstring(iterator, MESSAGE_KEY_MSG_ID, s_messages[row].id);
+  if (app_message_outbox_send() != APP_MSG_OK)
+    s_read_sync_timer = app_timer_register(500, sync_read_receipt, NULL);
+}
+
 static void sync_visible_view(void *context) {
   s_view_sync_timer = NULL;
   Window *top = window_stack_get_top_window();
-  const char *command = top == s_message_window ? "chat_view_open" :
+  const char *command = s_dictation_active ? "views_closed" : top == s_message_window ? "chat_view_open" :
     (top == s_main_window ? "thread_view_open" : "views_closed");
   if (!request_command(command, top == s_message_window ? s_active_chat_id : NULL)) {
     s_view_sync_timer = app_timer_register(500, sync_visible_view, NULL);
+  } else if (!s_dictation_active && top == s_message_window && !s_read_sync_timer) {
+    s_read_sync_timer = app_timer_register(250, sync_read_receipt, NULL);
   }
 }
 
@@ -3204,7 +3309,7 @@ static void view_outbox_failed(DictionaryIterator *iterator, AppMessageResult re
   if (!command || command->type != TUPLE_CSTRING) return;
   const char *value = command->value->cstring;
   if (strcmp(value, "chat_view_open") == 0 || strcmp(value, "thread_view_open") == 0 ||
-      strcmp(value, "views_closed") == 0) schedule_view_sync();
+      strcmp(value, "views_closed") == 0 || strcmp(value, "mark_read") == 0) schedule_view_sync();
 }
 
 static void main_appear(Window *window) {
@@ -3428,7 +3533,9 @@ static void init(void) {
 }
 
 static void deinit(void) {
+  if (s_dictation_send_timer) app_timer_cancel(s_dictation_send_timer);
   if (s_view_sync_timer) app_timer_cancel(s_view_sync_timer);
+  if (s_read_sync_timer) app_timer_cancel(s_read_sync_timer);
   cancel_load_watchdog();
   cancel_reply_ack_timer();
   cancel_reply_return_timer();
@@ -3455,16 +3562,19 @@ int main(void) {
   // Keep the same reply capacity without consuming the 16-bit static image.
   s_reply_text = calloc(REPLY_TEXT_CAPACITY, 1);
   if (!s_reply_text) return 1;
+  s_status_text = calloc(4, sizeof(*s_status_text));
+  if (!s_status_text) { free(s_reply_text); return 1; }
   s_emoji_reply_label = calloc(EMOJI_REPLY_COUNT, sizeof(*s_emoji_reply_label));
-  if (!s_emoji_reply_label) { free(s_reply_text); return 1; }
+  if (!s_emoji_reply_label) { free(s_reply_text); free(s_status_text); return 1; }
   // Message storage is still fixed-capacity; allocate it on the heap so code
   // improvements do not overflow Pebble's 16-bit static-image size field.
   s_messages = calloc(MAX_MESSAGES, sizeof(*s_messages));
-  if (!s_messages) { free(s_reply_text); free(s_emoji_reply_label); return 1; }
+  if (!s_messages) { free(s_reply_text); free(s_status_text); free(s_emoji_reply_label); return 1; }
   init();
   app_event_loop();
   deinit();
   free(s_reply_text);
+  free(s_status_text);
   free(s_emoji_reply_label);
   release_message_texts();
   free(s_messages);

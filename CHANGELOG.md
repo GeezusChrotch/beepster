@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.21.0 — Safer dictation and stable conversation position
+
+- Own status/error strings instead of retaining temporary phone-message buffers.
+- Guard repeated dictation starts, handle failed starts, and defer sending until
+  the dictation callback returns. Keep the original recipient and discard a
+  pending transcript if navigation changes it. Pause view refresh/read requests
+  while dictating and add diagnostics without logging transcript text.
+- Preserve the selected conversation and its screen position when unread counts
+  or background list refreshes change rows, including reordered/removed rows.
+- Correct unread-count change detection. Add bounded read-through requests when
+  the newest messages are displayed; never mark older history or approval cards
+  read simply because they were fetched.
+- Automatic read-through requires a matching updated gateway. Released Connector
+  0.8.7 supports the other fixes but does not contain the new read route.
+- Retain 0.20.0 reactions, full-width photos, short GIF previews and thumbnails.
+
+See [compatibility and validation](docs/RELEASE_NOTES_0.21.0.md).
+
 ## 0.20.0 — Reactions and full-width media
 
 - Show Beeper-supplied reactions beneath messages, grouped by sender with bitmap

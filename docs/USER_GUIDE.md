@@ -1,5 +1,26 @@
 # Beepster user guide
 
+## Read status
+
+Automatic read-through needs the gateway shipped with the 0.21.0 source or a
+Connector release that includes it. Public Connector 0.8.7 does not contain that
+route; its unread badges can still remain until Beeper marks the conversation read.
+Do not assume an unreleased Mac App Store Connector is available for installation.
+
+Unread-badge and background list refreshes preserve your selected conversation
+and its on-screen position instead of jumping back to the top.
+
+When the newest messages finish loading in an open watch conversation, Beepster
+asks Beeper to mark read through the last real message delivered to that view.
+Opening the conversation list, loading older history, background fetching, failed
+loads, and agent approval controls do not themselves mark messages read. Combined
+conversations keep each original chat's message boundary; newer arrivals are not
+included automatically. This may propagate read receipts according to Beeper and
+the messaging service's settings.
+
+Unread badges follow Beeper's returned count rather than assuming zero. If the
+connection or read request fails, the badge may remain until the chat is reopened.
+
 Beepster 0.19.0 uses larger 18-pixel service icons, 24-pixel chat emoji and
 26-pixel emoji replies, plus a wider 6-pixel sender stripe. Update Connector to
 0.8.2 or newer and choose Beepster → Set up service for matching downloaded emoji.

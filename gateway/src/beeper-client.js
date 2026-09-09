@@ -586,6 +586,14 @@ export class BeeperClient {
     return { archived: true };
   }
 
+  async markRead(chatID, messageID) {
+    if (typeof messageID !== 'string' || !messageID.trim()) throw new Error('A read-through message is required');
+    const chat = await this.request(`/v1/chats/${encodeURIComponent(chatID)}/read`, {
+      method: 'POST', body: JSON.stringify({messageID})
+    });
+    return {unreadCount: Number.isInteger(chat?.unreadCount) && chat.unreadCount >= 0 ? chat.unreadCount : null};
+  }
+
   async deleteMessage(chatID, messageID, forEveryone = false) {
     let context = this.chatContexts.get(chatID);
     const appleID = /^(imsg##|imessage)/i.test(chatID);

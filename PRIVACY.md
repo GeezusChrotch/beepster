@@ -3,6 +3,9 @@
 Beepster is designed for personal, self-hosted use.
 
 - The Mac gateway reads recent chats and messages from the local Beeper Desktop API.
+- After the watch confirms the newest conversation messages have loaded in its
+  visible chat view, the gateway may mark that chat read through a specific message.
+  Beeper and the connected network may propagate read receipts under their settings.
 - Beeper credentials remain on the Mac.
 - The release Connector contains an open-source Node.js runtime and the Beepster gateway; neither
   component downloads executable code or requires a developer toolchain after installation.

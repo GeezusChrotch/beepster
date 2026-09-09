@@ -195,6 +195,19 @@ export function createServer({ beeperClient, openClawClient = null, hermesClient
         return;
       }
 
+      const readMatch = url.pathname.match(/^\/v1\/chats\/([^/]+)\/read$/);
+      if (readMatch && request.method === 'POST') {
+        const body = await readJSON(request);
+        if (typeof body.messageID !== 'string' || !body.messageID.trim() || body.messageID.length > 1024) {
+          sendJSON(response, 400, {error:'A read-through message is required'});
+          return;
+        }
+        const result = await beeperClient.markRead(decodeURIComponent(readMatch[1]), body.messageID);
+        cache.clear();
+        sendJSON(response, 200, result);
+        return;
+      }
+
       if (url.pathname === '/v1/emoji/atlas' && request.method === 'POST') {
         const body = await readJSON(request);
         const atlas = renderEmojiAtlas(body.keys, body.size, body.columns);

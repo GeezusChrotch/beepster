@@ -5,6 +5,60 @@ import vm from 'node:vm';
 
 const source = await readFile(new URL('../../src/pkjs/index.js', import.meta.url), 'utf8');
 
+test('released gateway without read route fails quietly without automatic retries',()=>{
+  const {context,requests,timers,appMessages}=replyRuntime();
+  context.activeMessageChatID='a';context.threadViewVisible=false;
+  context.messageHistory=[{id:'m1'}];
+  context.messageRouteByID={m1:{chatID:'a',messageID:'one'}};
+  context.inboxRawChats=[{id:'a',unreadCount:2}];
+  context.markDisplayedRead('a','m1');
+  const scheduled=timers.length,packets=appMessages.length;
+  requests[0].status=404;requests[0].responseText='{"error":"Not found"}';requests[0].onload();
+  assert.equal(requests.length,1);
+  assert.equal(timers.length,scheduled);
+  assert.equal(appMessages.length,packets);
+  assert.equal(context.inboxRawChats[0].unreadCount,2);
+  assert.equal(Object.keys(context.readRequests).length,0);
+  assert.equal(Object.keys(context.readThroughByChat).length,0);
+});
+
+test('unread-only changes resend the current chat page',()=>{
+  const {context,appMessages}=replyRuntime();
+  context.currentInboxChats=[{id:'a',name:'Avery',unreadCount:2}];
+  context.sendCurrentChatPage('initial');context.hasLoadedChats=true;
+  const before=appMessages.length;
+  context.currentInboxChats[0].unreadCount=0;context.sendCurrentChatPage('refresh');
+  assert.ok(appMessages.length>before);
+  assert.equal(appMessages.filter(m=>m[0]==='chat').at(-1)[8],0);
+});
+
+test('a newer watch-confirmed boundary waits for an in-flight receipt without marking unseen arrivals',()=>{
+  const {context,requests}=replyRuntime();
+  context.activeMessageChatID='a';context.threadViewVisible=false;
+  context.messageHistory=[{id:'m1'},{id:'m2'},{id:'unseen'}];
+  context.messageRouteByID={m1:{chatID:'a',messageID:'one'},m2:{chatID:'a',messageID:'two'},unseen:{chatID:'a',messageID:'three'}};
+  context.markDisplayedRead('a','m1');context.markDisplayedRead('a','m2');assert.equal(requests.length,1);
+  requests[0].status=200;requests[0].responseText='{}';requests[0].onload();
+  assert.equal(requests.length,2);assert.deepEqual(JSON.parse(requests[1].body),{messageID:'two'});
+  requests[1].status=200;requests[1].responseText='{}';requests[1].onload();assert.equal(requests.length,2);
+});
+
+test('watch receipt maps merged messages, keeps newer unread counts and excludes approvals',()=>{
+  const {context,requests}=replyRuntime();
+  context.activeMessageChatID='combined';context.threadViewVisible=false;
+  context.messageHistory=[{id:'virtual-a'},{id:'virtual-b'},{id:'agent-ticket'}];
+  context.messageRouteByID={'virtual-a':{chatID:'original-a',messageID:'native-a'},'virtual-b':{chatID:'original-b',messageID:'native-b'},'agent-ticket':{chatID:'original-b',messageID:'approval',approvalID:'ticket'}};
+  context.inboxRawChats=[{id:'original-a',unreadCount:2},{id:'original-b',unreadCount:3}];
+  context.markDisplayedRead('other','virtual-b');assert.equal(requests.length,0);
+  context.threadViewVisible=true;context.markDisplayedRead('combined','virtual-b');assert.equal(requests.length,0);
+  context.threadViewVisible=false;context.markDisplayedRead('combined','virtual-b');
+  assert.equal(requests.length,2);
+  assert.deepEqual(requests.map(r=>JSON.parse(r.body)),[{messageID:'native-a'},{messageID:'native-b'}]);
+  requests[0].status=200;requests[0].responseText=JSON.stringify({unreadCount:1});requests[0].onload();
+  assert.equal(context.inboxRawChats[0].unreadCount,1);
+  context.markDisplayedRead('combined','virtual-b');assert.equal(requests.length,2);
+});
+
 test('media-only messages keep a blank caption instead of a no-text error',()=>{
   const {context,appMessages}=replyRuntime();
   context.queueMessage({id:'gif',text:'',attachment:{id:'asset',kind:'gif'}},0,1);

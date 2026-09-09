@@ -1130,7 +1130,7 @@ function sendCurrentChatPage(mode, selectedIndex) {
   };
   var signature = JSON.stringify({
     page:page.map(function(chat) {
-      return [chat.id || '', chat.name || '', chat.preview || '', chat.network || '', chat.unread || 0, chat.pinned ? 1 : 0];
+      return [chat.id || '', chat.name || '', chat.preview || '', chat.network || '', chat.unreadCount || 0, chat.pinned ? 1 : 0];
     }),
     hasNewer:options.hasNewer,
     hasOlder:options.hasOlder
@@ -1313,8 +1313,45 @@ function finishMessageBatch(mode, selectedIndex) {
   enqueue(ready);
 }
 
+var readThroughByChat = {};
+var readRequests = {};
+var latestReadView = null;
+function markDisplayedRead(chatID, messageID) {
+  if (!chatID || chatID !== activeMessageChatID || threadViewVisible || !messageID) return;
+  var index = messageHistory.findIndex(function(item) { return String(item.id) === messageID; });
+  if (index < 0) return;
+  latestReadView = {chatID:chatID,messageID:messageID};
+  var targets = {};
+  messageHistory.slice(0,index+1).forEach(function(item) {
+    var route = messageRouteByID[String(item.id)];
+    if (route && !route.approvalID && String(item.id).indexOf('agent-') !== 0 && route.chatID !== OPENCLAW_CHAT_ID)
+      targets[route.chatID] = route.messageID;
+  });
+  Object.keys(targets).forEach(function(target) {
+    var through = targets[target];
+    if (!through || readThroughByChat[target] === through || readRequests[target]) return;
+    var inboxGeneration = chatLoadGeneration;
+    readRequests[target] = through;
+    postJSON('/v1/chats/' + encodeURIComponent(target) + '/read', {messageID:through}, function(result) {
+      delete readRequests[target];
+      readThroughByChat[target] = through;
+      // Trust the returned server count, never force zero across an arrival race.
+      if (inboxGeneration === chatLoadGeneration && result && typeof result.unreadCount === 'number' && result.unreadCount >= 0) {
+        inboxRawChats.forEach(function(chat) { if (chat.id === target) chat.unreadCount = result.unreadCount; });
+        currentInboxChats.forEach(function(chat) { if (chat.id === target) chat.unreadCount = result.unreadCount; });
+        rebuildInboxChats();
+        if (threadViewVisible) sendCurrentChatPage('refresh');
+      }
+      if (latestReadView && (latestReadView.chatID !== chatID || latestReadView.messageID !== messageID))
+        markDisplayedRead(latestReadView.chatID, latestReadView.messageID);
+    }, function() { delete readRequests[target]; });
+  });
+}
+
 function loadMessages(chatID) {
   if (DEMO_MODE) { loadDemoMessages(chatID); return; }
+  readThroughByChat = {};
+  latestReadView = null;
   console.log('Beepster loading messages chatIDLength=' + String(chatID || '').length);
   var generation = ++messageLoadGeneration;
   chatLoadGeneration++;
@@ -1728,6 +1765,7 @@ Pebble.addEventListener('appmessage', function(event) {
     String(payload[KEY_STATE] || payload.STATE || '') === 'everyone'
   );
   if (command === 'load_messages') loadMessages(payload[KEY_CHAT_ID] || payload.CHAT_ID || payload.chat_id || '');
+  if (command === 'mark_read') markDisplayedRead(payload[KEY_CHAT_ID] || payload.CHAT_ID || '', payload[KEY_MSG_ID] || payload.MSG_ID || '');
   if (command === 'chat_view_open') {
     threadViewVisible = false;
     stopThreadRefresh();

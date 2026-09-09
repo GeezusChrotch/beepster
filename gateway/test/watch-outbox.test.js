@@ -7,7 +7,7 @@ import {execFileSync} from 'node:child_process';
 test('actual quick reply sender waits before submission, never retries a submitted packet', () => {
   const source=readFileSync(new URL('../../src/c/main.c',import.meta.url),'utf8');
   const start=source.indexOf('static void send_quick_reply_to_phone(int index, bool create_request_id);');
-  const end=source.indexOf('static void dictation_callback',start);
+  const end=source.indexOf('static void dictation_send_ready',start);
   const dir=mkdtempSync(join(tmpdir(),'beepster-outbox-'));
   try {
     writeFileSync(join(dir,'test.c'), `

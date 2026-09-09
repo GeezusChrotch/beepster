@@ -31,7 +31,7 @@ The Connector window can be closed after setup; its login background service con
 
 - [Install Beepster](docs/INSTALL.md) — complete Mac, Tailscale, watch, and pairing walkthrough
 - [Feedback and first-run checks](docs/FEEDBACK.md) — help improve Beepster safely
-- [0.20.0 release notes](docs/RELEASE_NOTES_0.20.0.md) — reactions, full-width media, short GIF loops, and YouTube thumbnails
+- [0.21.0 release notes](docs/RELEASE_NOTES_0.21.0.md) — safer dictation, stable conversation position, and read-status compatibility
 - [Hermes and OpenClaw setup](docs/AGENT_APPROVALS.md) — optional integrations and compatibility
 - [Use Beepster](docs/USER_GUIDE.md) — controls, replies, themes, media, and limitations
 - [Troubleshoot](docs/TROUBLESHOOTING.md) — symptom-based fixes and the private health checker
