@@ -86,7 +86,7 @@ watch owns presentation and interaction state. See [Architecture](docs/ARCHITECT
 
 ## Development
 
-Requirements: macOS, Pebble SDK 4.33.1 or newer, Pebble Tool 5, and Node.js 20 or newer.
+Requirements: macOS, Pebble SDK 4.33.1 or newer, Pebble Tool 5, and Node.js 20 or newer for the standalone gateway. Development and the full test suite require Node.js 24, matching the Connector's bundled runtime; Store mode uses the built-in `node:sqlite` module.
 
 ```sh
 npm --prefix gateway ci
